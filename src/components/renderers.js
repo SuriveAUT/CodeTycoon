@@ -270,18 +270,27 @@ const TAB_SHORT = {
   prestige: 'Prestige', account: 'Config', codex: 'Codex', admin: 'Admin'
 };
 
+const TAB_KEY = {
+  overview: 'O', buildings: 'B', research: 'R', colonies: 'C',
+  expeditions: 'E', projects: 'P', market: 'M', prestige: 'S', account: 'A'
+};
+
 function renderTabsMarkup() {
-  return getTabs().map((tab) => `
+  return getTabs().map((tab) => {
+    const key = TAB_KEY[tab.id];
+    const meta = key ? `${t('ui.nav')} · Taste [${key}]` : t('ui.nav');
+    return `
     <button
       class="${classNames('tab', state.selectedTab === tab.id && 'active')}"
       data-action="tab"
       data-tab="${tab.id}"
-      ${tt(tab.label, tab.blurb, { icon: getIcon(tab.icon), meta: t('ui.nav') })}
+      ${tt(tab.label, tab.blurb, { icon: getIcon(tab.icon), meta })}
     >
       <span class="tab-label-full">${escapeHtml(tab.label)}</span>
       <span class="tab-label-short">${escapeHtml(TAB_SHORT[tab.id] || tab.label)}</span>
     </button>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function renderStickyResourcesMarkup() {

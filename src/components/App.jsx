@@ -702,9 +702,34 @@ export default function App() {
   }
 
   function handleKeydown(e) {
-    if (e.code !== 'Space' || e.repeat || state.selectedTab !== 'overview' || isTypingTarget(e.target)) return;
-    e.preventDefault();
-    runManualClick();
+    if (e.repeat || isTypingTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+
+    if (e.code === 'Space' && state.selectedTab === 'overview') {
+      e.preventDefault();
+      runManualClick();
+      return;
+    }
+
+    const TAB_KEYS = {
+      o: 'overview',
+      b: 'buildings',
+      r: 'research',
+      c: 'colonies',
+      e: 'expeditions',
+      p: 'projects',
+      m: 'market',
+      s: 'prestige',
+      a: 'account',
+    };
+    const tab = TAB_KEYS[e.key?.toLowerCase()];
+    if (tab && VALID_TABS.has(tab)) {
+      e.preventDefault();
+      setState('selectedTab', tab);
+      renderAll(true);
+      saveState();
+      if (tab === 'account') refreshLeaderboard();
+      if (tab === 'admin') refreshAdminData();
+    }
   }
 
   function refreshAdminData() {
