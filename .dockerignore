@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+.env
+backend/node_modules
+backend/database.sqlite
+dev-server.out.log
+dev-server.err.log
+*.md
