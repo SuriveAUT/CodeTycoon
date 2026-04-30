@@ -1,6 +1,6 @@
 import { state, buildingCount, upgradeLevel, hasTech, colonyCount, getBuilding, totalBuildings } from './gameState.js';
 import { BUILDINGS, BUILD_ORDER } from '../data/buildings.js';
-import { RESOURCES, WORLDS, FOCI, PROTOCOLS } from '../data/misc.js';
+import { RESOURCES, WORLDS, FOCI, PROTOCOLS, PRESTIGE_MILESTONES } from '../data/misc.js';
 import { BONUS_EFFECTS, PROJECT_EFFECTS, ARTIFACT_EFFECTS, DOCTRINE_EFFECTS } from '../data/effects.js';
 import { CHIPS } from '../data/chips.js';
 import { clamp } from '../lib/format.js';
@@ -77,6 +77,11 @@ export function computeBonuses() {
   const clickMastery = upgradeLevel('click_mastery'); if (clickMastery) b.clickPowerMult *= Math.pow(1.17, clickMastery);
   const sprintVelocity = upgradeLevel('sprint_velocity'); if (sprintVelocity) b.expeditionPower += sprintVelocity * 0.10;
   const prestigeBoost = upgradeLevel('prestige_boost'); if (prestigeBoost) { b.prestigeGainMult *= Math.pow(1.06, prestigeBoost); b.offlineCapHours += prestigeBoost * 0.5; }
+
+  (state.prestigeMilestones || []).forEach(id => {
+    const m = PRESTIGE_MILESTONES.find(x => x.id === id);
+    if (m?.effects) applyEffects(b, m.effects);
+  });
 
   if (DOCTRINE_EFFECTS[state.doctrine]) DOCTRINE_EFFECTS[state.doctrine](b);
   state.techs.forEach(id => { if (BONUS_EFFECTS[id]) BONUS_EFFECTS[id](b); });

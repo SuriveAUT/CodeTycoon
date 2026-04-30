@@ -146,6 +146,93 @@ export const CHRONICLE_UPGRADES = [
   { id: 'quantum_click', name: '10x Typist', desc: 'Tastenanschlag-Kraft x2 pro Stufe (endlos).', base: 100 }
 ];
 
-
-
-
+// Permanent milestones unlocked once and kept through all prestiges.
+// effects use the same keys as applyEffects() in bonuses.js:
+//   multKeys → multiply the bonus field (e.g. allMult: 1.05 means ×1.05)
+//   addKeys  → add to the bonus field (e.g. expeditionRewardMult: 0.10 means +10%)
+export const PRESTIGE_MILESTONES = [
+  {
+    id: 'pm_lifetime_1h',
+    name: 'Marathon-Session',
+    desc: '1 Stunde Gesamtspielzeit erreicht.',
+    condition: (s) => s.stats.lifetime >= 3600,
+    effects: { allMult: 1.03 }
+  },
+  {
+    id: 'pm_clicks_1k',
+    name: 'Keyboard-Warrior',
+    desc: '1.000 manuelle Klicks getätigt.',
+    condition: (s) => (s.stats.manualClicks || 0) >= 1000,
+    effects: { clickPowerMult: 1.15 }
+  },
+  {
+    id: 'pm_clicks_50k',
+    name: 'RSI-Held',
+    desc: '50.000 manuelle Klicks getätigt.',
+    condition: (s) => (s.stats.manualClicks || 0) >= 50000,
+    effects: { clickPowerMult: 1.30 }
+  },
+  {
+    id: 'pm_scrap_100m',
+    name: '100M Lines of Code',
+    desc: '100 Millionen Scrap in der Lebenszeit generiert.',
+    condition: (s) => (s.stats.total?.scrap || 0) >= 1e8,
+    effects: { scrapMult: 1.10 }
+  },
+  {
+    id: 'pm_scrap_1b',
+    name: 'Senior-Dev',
+    desc: '1 Milliarde Scrap in der Lebenszeit generiert.',
+    condition: (s) => (s.stats.total?.scrap || 0) >= 1e9,
+    effects: { scrapMult: 1.20, allMult: 1.05 }
+  },
+  {
+    id: 'pm_research_50m',
+    name: 'Deep Tech',
+    desc: '50 Millionen Forschung in der Lebenszeit erarbeitet.',
+    condition: (s) => (s.stats.total?.research || 0) >= 5e7,
+    effects: { researchMult: 1.10, researchCostMult: 0.95 }
+  },
+  {
+    id: 'pm_expeditions_25',
+    name: 'On-Site-Veteran',
+    desc: '25 Expeditionen abgeschlossen.',
+    condition: (s) => s.stats.expeditionsDone >= 25,
+    effects: { expeditionRewardMult: 0.10 }
+  },
+  {
+    id: 'pm_expeditions_100',
+    name: 'Globetrotter',
+    desc: '100 Expeditionen abgeschlossen.',
+    condition: (s) => s.stats.expeditionsDone >= 100,
+    effects: { expeditionRewardMult: 0.20, expeditionSpeed: 1.10 }
+  },
+  {
+    id: 'pm_first_prestige',
+    name: 'Erster Neustart',
+    desc: 'Den ersten Hard Refactor durchgeführt.',
+    condition: (s) => s.stats.prestigeCount >= 1,
+    effects: { allMult: 1.05 }
+  },
+  {
+    id: 'pm_prestige_3',
+    name: 'Serienentwickler',
+    desc: 'Dreimal neu gestartet.',
+    condition: (s) => s.stats.prestigeCount >= 3,
+    effects: { allMult: 1.10 }
+  },
+  {
+    id: 'pm_prestige_5',
+    name: 'Veteranen-Coder',
+    desc: 'Fünfmal neu gestartet.',
+    condition: (s) => s.stats.prestigeCount >= 5,
+    effects: { allMult: 1.15, researchMult: 1.10 }
+  },
+  {
+    id: 'pm_prestige_10',
+    name: 'Hardcore-Optimierer',
+    desc: 'Zehnmal neu gestartet.',
+    condition: (s) => s.stats.prestigeCount >= 10,
+    effects: { allMult: 1.20, clickPowerMult: 1.25 }
+  },
+];

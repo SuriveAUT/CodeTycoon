@@ -3,7 +3,7 @@ import { computeBonuses, estimateRatesSnapshot } from '../store/bonuses.js';
 import { RESOURCES } from '../data/misc.js';
 import { rand } from '../lib/format.js';
 import { autoBuild, autoResearch, autoExpeditions, autoProjects } from './automation.js';
-import { completeMission, spawnEvent, checkAchievements } from './events.js';
+import { completeMission, spawnEvent, checkAchievements, checkPrestigeMilestones } from './events.js';
 import { tickCyberEvent } from './cyberEvents.js';
 import { tickStockDividends } from './stocks.js';
 import { tickTheme } from './themeEngine.js';
@@ -73,6 +73,7 @@ export function processTick(dt, opts = {}) {
   });
 
   checkAchievements(silent);
+  checkPrestigeMilestones(silent);
   setState('cache', 'rates', rates);
 
   // Dividenden — auch offline

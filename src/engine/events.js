@@ -1,6 +1,6 @@
 import { state, setState, add, log, hasProject, hasArtifact, totalBuildings, techCount, projectCount, artifactCount, colonyCount, buildingCount } from '../store/gameState.js';
 import { resourceMult, computeBonuses, estimateRatesSnapshot } from '../store/bonuses.js';
-import { MISSIONS, ACHIEVEMENTS } from '../data/misc.js';
+import { MISSIONS, ACHIEVEMENTS, PRESTIGE_MILESTONES } from '../data/misc.js';
 import { ARTIFACTS } from '../data/artifacts.js';
 import { CHIPS } from '../data/chips.js';
 import { clamp, rand } from '../lib/format.js';
@@ -138,6 +138,24 @@ export function checkAchievements(silent) {
 
   if (toAdd.length) {
     setState('achievements', [...state.achievements, ...toAdd]);
+  }
+}
+
+export function checkPrestigeMilestones(silent) {
+  const owned = new Set(state.prestigeMilestones || []);
+  const toAdd = [];
+  PRESTIGE_MILESTONES.forEach(m => {
+    if (!owned.has(m.id) && m.condition(state)) {
+      owned.add(m.id);
+      toAdd.push(m.id);
+      if (!silent) {
+        log(`Meilenstein freigeschaltet: ${m.name}.`);
+        emitToast(`Meilenstein: ${m.name}`, 'info');
+      }
+    }
+  });
+  if (toAdd.length) {
+    setState('prestigeMilestones', [...(state.prestigeMilestones || []), ...toAdd]);
   }
 }
 

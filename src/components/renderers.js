@@ -43,7 +43,8 @@ import {
   OPERATIONS_MODES,
   PROTOCOLS,
   ACHIEVEMENTS,
-  CHRONICLE_UPGRADES
+  CHRONICLE_UPGRADES,
+  PRESTIGE_MILESTONES
 } from '../data/misc.js';
 import { AstraforgeAPI } from '../lib/api-client.js';
 import { fmt, fmtSec } from '../lib/format.js';
@@ -1319,6 +1320,41 @@ function renderPrestige() {
             <li>Alle Ressourcen (außer Start-Kapital)</li>
           </ul>
         </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">DAUERHAFT</p>
+          <h3>${getIcon('star')} Prestige-Meilensteine</h3>
+        </div>
+        <span class="badge">${(state.prestigeMilestones || []).length} / ${PRESTIGE_MILESTONES.length}</span>
+      </div>
+      <div class="card-grid" style="margin-top:0.75rem">
+        ${PRESTIGE_MILESTONES.map(m => {
+          const earned = (state.prestigeMilestones || []).includes(m.id);
+          const effectLines = Object.entries(m.effects).map(([k, v]) => {
+            const isAdd = ['relicChance','eventResist','expeditionRewardMult','perColonyMult','clickRateFraction','expeditionPower','expeditionSlots','colonyCap','offlineCapHours'].includes(k);
+            const display = isAdd ? `+${Math.round(v * 100)}%` : `×${v}`;
+            const label = k.replace(/Mult$/,'').replace(/([A-Z])/g, ' $1').trim();
+            return `<span>${escapeHtml(label)}: ${display}</span>`;
+          }).join('<br>');
+          return `
+            <article class="item${earned ? '' : ' locked'}" style="opacity:${earned ? 1 : 0.45}" ${tt(m.name, m.desc, {
+              icon: getIcon(earned ? 'star' : 'lock'),
+              meta: earned ? 'FREIGESCHALTET' : 'GESPERRT',
+              sectionTitle: 'Bonus',
+              sectionBody: `<p>${effectLines}</p>`
+            })}>
+              <div class="item-head">
+                <strong>${escapeHtml(m.name)}</strong>
+                <span class="badge" style="${earned ? 'color:var(--good)' : ''}">${earned ? '✓' : '–'}</span>
+              </div>
+              <p class="muted">${escapeHtml(m.desc)}</p>
+            </article>
+          `;
+        }).join('')}
       </div>
     </section>
 

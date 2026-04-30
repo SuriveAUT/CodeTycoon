@@ -58,6 +58,7 @@ export function defaultState() {
     colonies: [],
     expeditions: [],
     achievements: [],
+    prestigeMilestones: [],
     chronicle: 0,
     chronicleUpgrades: {},
     doctrine: null,
@@ -185,6 +186,7 @@ export function normalizeState(candidate) {
   merged.colonies = Array.isArray(merged.colonies) ? merged.colonies : [];
   merged.expeditions = Array.isArray(merged.expeditions) ? merged.expeditions : [];
   merged.achievements = Array.isArray(merged.achievements) ? merged.achievements : [];
+  merged.prestigeMilestones = Array.isArray(merged.prestigeMilestones) ? merged.prestigeMilestones : [];
   merged.equippedChips = Array.isArray(merged.equippedChips) ? merged.equippedChips : [];
   merged.ownedChips = Array.isArray(merged.ownedChips) ? merged.ownedChips : [];
   merged.mainframeSlots = Math.max(3, Math.floor(asFiniteNumber(merged.mainframeSlots, 3)));

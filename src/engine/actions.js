@@ -105,6 +105,7 @@ export function doPrestigeReset() {
   if (gain <= 0) return;
   const keepArtifacts = [...state.artifacts];
   const keepAchievements = [...state.achievements];
+  const keepMilestones = [...(state.prestigeMilestones || [])];
   const keepUpgrades = { ...state.chronicleUpgrades };
   const keepChronicle = state.chronicle + gain;
   const keepPrestige = state.stats.prestigeCount + 1;
@@ -122,6 +123,7 @@ export function doPrestigeReset() {
   }
   setState('artifacts', keepArtifacts);
   setState('achievements', keepAchievements);
+  setState('prestigeMilestones', keepMilestones);
   setState('chronicleUpgrades', keepUpgrades);
   setState('chronicle', keepChronicle);
   setState('stats', 'prestigeCount', keepPrestige);
