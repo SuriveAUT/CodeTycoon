@@ -1485,6 +1485,19 @@ function renderAccount() {
         ${renderLeaderboard()}
       </div>
     </section>
+    <section class="card" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+      <div>
+        <p class="eyebrow">SUPPORT</p>
+        <p class="muted" style="font-size:0.82rem">Bug gefunden oder Feedback?</p>
+      </div>
+      <a
+        href="https://github.com/SuriveAUT/CodeTycoon/issues/new/choose"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="btn active"
+        style="text-decoration:none;font-size:0.82rem;white-space:nowrap"
+      >${getIcon('help')} Bug melden</a>
+    </section>
   `;
 }
 
@@ -1535,6 +1548,41 @@ function renderCodex() {
         `).join('')}
       </div>
     </section>
+    <section class="card">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">SUPPORT</p>
+          <h3>${getIcon('help')} Bug melden / Feedback geben</h3>
+          <p class="muted">Etwas stimmt nicht oder du hast einen Verbesserungsvorschlag?</p>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:0.75rem;margin-top:0.5rem">
+        <div class="dense-row">
+          <span>GitHub Issues</span>
+          <a
+            href="https://github.com/SuriveAUT/CodeTycoon/issues/new/choose"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn active"
+            style="text-decoration:none;font-size:0.82rem"
+          >${getIcon('check')} Issue öffnen</a>
+        </div>
+        <div class="dense-row">
+          <span>Alle offenen Issues</span>
+          <a
+            href="https://github.com/SuriveAUT/CodeTycoon/issues"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn"
+            style="text-decoration:none;font-size:0.82rem"
+          >${getIcon('help')} Issues ansehen</a>
+        </div>
+        <p class="muted" style="font-size:0.78rem;margin-top:0.25rem">
+          Beim Melden bitte Spielstand-Infos angeben: Prestige-Anzahl, ungefähre Ressourcen, welcher Tab/Aktion das Problem ausgelöst hat.
+        </p>
+      </div>
+    </section>
+
     <section class="card">
       <div class="section-head">
         <div>
