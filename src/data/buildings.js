@@ -52,7 +52,7 @@ export const BUILDINGS = [
 
   // ───────────────────────── Sales & Ads (Revenue) ─────────────────────────
   { id: 'google_ads', name: 'Google Ads', category: 'Sales & Ads', type: 'producer', unlock: 'start',
-    cost: { scrap: 25 }, growth: 1.15, rate: 0.12, outputs: { energy: 1 },
+    cost: { scrap: 25 }, growth: 1.15, rate: 0.15, outputs: { energy: 1 },
     desc: 'Bitte klick auf die Banner.' },
   { id: 'freemium_model', name: 'Freemium Modell', category: 'Sales & Ads', type: 'producer', unlock: 'tech:javascript_core',
     cost: { scrap: 220 }, growth: 1.15, rate: 0.7, outputs: { energy: 1 },
@@ -107,7 +107,7 @@ export const BUILDINGS = [
 
   // ───────────────────────── Marketing & R&D (Ideas + Users) ─────────────────────────
   { id: 'seo_expert', name: 'SEO Experte', category: 'Marketing & R&D', type: 'converter', unlock: 'start',
-    cost: { scrap: 60, energy: 15 }, growth: 1.15, rate: 0.25, inputs: { energy: 0.5 }, outputs: { research: 1, data: 0.3 },
+    cost: { scrap: 45, energy: 8 }, growth: 1.15, rate: 0.25, inputs: { energy: 0.5 }, outputs: { research: 1, data: 0.3 },
     desc: 'Kauft Keywords und generiert erste Nutzer und Ideen.' },
   { id: 'growth_hacker', name: 'Growth Hacker', category: 'Marketing & R&D', type: 'converter', unlock: 'tech:react_framework',
     cost: { scrap: 5000, energy: 1800, components: 25 }, growth: 1.15, rate: 3, inputs: { components: 0.4, energy: 0.6 }, outputs: { data: 1 },

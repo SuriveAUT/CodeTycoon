@@ -8,6 +8,7 @@ import {
   handleManualClick, equipChip, unequipChip, buyStockAction, sellStockAction
 } from '../engine/actions.js';
 import { clickAnomaly } from '../engine/events.js';
+import { autoExpeditions } from '../engine/automation.js';
 import { clickCyberEvent } from '../engine/cyberEvents.js';
 import { renderTabContent, renderNav, renderTopbar, renderSidebarFoot, renderCyberEventOverlay, setAdminUsers, setAdminSelectedUser, collectAdminSaveEdits, VALID_TABS } from './renderers.js';
 import { AstraforgeAPI } from '../lib/api-client.js';
@@ -159,6 +160,7 @@ export default function App() {
   }
 
   function renderChrome() {
+    document.title = `${fmt(state.resources.scrap || 0)} Code · CodeTycoon`;
     if (topbarRef) topbarRef.innerHTML = renderTopbar();
     if (navRef) navRef.innerHTML = renderNav(false);
     if (bottomNavRef) {
@@ -340,6 +342,7 @@ export default function App() {
       case 'upgrade-all-colonies': upgradeAllColonies(); done(); return;
       case 'set-focus': setColonyFocus(id, btn.dataset.focus); done(); return;
       case 'send-mission': if (launchMission(id)) showToast('Auftrag angenommen.', 'good'); done(); return;
+      case 'fill-missions': { autoExpeditions(computeBonuses()); showToast('Aufträge gestartet.', 'good'); done(); return; }
       case 'doctrine': setDoctrine(id); done(); return;
       case 'equip-chip': equipChip(id); done(); return;
       case 'unequip-chip': unequipChip(id); done(); return;

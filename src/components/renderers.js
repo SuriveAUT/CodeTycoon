@@ -145,6 +145,29 @@ function visibleResources() {
   return RESOURCES.filter(res => res === 'scrap' || res === 'energy' || (state.stats.max[res] || 0) > 0 || (state.resources[res] || 0) > 0);
 }
 
+// ── "Beste Investition": Output-Wert pro Kosten (nur Producer/Konverter) ──
+const RES_VALUE = { scrap: 1, energy: 3, alloy: 6, components: 20, data: 6, research: 8, influence: 25, relics: 2000 };
+function bestInvestmentId(b) {
+  let best = null, bestScore = 0;
+  for (const def of BUILDINGS) {
+    if (def.type === 'modifier' || !isBuildingUnlocked(def)) continue;
+    const cost = calcNextBuildingCost(def);
+    const costValue = Object.entries(cost).reduce((a, [r, v]) => a + v * (RES_VALUE[r] || 1), 0);
+    if (costValue <= 0) continue;
+    const owned = buildingCount(def.id);
+    const out = buildingOutputPerSecond(def, state, b);
+    const inp = buildingInputPerSecond(def, state, b);
+    let value = Object.entries(out).reduce((a, [r, v]) => a + v * (RES_VALUE[r] || 1), 0)
+      - Object.entries(inp).reduce((a, [r, v]) => a + v * (RES_VALUE[r] || 1), 0) * 0.5;
+    const stepUp = milestoneMult(owned + 1) / milestoneMult(Math.max(owned, 1));
+    value *= stepUp;
+    if (value <= 0) continue;
+    const score = value / costValue;
+    if (score > bestScore) { bestScore = score; best = def.id; }
+  }
+  return best;
+}
+
 // ── Navigation ──
 function navBadges() {
   const b = bonuses();
@@ -374,7 +397,7 @@ function renderOverview() {
 }
 
 // ═══════════════════════════ TEAM ═══════════════════════════
-function buildingRow(def, b) {
+function buildingRow(def, b, bestId) {
   const owned = buildingCount(def.id);
   const unlocked = isBuildingUnlocked(def);
   const qty = state.buyAmount;
@@ -423,7 +446,7 @@ function buildingRow(def, b) {
   })}>
     <div class="b-icon">${getIcon(icon, `res-${def.outputs && Object.keys(def.outputs)[0] || 'components'}`)}</div>
     <div>
-      <div class="b-name">${escapeHtml(def.name)}<span class="b-count">×${fmt(owned)}</span>${isNew ? '<span class="badge accent">Neu</span>' : ''}${ms > 1 ? `<span class="badge accent">×${ms}</span>` : ''}${def.type === 'converter' ? '<span class="badge">Konverter</span>' : ''}</div>
+      <div class="b-name">${escapeHtml(def.name)}<span class="b-count">×${fmt(owned)}</span>${isNew ? '<span class="badge accent">Neu</span>' : ''}${bestId === def.id ? `<span class="badge good" ${tt('Beste Investition', 'Bestes Verhältnis von Output zu Kosten unter allen freigeschalteten Gebäuden (nächster Meilenstein eingerechnet).')}>💡 Tipp</span>` : ''}${ms > 1 ? `<span class="badge accent">×${ms}</span>` : ''}${def.type === 'converter' ? '<span class="badge">Konverter</span>' : ''}</div>
       <div class="b-desc">${escapeHtml(def.desc)}</div>
     </div>
     <div class="b-flow">${flow}</div>
@@ -444,6 +467,7 @@ function renderBuildings() {
   const fresh = newBuildings();
   // Nach ~4s Anzeige als gesehen markieren
   if (fresh.length) setTimeout(() => fresh.forEach(d => seenBuildings.add(d.id)), 4000);
+  const bestId = bestInvestmentId(b);
   const seg = [1, 10, 100, 'max'].map(v => `<button class="btn ${qty === v ? 'active' : ''}" data-action="set-buy-amount" data-value="${v}">${v === 'max' ? 'Max' : `×${v}`}</button>`).join('');
   const sections = CATEGORIES.map(cat => {
     const defs = BUILDINGS.filter(d => d.category === cat.id);
@@ -459,7 +483,7 @@ function renderBuildings() {
     const owned = defs.reduce((a, d) => a + buildingCount(d.id), 0);
     return `<section class="panel"><details class="cat" data-cat="${escapeHtml(cat.id)}" open>
       <summary><div class="cat-head"><div><h3>${getIcon(cat.icon)} ${escapeHtml(cat.id)}</h3><div class="sub">${escapeHtml(cat.desc)} ${owned ? `· ${fmt(owned)} eingestellt` : ''}</div></div><span class="row"><span class="muted small">${unlocked.length}/${defs.length} freigeschaltet</span>${getIcon('chevron', 'chev')}</span></div></summary>
-      <div class="rows" style="margin-top:8px">${[...unlocked, ...upcoming].map(d => buildingRow(d, b)).join('')}${hiddenCount > 0 ? `<div class="muted small" style="padding:4px 12px">+${hiddenCount} weitere durch Forschung.</div>` : ''}</div>
+      <div class="rows" style="margin-top:8px">${[...unlocked, ...upcoming].map(d => buildingRow(d, b, bestId)).join('')}${hiddenCount > 0 ? `<div class="muted small" style="padding:4px 12px">+${hiddenCount} weitere durch Forschung.</div>` : ''}</div>
     </details></section>`;
   }).join('');
 
@@ -605,7 +629,7 @@ function renderMissions(b) {
   return `
     <section class="panel">
       <div class="panel-head"><div><div class="eyebrow">Freelance</div><h3>${getIcon('briefcase')} Aufträge</h3><div class="sub">Laufen im Hintergrund. Belohnung skaliert mit deiner Produktion.</div></div>
-        <div class="row"><span class="badge" ${tt('Slots', 'Gleichzeitig laufende Aufträge. Mehr durch Freelance Portal, Funde, Releases.')}>Slots ${b.availableExpeditionSlots}/${b.expeditionSlots}</span><span class="badge" ${tt('Power', 'Team-Seniorität. Jeder Auftrag bindet Power, bis er fertig ist.')}>Power ${fmt(b.availableExpeditionPower)}/${fmt(b.totalExpeditionPower)}</span><span class="badge" ${tt('Agentur-Level', 'Steigt mit abgeschlossenen Aufträgen. Aufträge werden schneller und lohnender.')}>Lvl ${state.stats.fleetLevel || 0}</span></div>
+        <div class="row">${b.availableExpeditionSlots > 0 && MISSIONS.some(m => b.availableExpeditionPower >= missionPowerReq(m)) ? `<button class="btn sm primary" data-action="fill-missions" ${tt('Beste Aufträge starten', 'Füllt alle freien Slots mit den stärksten Aufträgen, die deine Power erlaubt.')}>Beste Aufträge starten</button>` : ''}<span class="badge" ${tt('Slots', 'Gleichzeitig laufende Aufträge. Mehr durch Freelance Portal, Funde, Releases.')}>Slots ${b.availableExpeditionSlots}/${b.expeditionSlots}</span><span class="badge" ${tt('Power', 'Team-Seniorität. Jeder Auftrag bindet Power, bis er fertig ist.')}>Power ${fmt(b.availableExpeditionPower)}/${fmt(b.totalExpeditionPower)}</span><span class="badge" ${tt('Agentur-Level', 'Steigt mit abgeschlossenen Aufträgen. Aufträge werden schneller und lohnender.')}>Lvl ${state.stats.fleetLevel || 0}</span></div>
       </div>
       <div class="stack" style="margin-bottom:12px">${activeHtml}</div>
       <div class="rows">${rows}</div>
