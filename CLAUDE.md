@@ -53,7 +53,7 @@ No test or lint scripts are configured. The engine runs headless in Node (see "B
 - Converter inputs are scaled by `converterInputMult × allMult`; outputs by `resourceMult(out)`. This keeps `allMult` from compounding along converter chains.
 - Building milestones: output ×2 at 10/25/50/100/200/300/400/500 owned (`MILESTONE_STEPS`).
 - Cost growth 1.15 per purchase (modifiers 1.6), soft cap ×1.03 per level above 100. Modifier effects cap at 20 units (`MODIFIER_CAP`), colonies at 8 (`MAX_COLONIES`), team synergy at +200%.
-- Prestige XP = `5 · ∛(runScrap / 1e7) · structBonus · prestigeGainMult` (`prestigeGainRaw` in actions.js).
+- Prestige XP = `6 · ∛(runScrap / 1e7) · structBonus · prestigeGainMult` (`prestigeGainRaw` in actions.js).
 - Rates cache: `state.cache.rates[res]` = net/s, plus `__produced`, `__consumed`, `__utilization`, `__starved`.
 
 ### Balancing

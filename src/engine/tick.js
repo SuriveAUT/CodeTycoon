@@ -6,6 +6,7 @@ import { autoBuild, autoResearch, autoExpeditions, autoProjects } from './automa
 import { completeMission, spawnEvent, checkAchievements, checkPrestigeMilestones } from './events.js';
 import { checkQuests } from './quests.js';
 import { tickCyberEvent } from './cyberEvents.js';
+import { tickDecisions } from './decisions.js';
 import { tickStockDividends } from './stocks.js';
 import { tickTheme } from './themeEngine.js';
 
@@ -94,6 +95,7 @@ export function processTick(dt, opts = {}) {
 
   if (!opts.offline) {
     tickCyberEvent(now);
+    tickDecisions(now);
     if (!silent && typeof document !== 'undefined') tickTheme(performance.now());
   }
 }

@@ -1,7 +1,10 @@
+import { getSetting } from './settings.js';
+
 export function fmt(n) {
   if (n === undefined || n === null || isNaN(n)) return '0';
   if (Math.abs(n) < 1e-9) return '0';
   if (n < 0) return '−' + fmt(-n);
+  if (n >= 1e6 && getSetting('sciNotation')) return n.toExponential(2).replace('e+', 'e');
   if (n < 1000) {
     // Show decimals for small values
     if (n < 10 && n !== Math.floor(n)) return n.toFixed(2);

@@ -263,5 +263,5 @@ export function clickValue(b, rates) {
 export function chronicleCostFor(id, lvl) {
   const def = CHRONICLE_UPGRADES.find(x => x.id === id);
   if (!def) return Infinity;
-  return Math.floor(def.base * Math.pow(1.38, lvl));
+  return Math.floor(def.base * Math.pow(1.32, lvl));
 }

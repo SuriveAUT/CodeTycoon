@@ -16,6 +16,8 @@ import { fmt, fmtSec, rand } from '../lib/format.js';
 import { escapeHtml } from '../lib/sanitize.js';
 import { onToast } from '../lib/toast.js';
 import { fetchServerStockPrices } from '../engine/stocks.js';
+import { resolveDecision } from '../engine/decisions.js';
+import { getSetting, toggleSetting } from '../lib/settings.js';
 
 const TAB_KEYS = { o: 'overview', b: 'buildings', r: 'research', p: 'projects', e: 'expansion', m: 'market', s: 'prestige', c: 'codex', a: 'account' };
 const BUY_KEYS = { 1: 1, 2: 10, 3: 100, 4: 'max' };
@@ -82,6 +84,7 @@ export default function App() {
 
   function showToast(message, type = 'good', long = false) {
     if (!toastContainerRef) return;
+    if (!getSetting('toasts') && type !== 'bad') return;
     while (toastContainerRef.children.length >= 4) toastContainerRef.firstChild.remove();
     const el = document.createElement('div');
     el.className = `toast toast--${type}${long ? ' toast--long' : ''}`;
@@ -147,7 +150,7 @@ export default function App() {
     renderChrome();
     if (cyberEventRef) {
       cyberEventRef.innerHTML = renderCyberEventOverlay();
-      cyberEventRef.classList.toggle('hidden', !state.cyberEvent);
+      cyberEventRef.classList.toggle('hidden', !state.cyberEvent && !state.decision);
     }
     refreshTooltipUnderCursor();
     renderDirty = false;
@@ -227,6 +230,7 @@ export default function App() {
     const btn = sourceEl || document.querySelector('.click-btn') || document.querySelector('[data-action="manual-click"]');
     if (!btn) return;
     if (fromKeyboard) { btn.classList.add('pressed'); setTimeout(() => btn.classList.remove('pressed'), 90); }
+    if (!getSetting('particles')) return;
     const rect = btn.getBoundingClientRect();
     const x = rect.left + rect.width / 2 + (Math.random() - 0.5) * rect.width * 0.6;
     const y = rect.top + rect.height * 0.35 + (Math.random() - 0.5) * 20;
@@ -264,6 +268,8 @@ export default function App() {
     switch (action) {
       case 'click-bug': handleClickBug(); return;
       case 'cyber-event-click': clickCyberEvent(); renderAll(); return;
+      case 'decide': resolveDecision(Number(btn.dataset.index || 0)); done(); return;
+      case 'toggle-setting': toggleSetting(id); renderAll(true); return;
       case 'manual-click': runManualClick(btn); return;
       case 'modal-confirm': closeModal(true); return;
       case 'modal-cancel': closeModal(false); return;

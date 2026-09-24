@@ -56,7 +56,7 @@ Einmalige Megaprojekte mit permanentem Effekt im Run (ToDo App bis Internet 3.0)
 Klick-Button, aktuelle Aufgabe, KPIs, aktive Effekte, Sprint-Modus (4 Modi), Protokolle (4 temporäre Boosts mit Cooldown), Automatisierung, Konverter-Drossel, Ressourcenfluss-Tabelle, Log.
 
 ### Prestige (Hard Refactor)
-XP = 5 · ∛(Code im Run / 10 Mio.) · Struktur-Bonus. Erhalten bleiben Funde, Chips, Errungenschaften, Chronicle-Upgrades (11), Meilensteine (12), Aufgaben-Fortschritt, Aktien-Depot. Mainframe-Chips (10) mit Tradeoffs.
+XP = 6 · ∛(Code im Run / 10 Mio.) · Struktur-Bonus. Erhalten bleiben Funde, Chips, Errungenschaften, Chronicle-Upgrades (11), Meilensteine (12), Aufgaben-Fortschritt, Aktien-Depot. Mainframe-Chips (10) mit Tradeoffs.
 
 ### Ereignisse
 Zufallsereignisse, interaktive Cyber-Events (Ransomware, DDoS, Investor Call …) und der herumfliegende Bug 🐛 mit Sofort-Bonus.

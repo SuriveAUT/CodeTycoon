@@ -11,6 +11,8 @@ import {
 } from '../engine/actions.js';
 import { currentQuest, questProgress } from '../engine/quests.js';
 import { missionSuccessChance, getDynamicMissionRewards } from '../engine/events.js';
+import { currentDecisionDef } from '../engine/decisions.js';
+import { getSetting } from '../lib/settings.js';
 import { BUILDINGS, CATEGORIES, milestoneMult, nextMilestone } from '../data/buildings.js';
 import { TECHS, TECH_TIERS } from '../data/techs.js';
 import { PROJECTS } from '../data/projects.js';
@@ -749,7 +751,7 @@ function renderPrestige() {
       <section class="panel accent">
         <div class="eyebrow">Hard Refactor</div>
         <div class="row-between" style="align-items:flex-end">
-          <div><div class="xp-big">+${fmt(gain)} <small>XP bei Refactor</small></div><div class="muted small" style="margin-top:6px">Run: ${fmt(runScrap())} Code · XP = 5 · ∛(Code / 10 Mio.) · Struktur-Bonus ×${fmt(1 + techCount() * 0.02 + projectCount() * 0.05 + colonyCount() * 0.03)} · ${fmt(bonuses().prestigeGainMult)}× Multiplikator</div></div>
+          <div><div class="xp-big">+${fmt(gain)} <small>XP bei Refactor</small></div><div class="muted small" style="margin-top:6px">Run: ${fmt(runScrap())} Code · XP = 6 · ∛(Code / 10 Mio.) · Struktur-Bonus ×${fmt(1 + techCount() * 0.02 + projectCount() * 0.05 + colonyCount() * 0.03)} · ${fmt(bonuses().prestigeGainMult)}× Multiplikator</div></div>
           <div class="kpi"><div class="kpi-label">XP-Guthaben</div><div class="kpi-value">${fmt(state.chronicle)}</div><div class="kpi-sub">${state.stats.prestigeCount} Refactors</div></div>
         </div>
         <div style="margin:12px 0 6px">${progress(frac, 1)}<div class="muted small" style="margin-top:4px">Nächster XP-Punkt in ${fmt(nextIn)} Code</div></div>
@@ -798,7 +800,7 @@ function renderCodex() {
     ['Ideas & Users', 'SEO-Experten machen aus Revenue Ideas und Users. Brainstorming macht aus Users noch mehr Ideas. Ideas kaufen Techs.'],
     ['Bugs & Module', 'QA Tester verwandeln Code in Bugs, NPM Install Bugs in Module. Beides braucht man für Releases, Growth Hacker und Standorte.'],
     ['Hype & Legacy', 'Tech Blogger machen aus Ideas Hype (für Standorte, große Releases). Code-Archäologen und Aufträge liefern Legacy Code.'],
-    ['Prestige', 'Ein Hard Refactor gibt XP = 5·∛(Run-Code/10 Mio.). XP kauft permanente Chronicle-Upgrades. Ab ~10 XP lohnt es sich.'],
+    ['Prestige', 'Ein Hard Refactor gibt XP = 6·∛(Run-Code/10 Mio.). XP kauft permanente Chronicle-Upgrades. Ab ~10 XP lohnt es sich.'],
     ['Offline', 'Bis zum Offline-Limit (Standard 8h) wird mit 50% Effizienz weitergerechnet. Chronicle-Upgrades erhöhen beides.']
   ];
   const keys = [['Leertaste', 'Code schreiben'], ['O / B / R / P / E / M / S / C / A', 'Tabs wechseln'], ['1 / 2 / 3 / 4', 'Kaufmenge ×1 / ×10 / ×100 / Max'], ['Esc', 'Modal schließen']];
@@ -824,6 +826,22 @@ function renderCodex() {
         <div class="toggle-row"><a class="btn primary sm" href="https://github.com/SuriveAUT/CodeTycoon/issues/new/choose" target="_blank" rel="noopener noreferrer">Issue öffnen</a><a class="btn sm" href="https://github.com/SuriveAUT/CodeTycoon/issues" target="_blank" rel="noopener noreferrer">Alle Issues</a></div>
       </section>
     </div>
+    <section class="panel">
+      <div class="panel-head"><div><div class="eyebrow">Zahlen</div><h3>${getIcon('market')} Statistiken</h3><div class="sub">Lebenszeit, über alle Refactors.</div></div></div>
+      <div class="grid-2">
+        <div class="stat-list">${RESOURCES.map(res => statRow(`${RESOURCE_LABELS[res]} gesamt`, `<span class="res-${res}">${fmt(state.stats.total[res] || 0)}</span>`)).join('')}</div>
+        <div class="stat-list">
+          ${statRow('Refactors', fmt(state.stats.prestigeCount || 0))}
+          ${statRow('XP gesamt verdient', fmt((state.chronicle || 0) + CHRONICLE_UPGRADES.reduce((a, u) => { let sum = 0; for (let l = 0; l < (state.chronicleUpgrades[u.id] || 0); l++) sum += Math.floor(u.base * Math.pow(1.32, l)); return a + sum; }, 0)))}
+          ${statRow('Releases gebaut', fmt(state.stats.projectsBuilt || 0))}
+          ${statRow('Aufträge erledigt', fmt(state.stats.expeditionsDone || 0))}
+          ${statRow('Entscheidungen getroffen', fmt(state.stats.decisionsMade || 0))}
+          ${statRow('Protokolle aktiviert', fmt(state.stats.protocolsUsed || 0))}
+          ${statRow('Agentur-Level', fmt(state.stats.fleetLevel || 0))}
+          ${statRow('Erster Start', new Date(state.stats.firstSeen).toLocaleDateString('de-DE'))}
+        </div>
+      </div>
+    </section>
     <section class="panel">
       <div class="panel-head"><div><div class="eyebrow">Badges</div><h3>${getIcon('trophy')} Errungenschaften</h3><div class="sub">Jede Errungenschaft gibt +1% Gesamtproduktion – permanent.</div></div><span class="meta">${unlocked.length}/${ACHIEVEMENTS.length}</span></div>
       <div class="grid-auto-sm">${ACHIEVEMENTS.map(a => { const done = state.achievements.includes(a.id); return `<article class="item ${done ? 'done' : 'locked'}"><div class="item-head"><strong>${getIcon(done ? 'check' : 'lock')} ${escapeHtml(a.name)}</strong></div><p>${escapeHtml(a.desc)}</p></article>`; }).join('')}</div>
@@ -870,6 +888,12 @@ function renderAccount() {
           ${statRow('Spielzeit', fmtSec(state.stats.lifetime))}
           ${statRow('Refactors', fmt(state.stats.prestigeCount))}
           ${statRow('Code gesamt', fmt(state.stats.total.scrap))}
+        </div>
+        <div class="eyebrow" style="margin-top:12px">Einstellungen</div>
+        <div class="toggle-row">
+          <button class="btn sm ${getSetting('particles') ? 'good' : ''}" data-action="toggle-setting" data-id="particles">${getSetting('particles') ? getIcon('check') : ''} Klick-Partikel</button>
+          <button class="btn sm ${getSetting('toasts') ? 'good' : ''}" data-action="toggle-setting" data-id="toasts">${getSetting('toasts') ? getIcon('check') : ''} Benachrichtigungen</button>
+          <button class="btn sm ${getSetting('sciNotation') ? 'good' : ''}" data-action="toggle-setting" data-id="sciNotation" ${tt('Zahlenformat', 'Wissenschaftliche Schreibweise (1.5e9) statt Kürzel (1.50 B).')}>${getSetting('sciNotation') ? getIcon('check') : ''} 1e9-Notation</button>
         </div>
         <div class="toggle-row" style="margin-top:10px">
           <button class="btn sm" data-action="export-save" ${tt('Export', 'Kopiert den Spielstand als Text in die Zwischenablage.')}>Export</button>
@@ -955,9 +979,22 @@ function renderAdmin() {
 }
 
 // ═══════════════════════════ CYBER EVENT ═══════════════════════════
+function renderDecisionOverlay() {
+  const def = currentDecisionDef();
+  if (!def || !state.decision) return '';
+  const remaining = Math.max(0, (state.decision.endsAt - Date.now()) / 1000);
+  const total = Math.max(1, (state.decision.endsAt - state.decision.startedAt) / 1000);
+  return `<div class="cyber-panel info decision">
+    <div class="cyber-head"><span style="font-size:1.4rem">${def.icon}</span><strong>${escapeHtml(def.title)}</strong><span class="t" style="color:var(--muted)">${fmtSec(remaining)}</span></div>
+    <div class="cyber-desc">${escapeHtml(def.text)}</div>
+    <div class="progress thin"><span style="width:${(remaining / total) * 100}%"></span></div>
+    <div class="stack" style="gap:6px">${def.options.map((o, i) => `<button class="btn ${i === 0 ? 'primary' : ''} block decision-opt" data-action="decide" data-index="${i}" style="flex-direction:column;align-items:flex-start;gap:2px;padding:8px 12px"><span>${escapeHtml(o.label)}</span><span class="small" style="font-weight:500;opacity:0.8;white-space:normal;text-align:left">${escapeHtml(o.desc)}</span></button>`).join('')}</div>
+  </div>`;
+}
+
 export function renderCyberEventOverlay() {
   const ce = state.cyberEvent;
-  if (!ce) return '';
+  if (!ce) return renderDecisionOverlay();
   const remaining = Math.max(0, (ce.endsAt - Date.now()) / 1000);
   const pct = ce.type === 'interactive'
     ? Math.min(100, ((ce.clicksDone || 0) / ce.clicksRequired) * 100)

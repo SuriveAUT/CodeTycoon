@@ -81,6 +81,7 @@ export function defaultState() {
       manualClicks: 0,
       protocolsUsed: 0,
       questsDone: 0,
+      decisionsMade: 0,
       fleetXP: 0,
       fleetLevel: 0,
       lastSave: Date.now(),
@@ -94,6 +95,9 @@ export function defaultState() {
     nextAsteroidAt: Date.now() + rand(90e3, 180e3),
     cyberEvent: null,
     nextCyberEventAt: Date.now() + rand(4 * 60e3, 9 * 60e3),
+    decision: null,
+    nextDecisionAt: Date.now() + rand(6 * 60e3, 10 * 60e3),
+    lastDecisionId: null,
     stocks: {},
     stockMarket: { prices: {}, history: {}, lastUpdate: 0 },
     mainframeSlots: 3,
@@ -125,8 +129,10 @@ function migrateState(candidate) {
   ['techs', 'projects', 'artifacts'].forEach(key => {
     if (Array.isArray(candidate[key])) candidate[key] = candidate[key].map(id => ID_MAP[id] || id);
   });
-  // v4 → v5: Tabs wurden zusammengelegt
+  // v4 → v5: Tabs wurden zusammengelegt, alte Felder entfernt
   if (candidate.selectedTab === 'colonies' || candidate.selectedTab === 'expeditions') candidate.selectedTab = 'expansion';
+  delete candidate.market;
+  delete candidate.tutorialDone;
   return candidate;
 }
 
@@ -194,6 +200,8 @@ export function normalizeState(candidate) {
   if (!merged.stocks || typeof merged.stocks !== 'object') merged.stocks = {};
   merged.stockMarket = base.stockMarket; // kommt immer vom Server
   if (!merged.nextCyberEventAt) merged.nextCyberEventAt = Date.now() + rand(4 * 60e3, 9 * 60e3);
+  if (!merged.nextDecisionAt) merged.nextDecisionAt = Date.now() + rand(6 * 60e3, 10 * 60e3);
+  if (merged.decision && typeof merged.decision !== 'object') merged.decision = null;
   if (!merged.nextAsteroidAt) merged.nextAsteroidAt = Date.now() + rand(90e3, 180e3);
   merged.version = VERSION;
   return merged;

@@ -91,7 +91,7 @@ export function runScrap(s = state) {
 }
 
 export function prestigeGainRaw(s = state, b = s.cache?.bonuses || computeBonuses(s)) {
-  const base = 5 * Math.cbrt(runScrap(s) / 1e7);
+  const base = 6 * Math.cbrt(runScrap(s) / 1e7);
   const structBonus = 1 + techCount(s) * 0.02 + projectCount(s) * 0.05 + colonyCount(s) * 0.03;
   return base * structBonus * (b.prestigeGainMult || 1);
 }
@@ -106,7 +106,7 @@ export function scrapForNextXp(s = state) {
   const structBonus = 1 + techCount(s) * 0.02 + projectCount(s) * 0.05 + colonyCount(s) * 0.03;
   const mult = structBonus * (b.prestigeGainMult || 1);
   const nextXp = prestigeGain(s) + 1;
-  const needed = Math.pow(nextXp / (5 * mult), 3) * 1e7;
+  const needed = Math.pow(nextXp / (6 * mult), 3) * 1e7;
   return Math.max(0, needed - runScrap(s));
 }
 
@@ -158,6 +158,7 @@ export function doPrestigeReset() {
   setState('stats', 'manualClicks', keep.stats.manualClicks);
   setState('stats', 'protocolsUsed', keep.stats.protocolsUsed || 0);
   setState('stats', 'questsDone', keep.stats.questsDone || 0);
+  setState('stats', 'decisionsMade', keep.stats.decisionsMade || 0);
   setState('stats', 'fleetXP', keep.stats.fleetXP || 0);
   setState('stats', 'fleetLevel', keep.stats.fleetLevel || 0);
   setState('cache', { bonuses: null, rates: {} });
@@ -170,6 +171,7 @@ export function doPrestigeReset() {
   setState('buildings', 'google_ads', 1 + mon);
   setState('nextEventAt', Date.now() + rand(4 * 60e3, 8 * 60e3));
   setState('nextCyberEventAt', Date.now() + rand(4 * 60e3, 9 * 60e3));
+  setState('nextDecisionAt', Date.now() + rand(6 * 60e3, 10 * 60e3));
   setState('nextAsteroidAt', Date.now() + rand(60e3, 150e3));
 
   log(`🔁 Hard Refactor #${keep.prestigeCount}: +${gain} XP.`);
