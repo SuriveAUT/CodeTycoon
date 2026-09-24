@@ -8,6 +8,16 @@ Ein browserbasiertes Idle-/Incremental-Game mit Startup-Thematik, Cloud-Save, gl
 
 ---
 
+## Screenshots
+
+| Büro (Klicker, Aufgabe, KPIs) | Team (kompakte Zeilen, Meilensteine) |
+|---|---|
+| ![Büro](docs/screenshots/buero.png) | ![Team](docs/screenshots/team.png) |
+
+| Tech (5 Stufen, Freischaltungen) | Mobile |
+|---|---|
+| ![Tech](docs/screenshots/tech.png) | <img src="docs/screenshots/mobile-team.png" width="260" alt="Mobile Team-Tab" /> |
+
 ## Was ist neu (Rework)
 
 - **Neues UI**: Sidebar (Desktop) bzw. Bottom-Navigation (Mobile), Ressourcenleiste mit Live-Raten, kompakte Zeilen statt Riesenkarten, Tooltips überall.
