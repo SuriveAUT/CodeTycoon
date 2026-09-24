@@ -5,9 +5,10 @@ import { BUILDINGS } from '../data/buildings.js';
 import { TECHS } from '../data/techs.js';
 import { PROJECTS } from '../data/projects.js';
 import { ARTIFACTS } from '../data/artifacts.js';
-import { RESOURCES } from '../data/misc.js';
+import { zeroResources } from '../data/misc.js';
 
 export const SAVE_KEY = 'dev-tycoon-save-v1';
+export const BUY_AMOUNTS = [1, 10, 100, 'max'];
 const VERSION = 6;
 
 // Sehr alte Saves (Astraforge-Weltraum-Thema) auf die aktuellen IDs mappen.
@@ -42,8 +43,6 @@ const ID_MAP = {
   void_prism: 'premium_laptop', archive_bone: 'vim_config', prism_vault: 'framework_cache',
   starglass_map: 'git_cheat_sheet', memory_engine: 'ssd_upgrade', crown_of_dust: 'seniority_badge'
 };
-
-const zeroResources = () => RESOURCES.reduce((o, r) => (o[r] = 0, o), {});
 
 export function defaultState() {
   const buildings = {};
@@ -182,7 +181,7 @@ export function normalizeState(candidate) {
 
   merged.chronicle = Math.max(0, asFiniteNumber(merged.chronicle, 0));
   merged.questIndex = Math.max(0, Math.floor(asFiniteNumber(merged.questIndex, 0)));
-  merged.buyAmount = [1, 10, 100, 'max'].includes(merged.buyAmount) ? merged.buyAmount : 1;
+  merged.buyAmount = BUY_AMOUNTS.includes(merged.buyAmount) ? merged.buyAmount : 1;
   merged.operationsMode = typeof merged.operationsMode === 'string' ? merged.operationsMode : 'balanced';
   merged.activeProtocol = typeof merged.activeProtocol === 'string' ? merged.activeProtocol : null;
   merged.activeProtocolEndsAt = asFiniteNumber(merged.activeProtocolEndsAt, 0);
@@ -292,13 +291,12 @@ export function colonyCount(s = state) { return s.colonies.length; }
 export function hasTech(id) { return state.techs.includes(id); }
 export function hasProject(id) { return state.projects.includes(id); }
 export function hasArtifact(id) { return state.artifacts.includes(id); }
-export function buildingCount(id) { return state.buildings[id] || 0; }
-export function upgradeLevel(id) { return state.chronicleUpgrades[id] || 0; }
+export function buildingCount(id, s = state) { return s.buildings?.[id] || 0; }
+export function upgradeLevel(id, s = state) { return s.chronicleUpgrades?.[id] || 0; }
 
 export function getBuilding(id) { return BUILDINGS.find(b => b.id === id); }
 export function getTech(id) { return TECHS.find(t => t.id === id); }
 export function getProject(id) { return PROJECTS.find(p => p.id === id); }
-export function getArtifact(id) { return ARTIFACTS.find(a => a.id === id); }
 
 export function canAfford(cost) {
   return Object.entries(cost).every(([res, amt]) => (state.resources[res] || 0) >= amt);
@@ -325,36 +323,51 @@ export function log(text) {
   setState('log', newLog);
 }
 
+// Kostenkurve: Stück Nr. lvl kostet base · growth^lvl, ab Stufe SOFTCAP_LEVEL zusätzlich ×SOFTCAP_GROWTH^(lvl-SOFTCAP_LEVEL).
+const SOFTCAP_LEVEL = 100;
+const SOFTCAP_GROWTH = 1.03;
+
+// Geometrische Summe q^from + … + q^to (inklusive)
+function geoSum(q, from, to) {
+  if (to < from) return 0;
+  const n = to - from + 1;
+  if (Math.abs(q - 1) < 1e-12) return n;
+  return Math.pow(q, from) * (Math.pow(q, n) - 1) / (q - 1);
+}
+
+// Summe der Kostenmultiplikatoren für `amount` Stück ab Stufe `owned` – geschlossene Form statt Schleife.
+function costMultiplierSum(growth, owned, amount) {
+  if (amount <= 0) return 0;
+  const last = owned + amount - 1;
+  const plain = geoSum(growth, owned, Math.min(last, SOFTCAP_LEVEL));
+  if (last <= SOFTCAP_LEVEL) return plain;
+  const from = Math.max(owned, SOFTCAP_LEVEL + 1);
+  // growth^lvl · SOFTCAP_GROWTH^(lvl-100) = SOFTCAP_GROWTH^-100 · (growth·SOFTCAP_GROWTH)^lvl
+  return plain + Math.pow(SOFTCAP_GROWTH, -SOFTCAP_LEVEL) * geoSum(growth * SOFTCAP_GROWTH, from, last);
+}
+
 export function calcBuildingCost(def, owned, amount = 1, bMult = state.cache?.bonuses?.buildingCostMult || 1) {
+  const mult = costMultiplierSum(def.growth, owned, amount) * bMult;
   const cost = {};
-  Object.entries(def.cost).forEach(([res, base]) => {
-    let sum = 0;
-    for (let i = 0; i < amount; i++) {
-      const lvl = owned + i;
-      let costMult = Math.pow(def.growth, lvl);
-      if (lvl > 100) costMult *= Math.pow(1.03, lvl - 100);
-      sum += base * costMult;
-    }
-    cost[res] = sum * bMult;
-  });
+  for (const res in def.cost) cost[res] = def.cost[res] * mult;
   return cost;
 }
 
 export function calcNextBuildingCost(def) { return calcBuildingCost(def, buildingCount(def.id), 1); }
 
-// Wie viele Stück sind mit dem aktuellen Vorrat leistbar? (max 1000)
+// Wie viele Stück sind mit dem aktuellen Vorrat leistbar? (max 1000) – binäre Suche über die geschlossene Form.
 export function maxAffordable(def) {
   const owned = buildingCount(def.id);
   const bMult = state.cache?.bonuses?.buildingCostMult || 1;
-  let n = 0;
-  const remaining = { ...state.resources };
-  while (n < 1000) {
-    const c = calcBuildingCost(def, owned + n, 1, bMult);
-    if (!Object.entries(c).every(([res, amt]) => (remaining[res] || 0) >= amt)) break;
-    Object.entries(c).forEach(([res, amt]) => { remaining[res] -= amt; });
-    n++;
+  const affordable = (n) => canAfford(calcBuildingCost(def, owned, n, bMult));
+  if (!affordable(1)) return 0;
+  let lo = 1, hi = 1000;
+  if (affordable(hi)) return hi;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (affordable(mid)) lo = mid; else hi = mid;
   }
-  return n;
+  return lo;
 }
 
 export function isBuildingUnlocked(def) {
@@ -363,8 +376,6 @@ export function isBuildingUnlocked(def) {
   if (def.unlock.startsWith('project:')) return hasProject(def.unlock.split(':')[1]);
   return false;
 }
-
-export function unlockedBuildings() { return BUILDINGS.filter(isBuildingUnlocked); }
 
 export function unlockReason(def) {
   if (def.unlock === 'start') return 'Start';

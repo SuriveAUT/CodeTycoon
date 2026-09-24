@@ -52,8 +52,6 @@ export const TECHS = [
   { id: 'agi_completion', name: 'AGI', tier: 5, cost: 3.84e+10, prereq: ['global_cdn'], desc: 'Das Endziel. Schaltet 10x Developer und Tech Monopol frei. Bereit für den ultimativen Refactor.' }
 ];
 
-export const TECH_ORDER = TECHS.map((t) => t.id);
-
 export const TECH_TIERS = [
   { tier: 1, name: 'Garage', desc: 'Die Grundlagen: erste Sprachen, erste Bugs.' },
   { tier: 2, name: 'Startup', desc: 'Prozesse, Marketing und erste Aufträge.' },

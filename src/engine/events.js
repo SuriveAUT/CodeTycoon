@@ -1,6 +1,7 @@
 import { state, setState, add, log, hasProject, hasArtifact, totalBuildings, techCount, projectCount, artifactCount, colonyCount } from '../store/gameState.js';
-import { resourceMult, computeBonuses, estimateRatesSnapshot } from '../store/bonuses.js';
-import { MISSIONS, ACHIEVEMENTS, PRESTIGE_MILESTONES } from '../data/misc.js';
+import { resourceMult, currentBonuses, currentRates } from '../store/bonuses.js';
+import { MISSIONS, ACHIEVEMENTS, PRESTIGE_MILESTONES, RESOURCE_LABELS } from '../data/misc.js';
+import { EVENT_POOL } from '../data/events.js';
 import { BUILDINGS } from '../data/buildings.js';
 import { ARTIFACTS } from '../data/artifacts.js';
 import { CHIPS } from '../data/chips.js';
@@ -29,7 +30,7 @@ export function completeMission(mission, b, silent) {
   const missionDef = MISSIONS.find(m => m.id === mission.missionId) || mission;
   const success = Math.random() < missionSuccessChance(missionDef, b);
   const rewardMult = (success ? 1 : 0.55) * (1 + b.expeditionRewardMult);
-  const rates = state.cache.rates || estimateRatesSnapshot();
+  const rates = currentRates();
   const dynRewards = getDynamicMissionRewards(missionDef, b, rates);
   Object.entries(dynRewards).forEach(([res, amt]) => add(res, amt * rewardMult));
   setState('stats', 'expeditionsDone', state.stats.expeditionsDone + 1);
@@ -81,16 +82,6 @@ export function completeMission(mission, b, silent) {
   }
 }
 
-export const EVENT_POOL = [
-  { name: 'Crunch Time', desc: 'Revenue +15%, Ideas −5%', duration: 5 * 60e3, effects: { energyMult: 1.15, researchMult: 0.95 } },
-  { name: 'StackOverflow Hype', desc: 'Users +20%, Ideas +6%', duration: 4 * 60e3, effects: { dataMult: 1.20, researchMult: 1.06 } },
-  { name: 'Hacker-Angriff', desc: 'Gesamt −15%, Fundchance +5%', duration: 5 * 60e3, effects: { allMult: 0.85, relicChance: 0.05 } },
-  { name: 'Legacy Code Fund', desc: 'Legacy +15%, Hype +4%', duration: 5 * 60e3, effects: { relicMult: 1.15, influenceMult: 1.04 } },
-  { name: 'VC Funding', desc: 'Gebäude −5%, Releases −3%', duration: 4 * 60e3, effects: { buildingCostMult: 0.95, projectCostMult: 0.97 } },
-  { name: 'Spaghetti Code', desc: 'Gesamt −8%', duration: 4 * 60e3, effects: { allMult: 0.92 } },
-  { name: 'Hacker News Frontpage', desc: 'Hype +30%, Users +10%', duration: 4 * 60e3, effects: { influenceMult: 1.30, dataMult: 1.10 } },
-  { name: 'Kaffeemaschine kaputt', desc: 'Code −10%', duration: 3 * 60e3, effects: { scrapMult: 0.9 } }
-];
 
 export function spawnEvent() {
   return EVENT_POOL[Math.floor(Math.random() * EVENT_POOL.length)];
@@ -178,8 +169,8 @@ export function clickAnomaly(type) {
   if (!state.asteroidActive) return null;
   setState('asteroidActive', false);
   const now = Date.now();
-  const b = state.cache.bonuses || computeBonuses();
-  const rates = state.cache.rates || {};
+  const b = currentBonuses();
+  const rates = currentRates();
   let result;
 
   if (type === 'frenzy') {
@@ -198,7 +189,7 @@ export function clickAnomaly(type) {
     const gross = rates.__produced?.[type] || 0;
     const reward = Math.max(25, gross * 240); // 4 Minuten Produktion
     add(type, reward);
-    result = { text: `Bug gefixt: +${Math.floor(reward)} ${type === 'scrap' ? 'Code' : type === 'energy' ? 'Revenue' : type}`, type: 'good' };
+    result = { text: `Bug gefixt: +${Math.floor(reward)} ${RESOURCE_LABELS[type] || type}`, type: 'good' };
   }
   log(`🐛 ${result.text}.`);
   setState('nextAsteroidAt', now + rand(240e3, 600e3));

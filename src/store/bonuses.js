@@ -3,20 +3,22 @@
 // Alle Funktionen nehmen optional ein State-Objekt `s` entgegen, damit dieselbe Logik
 // headless (Balancing-Simulation) und im Spiel läuft.
 
-import { state } from './gameState.js';
+import { state, buildingCount, totalBuildings, upgradeLevel } from './gameState.js';
 import { BUILDINGS, milestoneMult } from '../data/buildings.js';
-import { RESOURCES, WORLDS, FOCI, PROTOCOLS, PRESTIGE_MILESTONES, CHRONICLE_UPGRADES } from '../data/misc.js';
+import { RESOURCES, WORLDS, FOCI, PROTOCOLS, PRESTIGE_MILESTONES, CHRONICLE_UPGRADES, COLONY_MAX_LEVEL, zeroResources } from '../data/misc.js';
 import { BONUS_EFFECTS, PROJECT_EFFECTS, ARTIFACT_EFFECTS, DOCTRINE_EFFECTS } from '../data/effects.js';
 import { CHIPS } from '../data/chips.js';
-import { STOCKS, DIVIDEND_PER_SHARE, MAX_DIVIDEND_BONUS } from '../data/stocks.js';
+import { STOCKS, dividendBonusForShares } from '../data/stocks.js';
 import { clamp } from '../lib/format.js';
 
 export const MAX_COLONIES = 8;
+export const MODIFIER_CAP = 20;
+// Ab welcher Auslastung ein Konverter als "gedrosselt" gilt
+export const STARVED_UTILIZATION = 0.999;
 export const RES_MULT_KEY = {
   scrap: 'scrapMult', energy: 'energyMult', alloy: 'alloyMult', components: 'componentsMult',
   data: 'dataMult', research: 'researchMult', influence: 'influenceMult', relics: 'relicMult'
 };
-export const MODIFIER_CAP = 20;
 
 const MULT_KEYS = new Set([
   'allMult', 'scrapMult', 'energyMult', 'alloyMult', 'componentsMult',
@@ -29,6 +31,10 @@ const ADD_KEYS = new Set([
   'clickRateFraction', 'expeditionPower', 'expeditionSlots', 'colonyCap', 'offlineCapHours'
 ]);
 
+// Statische Tabellen einmal vorbereiten (heißer Pfad: simulateProduction pro Frame)
+const OUTPUT_ENTRIES = new Map(BUILDINGS.map(d => [d.id, Object.entries(d.outputs || {})]));
+const INPUT_ENTRIES = new Map(BUILDINGS.map(d => [d.id, Object.entries(d.inputs || {})]));
+
 export function applyEffects(b, effects) {
   if (!effects || typeof effects !== 'object') return;
   Object.entries(effects).forEach(([key, value]) => {
@@ -39,15 +45,18 @@ export function applyEffects(b, effects) {
   });
 }
 
-function count(s, id) { return s.buildings?.[id] || 0; }
-function total(s) { return BUILDINGS.reduce((acc, b) => acc + count(s, b.id), 0); }
-function level(s, id) { return s.chronicleUpgrades?.[id] || 0; }
+// Basisbeitrag eines Standorts zur Gesamtproduktion (Anteil), abhängig von Stufe und Zufriedenheit.
+export function colonyBaseBonus(c) {
+  const lvl = Math.min(c.level || 1, COLONY_MAX_LEVEL);
+  return 0.02 * lvl * clamp((c.stability || 100) / 100, 0.5, 1.3);
+}
 
 export function computeBonuses(s = state) {
-  const totalBld = total(s);
+  const totalBld = totalBuildings(s);
+  const synergy = 1 + Math.min(totalBld, 1000) * 0.002; // Team-Synergie: +0,2% pro Mitarbeiter (max +200%)
   const b = {
-    allMult: 1 + Math.min(totalBld, 1000) * 0.002, // Team-Synergie: +0,2% pro Mitarbeiter (max +200%)
-    teamSynergy: 1 + Math.min(totalBld, 1000) * 0.002,
+    allMult: synergy,
+    teamSynergy: synergy,
     scrapMult: 1, energyMult: 1, alloyMult: 1, componentsMult: 1,
     dataMult: 1, researchMult: 1, influenceMult: 1, relicMult: 1,
     relicChance: 0.03,
@@ -68,17 +77,18 @@ export function computeBonuses(s = state) {
   b.allMult *= 1 + (s.achievements?.length || 0) * 0.01;
 
   // Chronicle-Upgrades (permanent)
-  const origin = level(s, 'origin'); if (origin) b.allMult *= Math.pow(1.08, origin);
-  const monument = level(s, 'monument'); if (monument) b.allMult *= Math.pow(1.025, monument);
-  const deepTime = level(s, 'deep_time'); if (deepTime) b.offlineCapHours += deepTime * 1.5;
-  const bureau = level(s, 'bureau'); if (bureau) b.autoBuildBoost *= Math.pow(1.10, bureau);
-  const logistics = level(s, 'logistics'); if (logistics) b.colonyCap += Math.floor(logistics / 2);
-  const resonance = level(s, 'resonance'); if (resonance) { b.relicMult *= Math.pow(1.08, resonance); b.relicChance += 0.005 * resonance; }
-  const funds = level(s, 'funds'); if (funds) { b.buildingCostMult *= Math.pow(0.97, funds); b.projectCostMult *= Math.pow(0.97, funds); }
-  const epoch = level(s, 'epoch'); if (epoch) b.prestigeGainMult *= Math.pow(1.10, epoch);
-  const timeDilation = level(s, 'time_dilation'); if (timeDilation) b.offlineEfficiency = Math.min(0.9, 0.5 + timeDilation * 0.1);
-  const synergy = level(s, 'infinite_synergy'); if (synergy) b.allMult *= Math.pow(1.15, synergy);
-  const quantumClick = level(s, 'quantum_click'); if (quantumClick) b.clickPowerMult *= Math.pow(2, quantumClick);
+  const level = (id) => upgradeLevel(id, s);
+  const origin = level('origin'); if (origin) b.allMult *= Math.pow(1.08, origin);
+  const monument = level('monument'); if (monument) b.allMult *= Math.pow(1.025, monument);
+  const deepTime = level('deep_time'); if (deepTime) b.offlineCapHours += deepTime * 1.5;
+  const bureau = level('bureau'); if (bureau) b.autoBuildBoost *= Math.pow(1.10, bureau);
+  const logistics = level('logistics'); if (logistics) b.colonyCap += Math.floor(logistics / 2);
+  const resonance = level('resonance'); if (resonance) { b.relicMult *= Math.pow(1.08, resonance); b.relicChance += 0.005 * resonance; }
+  const funds = level('funds'); if (funds) { b.buildingCostMult *= Math.pow(0.97, funds); b.projectCostMult *= Math.pow(0.97, funds); }
+  const epoch = level('epoch'); if (epoch) b.prestigeGainMult *= Math.pow(1.10, epoch);
+  const timeDilation = level('time_dilation'); if (timeDilation) b.offlineEfficiency = Math.min(0.9, 0.5 + timeDilation * 0.1);
+  const infiniteSynergy = level('infinite_synergy'); if (infiniteSynergy) b.allMult *= Math.pow(1.15, infiniteSynergy);
+  const quantumClick = level('quantum_click'); if (quantumClick) b.clickPowerMult *= Math.pow(2, quantumClick);
 
   (s.prestigeMilestones || []).forEach(id => {
     const m = PRESTIGE_MILESTONES.find(x => x.id === id);
@@ -99,8 +109,7 @@ export function computeBonuses(s = state) {
 
   // Börse: Dividenden als Produktionsbonus je Ressource
   STOCKS.forEach(st => {
-    const owned = (s.stocks || {})[st.id] || 0;
-    const bonus = Math.min(MAX_DIVIDEND_BONUS, owned * DIVIDEND_PER_SHARE);
+    const bonus = dividendBonusForShares((s.stocks || {})[st.id] || 0);
     if (bonus > 0) b[RES_MULT_KEY[st.resource]] *= 1 + bonus;
   });
 
@@ -112,7 +121,7 @@ export function computeBonuses(s = state) {
   }
 
   // Modifier-Gebäude (Effekt wirkt bis MODIFIER_CAP Stück)
-  const mod = (id) => Math.min(MODIFIER_CAP, count(s, id));
+  const mod = (id) => Math.min(MODIFIER_CAP, buildingCount(id, s));
   const scrum = mod('scrum_master'); if (scrum) { b.allMult *= 1 + scrum * 0.03; b.researchMult *= 1 + scrum * 0.04; }
   const hr = mod('hr_department'); if (hr) { b.colonyCap += Math.floor(hr / 2); b.colonyOutputMult *= 1 + hr * 0.02; }
   const hubs = mod('freelance_portal'); if (hubs) { b.expeditionPower += hubs * 0.18; b.expeditionSlots += Math.floor(hubs / 4); b.expeditionRewardMult += hubs * 0.02; }
@@ -124,9 +133,8 @@ export function computeBonuses(s = state) {
   (s.colonies || []).forEach(c => {
     const world = WORLDS.find(w => w.id === c.world) || WORLDS[0];
     const focus = FOCI.find(f => f.id === c.focus) || FOCI[0];
-    const stability = clamp((c.stability || 100) / 100, 0.5, 1.3);
-    const lvl = Math.min(c.level || 1, 15);
-    colonyBonusSum += (0.02 * lvl) * stability + ((world.bonus.allMult || 1) - 1) + b.perColonyMult;
+    const lvl = Math.min(c.level || 1, COLONY_MAX_LEVEL);
+    colonyBonusSum += colonyBaseBonus(c) + ((world.bonus.allMult || 1) - 1) + b.perColonyMult;
     switch (focus.id) {
       case 'extraction': b.scrapMult += 0.02 * lvl; b.alloyMult += 0.015 * lvl; break;
       case 'science': b.dataMult += 0.02 * lvl; b.researchMult += 0.02 * lvl; break;
@@ -174,28 +182,24 @@ export function resourceMult(resource, b) {
   return (b[RES_MULT_KEY[resource]] || 1) * b.allMult;
 }
 
-function zeroMap() { return RESOURCES.reduce((o, r) => (o[r] = 0, o), {}); }
-
 // Konverter laufen mit dem Gesamtbonus schneller: sie verbrauchen und produzieren ×allMult.
 // Dadurch vervielfacht sich der Gesamtbonus nicht entlang der Konverter-Kette.
 export function converterInputScale(b) { return b.converterInputMult * b.allMult; }
 
 // Output pro Sekunde eines einzelnen Gebäudes (ohne Input-Limit).
 export function buildingOutputPerSecond(def, s, b) {
-  const owned = count(s, def.id);
-  const ms = milestoneMult(owned);
+  const ms = milestoneMult(buildingCount(def.id, s));
   const bm = b.buildingMults[def.id] || 1;
   const out = {};
-  Object.entries(def.outputs || {}).forEach(([res, per]) => { out[res] = def.rate * ms * bm * per * resourceMult(res, b); });
+  for (const [res, per] of OUTPUT_ENTRIES.get(def.id)) out[res] = def.rate * ms * bm * per * resourceMult(res, b);
   return out;
 }
 
 export function buildingInputPerSecond(def, s, b) {
-  const owned = count(s, def.id);
-  const ms = milestoneMult(owned);
+  const ms = milestoneMult(buildingCount(def.id, s));
   const bm = b.buildingMults[def.id] || 1;
   const inp = {};
-  Object.entries(def.inputs || {}).forEach(([res, need]) => { inp[res] = def.rate * ms * bm * need * converterInputScale(b); });
+  for (const [res, need] of INPUT_ENTRIES.get(def.id)) inp[res] = def.rate * ms * bm * need * converterInputScale(b);
   return inp;
 }
 
@@ -206,44 +210,45 @@ export function buildingInputPerSecond(def, s, b) {
  */
 export function simulateProduction(dt, s = state, b = computeBonuses(s)) {
   const stock = s.resources || {};
-  const gain = zeroMap();
-  const produced = zeroMap();
-  const consumed = zeroMap();
+  const gain = zeroResources();
+  const produced = zeroResources();
+  const consumed = zeroResources();
   const utilization = {};
   const throttle = clamp(Number(s.converterThrottle ?? 1), 0.25, 1);
+  const inScale = converterInputScale(b);
+  const mult = {};
+  for (const res of RESOURCES) mult[res] = resourceMult(res, b);
 
   for (const def of BUILDINGS) {
-    const owned = count(s, def.id);
+    const owned = buildingCount(def.id, s);
     if (!owned || def.type !== 'producer') continue;
-    const ms = milestoneMult(owned);
-    const bm = b.buildingMults[def.id] || 1;
-    for (const [res, per] of Object.entries(def.outputs)) {
-      const g = owned * def.rate * ms * bm * per * resourceMult(res, b) * dt;
+    const unitRate = owned * def.rate * milestoneMult(owned) * (b.buildingMults[def.id] || 1) * dt;
+    for (const [res, per] of OUTPUT_ENTRIES.get(def.id)) {
+      const g = unitRate * per * mult[res];
       gain[res] += g; produced[res] += g;
     }
   }
 
   for (const def of BUILDINGS) {
-    const owned = count(s, def.id);
+    const owned = buildingCount(def.id, s);
     if (!owned || def.type !== 'converter') continue;
-    const ms = milestoneMult(owned);
-    const bm = b.buildingMults[def.id] || 1;
-    const capacity = owned * def.rate * ms * bm * throttle * dt; // Output-Einheiten in diesem Schritt
+    const inputs = INPUT_ENTRIES.get(def.id);
+    const capacity = owned * def.rate * milestoneMult(owned) * (b.buildingMults[def.id] || 1) * throttle * dt; // Output-Einheiten in diesem Schritt
     let possible = capacity;
-    for (const [res, need] of Object.entries(def.inputs)) {
-      const needPerUnit = need * converterInputScale(b);
+    for (const [res, need] of inputs) {
+      const needPerUnit = need * inScale;
       const available = Math.max(0, (stock[res] || 0) + gain[res]);
       possible = Math.min(possible, needPerUnit > 0 ? available / needPerUnit : possible);
     }
     possible = Math.max(0, possible);
     utilization[def.id] = capacity > 0 ? possible / capacity : 1;
     if (possible <= 0) continue;
-    for (const [res, need] of Object.entries(def.inputs)) {
-      const c = need * converterInputScale(b) * possible;
+    for (const [res, need] of inputs) {
+      const c = need * inScale * possible;
       gain[res] -= c; consumed[res] += c;
     }
-    for (const [res, per] of Object.entries(def.outputs)) {
-      const g = possible * per * resourceMult(res, b);
+    for (const [res, per] of OUTPUT_ENTRIES.get(def.id)) {
+      const g = possible * per * mult[res];
       gain[res] += g; produced[res] += g;
     }
   }
@@ -251,15 +256,33 @@ export function simulateProduction(dt, s = state, b = computeBonuses(s)) {
   return { gain, produced, consumed, utilization };
 }
 
+// Raten-Cache (pro Sekunde) aus einem Simulationsschritt der Länge `dt` ableiten.
+export function ratesFromSimulation(sim, dt = 1) {
+  const rates = {};
+  const produced = {};
+  const consumed = {};
+  for (const res of RESOURCES) {
+    rates[res] = (sim.gain[res] || 0) / dt;
+    produced[res] = (sim.produced[res] || 0) / dt;
+    consumed[res] = (sim.consumed[res] || 0) / dt;
+  }
+  rates.__produced = produced;
+  rates.__consumed = consumed;
+  rates.__utilization = sim.utilization;
+  rates.__starved = Object.entries(sim.utilization).filter(([, u]) => u < STARVED_UTILIZATION).map(([id]) => id);
+  return rates;
+}
+
 // Netto-Raten pro Sekunde (für Anzeige, Automation und Klick-Bonus).
 export function estimateRatesSnapshot(s = state, b = computeBonuses(s)) {
-  const sim = simulateProduction(1, s, b);
-  const rates = { ...sim.gain };
-  rates.__produced = sim.produced;
-  rates.__consumed = sim.consumed;
-  rates.__utilization = sim.utilization;
-  rates.__starved = Object.entries(sim.utilization).filter(([, u]) => u < 0.999).map(([id]) => id);
-  return rates;
+  return ratesFromSimulation(simulateProduction(1, s, b), 1);
+}
+
+// Gecachte Boni/Raten, falls vorhanden – sonst frisch berechnen.
+export function currentBonuses(s = state) { return s.cache?.bonuses || computeBonuses(s); }
+export function currentRates(s = state) {
+  const cached = s.cache?.rates;
+  return cached && cached.__produced ? cached : estimateRatesSnapshot(s);
 }
 
 export function clickValue(b, rates) {

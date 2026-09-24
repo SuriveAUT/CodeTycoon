@@ -44,4 +44,3 @@ export const PROJECTS = [
     desc: 'Du hast das Internet neu erfunden. Dezentralisiert alles.' }
 ];
 
-export const AUTO_PROJECT_ORDER = PROJECTS.map((p) => p.id);

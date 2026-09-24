@@ -1,5 +1,5 @@
 import { state, setState, log } from '../store/gameState.js';
-import { computeBonuses, simulateProduction } from '../store/bonuses.js';
+import { computeBonuses, simulateProduction, ratesFromSimulation } from '../store/bonuses.js';
 import { RESOURCES } from '../data/misc.js';
 import { rand } from '../lib/format.js';
 import { autoBuild, autoResearch, autoExpeditions, autoProjects } from './automation.js';
@@ -10,6 +10,13 @@ import { tickDecisions } from './decisions.js';
 import { tickTheme } from './themeEngine.js';
 
 let lastChecksAt = 0;
+
+// Errungenschaften, Meilensteine und Aufgaben prüfen (monotone Schwellen – reicht 1×/s bzw. einmal nach Offline-Catchup).
+export function runProgressChecks(silent) {
+  checkAchievements(silent);
+  checkPrestigeMilestones(silent);
+  checkQuests(silent);
+}
 
 /**
  * Ein Simulationsschritt von `dt` Sekunden.
@@ -40,10 +47,10 @@ export function processTick(dt, opts = {}) {
 
   // Produktion anwenden
   if (dt > 0) {
-    const { gain, produced, consumed, utilization } = simulateProduction(dt, state, b);
+    const sim = simulateProduction(dt, state, b);
     RESOURCES.forEach((res) => {
-      const delta = gain[res] || 0;
-      const prod = produced[res] || 0;
+      const delta = sim.gain[res] || 0;
+      const prod = sim.produced[res] || 0;
       if (delta === 0 && prod === 0) return;
       const next = Math.max(0, (state.resources[res] || 0) + delta);
       setState('resources', res, next);
@@ -51,13 +58,7 @@ export function processTick(dt, opts = {}) {
       if (next > (state.stats.max[res] || 0)) setState('stats', 'max', res, next);
     });
     // Raten-Cache aus demselben Schritt ableiten
-    const rates = {};
-    RESOURCES.forEach((res) => { rates[res] = (gain[res] || 0) / dt; });
-    rates.__produced = RESOURCES.reduce((o, r) => (o[r] = (produced[r] || 0) / dt, o), {});
-    rates.__consumed = RESOURCES.reduce((o, r) => (o[r] = (consumed[r] || 0) / dt, o), {});
-    rates.__utilization = utilization;
-    rates.__starved = Object.entries(utilization).filter(([, u]) => u < 0.999).map(([id]) => id);
-    setState('cache', 'rates', rates);
+    setState('cache', 'rates', ratesFromSimulation(sim, dt));
   }
 
   // Aufträge abschließen
@@ -79,22 +80,19 @@ export function processTick(dt, opts = {}) {
     if (!silent) log(`Ereignis: ${event.name}.`);
   }
 
-  if (auto) {
-    if (state.auto.build && b.autoBuild) autoBuild(b);
-    if (state.auto.research && b.autoResearch) autoResearch(b);
-    if (state.auto.expeditions && b.autoExpeditions) autoExpeditions(b);
-    if (state.auto.projects && b.autoProjects) autoProjects(b);
-  }
-
   if (!opts.skipLifetime) setState('stats', 'lifetime', state.stats.lifetime + dt);
 
+  // Automation und Schwellen-Checks laufen 1× pro Sekunde (oder pro großem Schritt), nicht pro Frame.
   if (dt >= 1 || now - lastChecksAt >= 1000) {
     lastChecksAt = now;
-    checkAchievements(silent);
-    checkPrestigeMilestones(silent);
-    checkQuests(silent);
+    if (auto) {
+      if (state.auto.build && b.autoBuild) autoBuild(b);
+      if (state.auto.research && b.autoResearch) autoResearch(b);
+      if (state.auto.expeditions && b.autoExpeditions) autoExpeditions(b);
+      if (state.auto.projects && b.autoProjects) autoProjects(b);
+    }
+    if (!opts.offline) runProgressChecks(silent);
   }
-
 
   if (!opts.offline) {
     tickCyberEvent(now);

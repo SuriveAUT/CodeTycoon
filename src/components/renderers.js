@@ -2,9 +2,9 @@
 import {
   state, canAfford, buildingCount, calcNextBuildingCost, calcBuildingCost, maxAffordable, isBuildingUnlocked, unlockReason,
   isTechUnlocked, hasTech, hasProject, hasArtifact, totalBuildings, techCount, projectCount, artifactCount, colonyCount,
-  isProjectRequirementMet, projectRequirementLabel, getTech, getBuilding
+  isProjectRequirementMet, isProjectUnlocked, projectRequirementLabel, getTech, getBuilding, BUY_AMOUNTS
 } from '../store/gameState.js';
-import { computeBonuses, estimateRatesSnapshot, buildingOutputPerSecond, buildingInputPerSecond, clickValue, MODIFIER_CAP, chronicleCostFor } from '../store/bonuses.js';
+import { currentBonuses as bonuses, currentRates as rates, buildingOutputPerSecond, buildingInputPerSecond, clickValue, colonyBaseBonus, MODIFIER_CAP, STARVED_UTILIZATION, chronicleCostFor } from '../store/bonuses.js';
 import {
   nextResearchCost, nextProjectCost, chronicleCost, colonyFoundCost, canFoundColony, colonyUpgradeCost, COLONY_MAX_LEVEL,
   prestigeGain, prestigeGainRaw, scrapForNextXp, runScrap, missionPowerReq, prestigeStructBonus, PRESTIGE_XP_BASE
@@ -22,10 +22,10 @@ import {
   RESOURCES, RESOURCE_LABELS, RESOURCE_LORE, MISSIONS, WORLDS, FOCI, DOCTRINES, OPERATIONS_MODES, PROTOCOLS,
   ACHIEVEMENTS, CHRONICLE_UPGRADES, PRESTIGE_MILESTONES
 } from '../data/misc.js';
-import { CHIPS } from '../data/chips.js';
+import { CHIPS, getChip } from '../data/chips.js';
 import { STOCKS, BROKER_FEE, getStockPrice, getOwnedShares, portfolioValue, totalDividendBonus, dividendBonus, sharesToCap, timeUntilNextPriceUpdate, DIVIDEND_PER_SHARE, MAX_DIVIDEND_BONUS } from '../engine/stocks.js';
 import { AstraforgeAPI } from '../lib/api-client.js';
-import { fmt, fmtSec } from '../lib/format.js';
+import { fmt, fmtSec, fmtRate, clamp } from '../lib/format.js';
 import { getIcon, resIcon, CATEGORY_ICONS } from '../lib/icons.js';
 import { escapeHtml } from '../lib/sanitize.js';
 
@@ -64,8 +64,9 @@ function newBuildings() { initSeen(); return BUILDINGS.filter(b => isBuildingUnl
 function newTechs() { initSeen(); return TECHS.filter(t => !hasTech(t.id) && isTechUnlocked(t) && !seenTechs.has(t.id)); }
 
 // ── Helfer ──
-function bonuses() { return state.cache.bonuses || computeBonuses(); }
-function rates() { return state.cache.rates && state.cache.rates.__produced ? state.cache.rates : estimateRatesSnapshot(); }
+// Tooltip-Payload als HTML-Attribut; App.jsx liest el.dataset.tt (Browser dekodiert die Entities).
+const escapeAttr = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+const buyAmountLabel = v => (v === 'max' ? 'Max' : `×${v}`);
 
 function tt(title, body, options = {}) {
   const chunks = [`<h4>${options.icon || ''}${escapeHtml(title)}</h4>`];
@@ -75,17 +76,11 @@ function tt(title, body, options = {}) {
     chunks.push(`<div class="tt-section"><div class="tt-section-title">${escapeHtml(options.sectionTitle)}</div>${options.sectionBody}</div>`);
   }
   if (options.requirement) chunks.push(`<div class="tt-req">${getIcon('lock')} ${escapeHtml(options.requirement)}</div>`);
-  return `data-tt="${encodeURIComponent(chunks.join(''))}"`;
+  return `data-tt="${escapeAttr(chunks.join(''))}"`;
 }
 
 function ttCosts(cost) {
   return `<div class="tt-costs">${Object.entries(cost).map(([res, amt]) => `<div><span>${resIcon(res)} ${escapeHtml(RESOURCE_LABELS[res] || res)}</span><span>${fmt(amt)}</span></div>`).join('')}</div>`;
-}
-
-function fmtRate(v, unit = '/s') {
-  const n = Number(v) || 0;
-  if (Math.abs(n) < 1e-9) return `0${unit}`;
-  return `${n > 0 ? '+' : '−'}${fmt(Math.abs(n))}${unit}`;
 }
 
 function costChips(cost) {
@@ -133,7 +128,7 @@ function statRow(label, value, attrs = '') {
 }
 
 function progress(cur, max, cls = '') {
-  const pct = Math.max(0, Math.min(100, max > 0 ? (cur / max) * 100 : 0));
+  const pct = clamp(max > 0 ? (cur / max) * 100 : 0, 0, 100);
   return `<div class="progress ${cls}"><span style="width:${pct.toFixed(1)}%"></span></div>`;
 }
 
@@ -174,7 +169,7 @@ export function navBadges() {
   const badges = {};
   const affordableTechs = TECHS.filter(t => !hasTech(t.id) && isTechUnlocked(t) && state.resources.research >= nextResearchCost(t, b)).length;
   if (affordableTechs) badges.research = affordableTechs;
-  const affordableProjects = PROJECTS.filter(p => !hasProject(p.id) && p.prereq.every(isProjectRequirementMet) && canAfford(nextProjectCost(p, b))).length;
+  const affordableProjects = PROJECTS.filter(p => !hasProject(p.id) && isProjectUnlocked(p) && canAfford(nextProjectCost(p, b))).length;
   if (affordableProjects) badges.projects = affordableProjects;
   const affordableChronicle = CHRONICLE_UPGRADES.filter(u => state.chronicle >= chronicleCost(u.id) && !(u.max && (state.chronicleUpgrades[u.id] || 0) >= u.max)).length;
   if (affordableChronicle) badges.prestige = affordableChronicle;
@@ -266,7 +261,7 @@ function renderActiveEffects() {
   const mode = OPERATIONS_MODES.find(m => m.id === state.operationsMode);
   if (mode && mode.id !== 'balanced') fx.push(`<span class="fx">${getIcon('settings')} ${escapeHtml(mode.name)}</span>`);
   if (state.doctrine) fx.push(`<span class="fx">${getIcon('flag')} ${escapeHtml(DOCTRINES.find(d => d.id === state.doctrine)?.name || '')}</span>`);
-  (state.equippedChips || []).forEach(id => { const c = CHIPS.find(x => x.id === id); if (c) fx.push(`<span class="fx">${getIcon('chip')} ${escapeHtml(c.name)}</span>`); });
+  (state.equippedChips || []).forEach(id => { const c = getChip(id); if (c) fx.push(`<span class="fx">${getIcon('chip')} ${escapeHtml(c.name)}</span>`); });
   const synergy = b.teamSynergy || 1;
   fx.push(`<span class="fx" ${tt('Team-Synergie', 'Jeder Mitarbeiter gibt +0,2% auf die Gesamtproduktion (max +200%).')}>${getIcon('team')} Synergie <span class="fx-t">×${fmt(synergy)}</span></span>`);
   fx.push(`<span class="fx" ${tt('Gesamtmultiplikator', 'Alle Boni zusammen (Techs, Releases, Standorte, Chronicle, Ereignisse).')}>${getIcon('star')} Gesamt <span class="fx-t">×${fmt(b.allMult)}</span></span>`);
@@ -406,8 +401,8 @@ function buildingRow(def, b, bestId) {
   const affordable = unlocked && canAfford(cost);
   const single = calcNextBuildingCost(def);
   const icon = CATEGORY_ICONS[def.category] || 'components';
-  const utilization = state.cache.rates?.__utilization?.[def.id];
-  const starved = def.type === 'converter' && owned > 0 && utilization !== undefined && utilization < 0.999;
+  const utilization = rates().__utilization?.[def.id];
+  const starved = def.type === 'converter' && owned > 0 && utilization !== undefined && utilization < STARVED_UTILIZATION;
 
   if (!unlocked) {
     return `<div class="b-row locked" ${tt(def.name, def.desc, { meta: def.category, requirement: unlockReason(def) })}>
@@ -468,7 +463,7 @@ function renderBuildings() {
   // Nach ~4s Anzeige als gesehen markieren
   if (fresh.length) setTimeout(() => fresh.forEach(d => seenBuildings.add(d.id)), 4000);
   const bestId = bestInvestmentId(b);
-  const seg = [1, 10, 100, 'max'].map(v => `<button class="btn ${qty === v ? 'active' : ''}" data-action="set-buy-amount" data-value="${v}">${v === 'max' ? 'Max' : `×${v}`}</button>`).join('');
+  const seg = BUY_AMOUNTS.map(v => `<button class="btn ${qty === v ? 'active' : ''}" data-action="set-buy-amount" data-value="${v}">${buyAmountLabel(v)}</button>`).join('');
   const sections = CATEGORIES.map(cat => {
     const defs = BUILDINGS.filter(d => d.category === cat.id);
     const unlocked = defs.filter(isBuildingUnlocked);
@@ -564,8 +559,8 @@ function renderResearch() {
 // ═══════════════════════════ RELEASES ═══════════════════════════
 function renderProjects() {
   const b = bonuses();
-  const available = PROJECTS.filter(p => !hasProject(p.id) && p.prereq.every(isProjectRequirementMet));
-  const upcoming = PROJECTS.filter(p => !hasProject(p.id) && !p.prereq.every(isProjectRequirementMet));
+  const available = PROJECTS.filter(p => !hasProject(p.id) && isProjectUnlocked(p));
+  const upcoming = PROJECTS.filter(p => !hasProject(p.id) && !isProjectUnlocked(p));
   const released = PROJECTS.filter(p => hasProject(p.id));
 
   const card = (project, locked) => {
@@ -647,7 +642,7 @@ function renderColonies(b) {
     const canUpgrade = !maxed && canAfford(upgradeCost);
     return `<article class="item colony">
       <div class="colony-head"><div class="row"><span class="colony-icon">${world.icon}</span><div><strong>${escapeHtml(colony.name)}</strong><div class="muted small">${escapeHtml(world.desc)}</div></div></div><span class="badge accent">Lvl ${colony.level}${maxed ? ' (Max)' : ''}</span></div>
-      <div class="stat-list">${statRow('Zufriedenheit', `${fmt(colony.stability)}%`)}${statRow('Standort-Bonus', `+${fmt(2 * Math.min(colony.level, 15) * Math.min(1.3, Math.max(0.5, colony.stability / 100)))}% Gesamt`)}</div>
+      <div class="stat-list">${statRow('Zufriedenheit', `${fmt(colony.stability)}%`)}${statRow('Standort-Bonus', `+${fmt(100 * colonyBaseBonus(colony))}% Gesamt`)}</div>
       <div><div class="muted small" style="margin-bottom:4px">Fokus</div><div class="focus-grid">${FOCI.map(f => `<button class="btn ${colony.focus === f.id ? 'primary' : ''}" data-action="set-focus" data-id="${colony.id}" data-focus="${f.id}" ${tt(f.name, f.desc + ' Wechsel kostet 2% Zufriedenheit.')}>${escapeHtml(f.name)}</button>`).join('')}</div></div>
       ${maxed ? '' : costChips(upgradeCost)}
       <div class="item-foot">${maxed ? '<span class="muted small">Ausgebaut.</span>' : `<button class="btn sm ${canUpgrade ? 'affordable' : ''}" data-action="upgrade-colony" data-id="${colony.id}" ${canUpgrade ? '' : 'disabled'}>Renovieren → Lvl ${colony.level + 1}</button>`}</div>
@@ -668,16 +663,21 @@ function renderColonies(b) {
     </section>`;
 }
 
+// Doktrin-Karte; `active` = aktuell gewählte Doktrin (null → Buttons zum Wählen).
+export function doctrineCard(d, active = null) {
+  return `<article class="item ${active?.id === d.id ? 'done' : (active ? 'locked' : '')}">
+    <div class="item-head"><strong>${escapeHtml(d.name)}</strong></div><p>${escapeHtml(d.desc)}</p>
+    <div class="tag-list">${d.effects.map(e => `<span class="badge good">${escapeHtml(e)}</span>`).join('')}</div>
+    ${active ? '' : `<button class="btn sm primary" data-action="doctrine" data-id="${d.id}">Wählen</button>`}
+  </article>`;
+}
+
 function renderDoctrine(b) {
   if (!b.doctrineUnlock) return '';
-  const active = DOCTRINES.find(d => d.id === state.doctrine);
+  const active = DOCTRINES.find(d => d.id === state.doctrine) || null;
   return `<section class="panel">
     <div class="panel-head"><div><div class="eyebrow">Kultur</div><h3>${getIcon('flag')} Core Values</h3><div class="sub">Eine Doktrin pro Run. Gilt bis zum nächsten Hard Refactor.</div></div>${active ? '<span class="badge good">Aktiv</span>' : ''}</div>
-    <div class="grid-auto-sm">${DOCTRINES.map(d => `<article class="item ${active?.id === d.id ? 'done' : (active ? 'locked' : '')}">
-      <div class="item-head"><strong>${escapeHtml(d.name)}</strong></div><p>${escapeHtml(d.desc)}</p>
-      <div class="tag-list">${d.effects.map(e => `<span class="badge good">${escapeHtml(e)}</span>`).join('')}</div>
-      ${active ? '' : `<button class="btn sm primary" data-action="doctrine" data-id="${d.id}">Wählen</button>`}
-    </article>`).join('')}</div>
+    <div class="grid-auto-sm">${DOCTRINES.map(d => doctrineCard(d, active)).join('')}</div>
   </section>`;
 }
 
@@ -710,17 +710,21 @@ function renderStockCard(stock) {
   }
   const color = trend === 'up' ? 'var(--good)' : trend === 'down' ? 'var(--bad)' : 'var(--muted)';
   const maxBuy = price > 0 ? Math.floor(cash / price) : 0;
-  const buy = [1, 10, 100].map(n => `<button class="mkt-btn buy" data-action="buy-stock" data-id="${stock.id}" data-shares="${n}" ${cash >= n * price ? '' : 'disabled'}>+${n}<small>${fmt(n * price)}</small></button>`).join('')
-    + `<button class="mkt-btn buy" data-action="buy-stock" data-id="${stock.id}" data-shares="${maxBuy}" ${maxBuy > 0 ? '' : 'disabled'}>Max<small>${fmt(maxBuy)}</small></button>`;
-  const sell = [1, 10, 100].map(n => `<button class="mkt-btn sell" data-action="sell-stock" data-id="${stock.id}" data-shares="${n}" ${owned >= n ? '' : 'disabled'}>−${n}<small>${fmt(n * price * (1 - BROKER_FEE))}</small></button>`).join('')
-    + `<button class="mkt-btn sell" data-action="sell-stock" data-id="${stock.id}" data-shares="${owned}" ${owned > 0 ? '' : 'disabled'}>Alle<small>${fmt(owned * price * (1 - BROKER_FEE))}</small></button>`;
+  const sellPrice = price * (1 - BROKER_FEE);
+  const mktBtn = (kind, shares, label, sub, enabled) => `<button class="mkt-btn ${kind}" data-action="${kind}-stock" data-id="${stock.id}" data-shares="${shares}" ${enabled ? '' : 'disabled'}>${label}<small>${sub}</small></button>`;
+  const buy = [1, 10, 100].map(n => mktBtn('buy', n, `+${n}`, fmt(n * price), cash >= n * price)).join('')
+    + mktBtn('buy', maxBuy, 'Max', fmt(maxBuy), maxBuy > 0);
+  const sell = [1, 10, 100].map(n => mktBtn('sell', n, `−${n}`, fmt(n * sellPrice), owned >= n)).join('')
+    + mktBtn('sell', owned, 'Alle', fmt(owned * sellPrice), owned > 0);
   const pct = prevPrice ? ((price / prevPrice - 1) * 100).toFixed(1) : '0.0';
+  const dividend = dividendBonus(stock.id);
+  const toCap = sharesToCap(stock.id);
   return `<article class="item mkt">
     <div class="mkt-head"><div><strong>${escapeHtml(stock.name)}</strong><div class="muted small mono">${escapeHtml(stock.ticker)} · +${(DIVIDEND_PER_SHARE * 100).toFixed(2)}% ${escapeHtml(RESOURCE_LABELS[stock.resource])}-Produktion je Aktie</div></div><span class="badge mono ${trendClass}">${trend === 'up' ? '▲' : trend === 'down' ? '▼' : '—'} ${Number(pct) >= 0 ? '+' : ''}${pct}%</span></div>
     <div class="mkt-spark"><svg viewBox="0 0 100 34" preserveAspectRatio="none"><polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
     <div class="row-between"><span class="mono">Kurs <strong>${fmt(price)}</strong> <span class="muted">Revenue</span></span><span class="muted small">Depot: <strong class="mono">${fmt(owned)}</strong> Aktien</span></div>
-    <div class="row-between"><span class="badge ${dividendBonus(stock.id) > 0 ? 'good' : ''}" ${tt('Dividende', `Jede Aktie erhöht deine ${RESOURCE_LABELS[stock.resource]}-Produktion um ${(DIVIDEND_PER_SHARE * 100).toFixed(2)}%, maximal +${Math.round(MAX_DIVIDEND_BONUS * 100)}%.`)}>${resIcon(stock.resource)} +${(dividendBonus(stock.id) * 100).toFixed(1)}% ${escapeHtml(RESOURCE_LABELS[stock.resource])}</span><span class="muted small">${sharesToCap(stock.id) > 0 ? `${fmt(sharesToCap(stock.id))} bis Max` : 'Maximum erreicht'}</span></div>
-    ${progress(dividendBonus(stock.id), MAX_DIVIDEND_BONUS, 'thin good')}
+    <div class="row-between"><span class="badge ${dividend > 0 ? 'good' : ''}" ${tt('Dividende', `Jede Aktie erhöht deine ${RESOURCE_LABELS[stock.resource]}-Produktion um ${(DIVIDEND_PER_SHARE * 100).toFixed(2)}%, maximal +${Math.round(MAX_DIVIDEND_BONUS * 100)}%.`)}>${resIcon(stock.resource)} +${(dividend * 100).toFixed(1)}% ${escapeHtml(RESOURCE_LABELS[stock.resource])}</span><span class="muted small">${toCap > 0 ? `${fmt(toCap)} bis Max` : 'Maximum erreicht'}</span></div>
+    ${progress(dividend, MAX_DIVIDEND_BONUS, 'thin good')}
     <div class="mkt-btns">${buy}</div>
     <div class="mkt-btns">${sell}</div>
   </article>`;
@@ -750,18 +754,30 @@ function renderMainframe() {
   const equipped = state.equippedChips || [];
   const owned = state.ownedChips || [];
   const unequipped = owned.filter(id => !equipped.includes(id));
+  const freeSlot = equipped.length < slots;
+  const chipCard = (c, button) => `<article class="item chip-card ${c.rarity}"><div class="item-head"><strong>${getIcon('chip')} ${escapeHtml(c.name)}</strong><span class="badge rarity-${c.rarity}">${c.rarity}</span></div><p>${escapeHtml(c.desc)}</p>${button}</article>`;
   const slotCards = [];
   for (let i = 0; i < slots; i++) {
-    const chip = CHIPS.find(c => c.id === equipped[i]);
+    const chip = getChip(equipped[i]);
     slotCards.push(chip
-      ? `<article class="item chip-card ${chip.rarity}"><div class="item-head"><strong>${getIcon('chip')} ${escapeHtml(chip.name)}</strong><span class="badge rarity-${chip.rarity}">${chip.rarity}</span></div><p>${escapeHtml(chip.desc)}</p><button class="btn xs danger" data-action="unequip-chip" data-id="${chip.id}">Entfernen</button></article>`
+      ? chipCard(chip, `<button class="btn xs danger" data-action="unequip-chip" data-id="${chip.id}">Entfernen</button>`)
       : `<article class="item chip-card empty"><div class="item-head"><strong>Slot ${i + 1}</strong></div><p>Leer. Chips findest du auf Freelance-Aufträgen.</p></article>`);
   }
   return `<section class="panel">
     <div class="panel-head"><div><div class="eyebrow">Mainframe</div><h3>${getIcon('chip')} Chips</h3><div class="sub">Ausrüstbare Boni mit Tradeoffs. Bleiben über jeden Refactor.</div></div><span class="meta">${equipped.length}/${slots} Slots · ${owned.length}/${CHIPS.length} gefunden</span></div>
     <div class="grid-auto-sm">${slotCards.join('')}</div>
-    ${unequipped.length ? `<div class="eyebrow" style="margin-top:14px">Inventar</div><div class="grid-auto-sm">${unequipped.map(id => { const c = CHIPS.find(x => x.id === id); if (!c) return ''; return `<article class="item chip-card ${c.rarity}"><div class="item-head"><strong>${getIcon('chip')} ${escapeHtml(c.name)}</strong><span class="badge rarity-${c.rarity}">${c.rarity}</span></div><p>${escapeHtml(c.desc)}</p><button class="btn xs ${equipped.length < slots ? 'primary' : ''}" data-action="equip-chip" data-id="${c.id}" ${equipped.length < slots ? '' : 'disabled'}>Installieren</button></article>`; }).join('')}</div>` : ''}
+    ${unequipped.length ? `<div class="eyebrow" style="margin-top:14px">Inventar</div><div class="grid-auto-sm">${unequipped.map(getChip).filter(Boolean).map(c => chipCard(c, `<button class="btn xs ${freeSlot ? 'primary' : ''}" data-action="equip-chip" data-id="${c.id}" ${freeSlot ? '' : 'disabled'}>Installieren</button>`)).join('')}</div>` : ''}
   </section>`;
+}
+
+// Was ein Hard Refactor behält bzw. zurücksetzt (Prestige-Tab + Bestätigungs-Modal).
+export function renderKeepReset() {
+  const keep = [`${state.artifacts.length} Funde`, `${state.achievements.length} Errungenschaften`, `${state.ownedChips.length} Chips`, 'Chronicle-Upgrades & Meilensteine', 'Aufgaben-Fortschritt, Aktien-Depot', 'Lebenszeit-Statistiken'];
+  const reset = ['Alle Mitarbeiter (außer Start-Team)', 'Tech-Stack', 'Releases', 'Standorte & laufende Aufträge', 'Ressourcen', 'Core Values (neu wählen)'];
+  return `<div class="keep-reset">
+    <div class="keep"><p class="good">Bleibt</p><ul>${keep.map(k => `<li>${escapeHtml(k)}</li>`).join('')}</ul></div>
+    <div class="reset"><p class="bad">Weg</p><ul>${reset.map(k => `<li>${escapeHtml(k)}</li>`).join('')}</ul></div>
+  </div>`;
 }
 
 function renderPrestige() {
@@ -770,8 +786,6 @@ function renderPrestige() {
   const frac = raw - Math.floor(raw);
   const nextIn = scrapForNextXp();
   const canReset = gain > 0;
-  const keep = [`${state.artifacts.length} Funde`, `${state.achievements.length} Errungenschaften`, `${state.ownedChips.length} Chips`, 'Chronicle-Upgrades & Meilensteine', 'Aufgaben-Fortschritt, Aktien-Depot', 'Lebenszeit-Statistiken'];
-  const reset = ['Alle Mitarbeiter (außer Start-Team)', 'Tech-Stack', 'Releases', 'Standorte & laufende Aufträge', 'Ressourcen', 'Core Values (neu wählen)'];
   return `
     <div class="prestige-hero">
       <section class="panel accent">
@@ -786,10 +800,7 @@ function renderPrestige() {
       </section>
       <section class="panel">
         <div class="panel-head"><div><div class="eyebrow">Was passiert?</div><h3>${getIcon('help')} Behalten vs. Zurücksetzen</h3></div></div>
-        <div class="keep-reset">
-          <div class="keep"><p class="good">Bleibt</p><ul>${keep.map(k => `<li>${escapeHtml(k)}</li>`).join('')}</ul></div>
-          <div class="reset"><p class="bad">Weg</p><ul>${reset.map(k => `<li>${escapeHtml(k)}</li>`).join('')}</ul></div>
-        </div>
+        ${renderKeepReset()}
       </section>
     </div>
 
@@ -829,7 +840,12 @@ function renderCodex() {
     ['Prestige', `Ein Hard Refactor gibt XP = ${PRESTIGE_XP_BASE}·∛(Run-Code/10 Mio.). XP kauft permanente Chronicle-Upgrades. Ab ~10 XP lohnt es sich.`],
     ['Offline', 'Bis zum Offline-Limit (Standard 8h) wird mit 50% Effizienz weitergerechnet. Chronicle-Upgrades erhöhen beides.']
   ];
-  const keys = [['Leertaste', 'Code schreiben'], ['O / B / R / P / E / M / S / C / A', 'Tabs wechseln'], ['1 / 2 / 3 / 4', 'Kaufmenge ×1 / ×10 / ×100 / Max'], ['Esc', 'Modal schließen']];
+  const keys = [
+    ['Leertaste', 'Code schreiben'],
+    [TABS.filter(t => t.key).map(t => t.key).join(' / '), 'Tabs wechseln'],
+    [BUY_AMOUNTS.map((_, i) => i + 1).join(' / '), `Kaufmenge ${BUY_AMOUNTS.map(buyAmountLabel).join(' / ')}`],
+    ['Esc', 'Modal schließen']
+  ];
   return `
     <section class="panel tight"><div class="kpis">
       ${kpi('Errungenschaften', `${unlocked.length} / ${ACHIEVEMENTS.length}`, `+${unlocked.length}% Gesamtproduktion`)}

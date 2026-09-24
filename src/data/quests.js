@@ -54,7 +54,7 @@ export const QUESTS = [
   { id: 'q_project_3', title: 'Drei Releases', desc: 'Jedes Release ist ein permanenter Multiplikator.', tab: 'projects',
     progress: (s) => [s.projects.length, 3], reward: { scrap: 2e6 } },
   { id: 'q_scrap_run_100m', title: '100 Millionen Code in diesem Run', desc: 'Ab hier lohnt sich der erste Hard Refactor.', tab: 'overview',
-    progress: (s) => [Math.max(0, (s.stats.total.scrap || 0) - (s.stats.totalAtLastPrestige?.scrap || 0)), 1e8], reward: { energy: 5e6 } },
+    progress: (s, h) => [h.runScrap, 1e8], reward: { energy: 5e6 } },
   { id: 'q_prestige_1', title: 'Erster Hard Refactor', desc: 'Setz den Run zurück und kauf mit XP permanente Upgrades.', tab: 'prestige',
     progress: (s) => [s.stats.prestigeCount || 0, 1] },
   { id: 'q_chronicle_3', title: 'Drei Chronicle-Upgrades', desc: 'XP in permanente Boni investieren.', tab: 'prestige',

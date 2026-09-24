@@ -1,9 +1,8 @@
 // stocks.js – Ressourcen-Börse (Kurse kommen vom Backend — alle Spieler sehen denselben Markt)
 import { state, setState } from '../store/gameState.js';
-import { fmt } from '../lib/format.js';
 import { AstraforgeAPI } from '../lib/api-client.js';
 
-import { STOCKS, DIVIDEND_PER_SHARE, MAX_DIVIDEND_BONUS } from '../data/stocks.js';
+import { STOCKS, DIVIDEND_PER_SHARE, MAX_DIVIDEND_BONUS, dividendBonusForShares } from '../data/stocks.js';
 export { STOCKS, DIVIDEND_PER_SHARE, MAX_DIVIDEND_BONUS };
 
 export const BROKER_FEE = 0.05;
@@ -40,8 +39,7 @@ export async function fetchServerStockPrices() {
 
 // Produktionsbonus (0..MAX_DIVIDEND_BONUS) einer Aktie aus dem gehaltenen Bestand.
 export function dividendBonus(stockId, s = state) {
-  const owned = (s.stocks || {})[stockId] || 0;
-  return Math.min(MAX_DIVIDEND_BONUS, owned * DIVIDEND_PER_SHARE);
+  return dividendBonusForShares((s.stocks || {})[stockId] || 0);
 }
 
 // Aktien bis zum Cap: wie viele Aktien fehlen noch bis +50%?

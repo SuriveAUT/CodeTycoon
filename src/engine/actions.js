@@ -3,40 +3,43 @@ import {
   calcBuildingCost, calcNextBuildingCost, maxAffordable, isBuildingUnlocked, upgradeLevel, colonyCount,
   techCount, projectCount, getTech, getProject, isTechUnlocked, isProjectUnlocked, defaultState
 } from '../store/gameState.js';
-import { computeBonuses, estimateRatesSnapshot, clickValue, chronicleCostFor } from '../store/bonuses.js';
-import { MISSIONS, WORLDS, FOCI, DOCTRINES, CHRONICLE_UPGRADES, OPERATIONS_MODES, PROTOCOLS } from '../data/misc.js';
-import { CHIPS } from '../data/chips.js';
-import { clamp, rand } from '../lib/format.js';
+import { computeBonuses, currentBonuses, currentRates, clickValue, chronicleCostFor } from '../store/bonuses.js';
+import { MISSIONS, WORLDS, FOCI, DOCTRINES, CHRONICLE_UPGRADES, OPERATIONS_MODES, PROTOCOLS, COLONY_MAX_LEVEL } from '../data/misc.js';
+import { getChip } from '../data/chips.js';
+import { clamp } from '../lib/format.js';
 import { checkAchievements } from './events.js';
 import { milestoneMult } from '../data/buildings.js';
 import { emitToast } from '../lib/toast.js';
-import { buyStock as doBuyStock, sellStock as doSellStock } from './stocks.js';
 
-function bonuses() { return state.cache.bonuses || computeBonuses(); }
+export { COLONY_MAX_LEVEL };
 
-export function nextResearchCost(tech, b = bonuses()) { return Math.ceil(tech.cost * b.researchCostMult); }
-export function nextProjectCost(project, b = bonuses()) {
+const newId = () => (globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+
+export function nextResearchCost(tech, b = currentBonuses()) { return Math.ceil(tech.cost * b.researchCostMult); }
+export function nextProjectCost(project, b = currentBonuses()) {
   const out = {};
   Object.entries(project.cost).forEach(([res, amt]) => out[res] = Math.ceil(amt * b.projectCostMult));
   return out;
 }
 
-export function purchaseBuilding(id, qty = 1) {
+// Kauft bis zu `qty` Stück ('max' = so viele wie leistbar). quiet unterdrückt den Kauf-Log (Automation),
+// der Meilenstein-Hinweis bleibt. Gibt die Anzahl gekaufter Einheiten zurück.
+export function purchaseBuilding(id, qty = 1, { quiet = false } = {}) {
   const def = getBuilding(id);
   if (!def || !isBuildingUnlocked(def)) return 0;
   const wanted = qty === 'max' ? maxAffordable(def) : Number(qty) || 1;
-  const before = state.buildings[id] || 0;
+  const before = buildingCount(id);
   let bought = 0;
   for (let i = 0; i < wanted; i++) {
     const cost = calcNextBuildingCost(def);
     if (!canAfford(cost)) break;
     spend(cost);
-    setState('buildings', id, (state.buildings[id] || 0) + 1);
+    setState('buildings', id, buildingCount(id) + 1);
     bought += 1;
   }
   if (bought) {
-    log(`${def.name}: +${bought}.`);
-    const after = state.buildings[id] || 0;
+    if (!quiet) log(`${def.name}: +${bought}.`);
+    const after = buildingCount(id);
     if (milestoneMult(after) > milestoneMult(before)) {
       log(`🚀 Meilenstein: ${def.name} ×${milestoneMult(after)} Output!`);
       emitToast(`${def.name}: Output ×${milestoneMult(after)}!`, 'good');
@@ -61,18 +64,18 @@ export function sellBuilding(id, qty = 1) {
   log(`${def.name}: −${toSell} (50% Rückerstattung).`);
 }
 
-export function purchaseTech(id) {
+export function purchaseTech(id, { quiet = false } = {}) {
   const tech = getTech(id);
   if (!tech || hasTech(id) || !isTechUnlocked(tech)) return false;
   const cost = nextResearchCost(tech);
   if (state.resources.research < cost) return false;
   setState('resources', 'research', state.resources.research - cost);
   setState('techs', [...state.techs, id]);
-  log(`Gelernt: ${tech.name}.`);
+  if (!quiet) log(`Gelernt: ${tech.name}.`);
   return true;
 }
 
-export function purchaseProject(id) {
+export function purchaseProject(id, { quiet = false } = {}) {
   const proj = getProject(id);
   if (!proj || hasProject(id) || !isProjectUnlocked(proj)) return false;
   const cost = nextProjectCost(proj);
@@ -80,7 +83,7 @@ export function purchaseProject(id) {
   spend(cost);
   setState('projects', [...state.projects, id]);
   setState('stats', 'projectsBuilt', state.stats.projectsBuilt + 1);
-  log(`Release: ${proj.name}.`);
+  if (!quiet) log(`Release: ${proj.name}.`);
   return true;
 }
 
@@ -97,7 +100,7 @@ export function prestigeStructBonus(s = state) {
   return 1 + techCount(s) * 0.02 + projectCount(s) * 0.05 + colonyCount(s) * 0.03;
 }
 
-export function prestigeGainRaw(s = state, b = s.cache?.bonuses || computeBonuses(s)) {
+export function prestigeGainRaw(s = state, b = currentBonuses(s)) {
   const base = PRESTIGE_XP_BASE * Math.cbrt(runScrap(s) / PRESTIGE_XP_SCALE);
   return base * prestigeStructBonus(s) * (b.prestigeGainMult || 1);
 }
@@ -108,64 +111,31 @@ export function prestigeGain(s = state) {
 
 // Wie viel Code fehlt bis zum nächsten vollen XP-Punkt?
 export function scrapForNextXp(s = state) {
-  const b = s.cache?.bonuses || computeBonuses(s);
-  const mult = prestigeStructBonus(s) * (b.prestigeGainMult || 1);
+  const mult = prestigeStructBonus(s) * (currentBonuses(s).prestigeGainMult || 1);
   const nextXp = prestigeGain(s) + 1;
   const needed = Math.pow(nextXp / (PRESTIGE_XP_BASE * mult), 3) * PRESTIGE_XP_SCALE;
   return Math.max(0, needed - runScrap(s));
 }
 
+// Alles, was ein Hard Refactor zurücksetzt. Alle anderen Top-Level-Keys (Funde, Chips, Chronicle,
+// Aufgaben, Depot, Statistiken, Einstellungen, Log …) bleiben unverändert erhalten.
+const RUN_KEYS = [
+  'resources', 'buildings', 'techs', 'projects', 'colonies', 'expeditions', 'doctrine',
+  'operationsMode', 'activeProtocol', 'activeProtocolEndsAt', 'protocolCooldowns', 'converterThrottle',
+  'event', 'eventEnds', 'nextEventAt', 'lastEventAt', 'asteroidActive', 'nextAsteroidAt',
+  'cyberEvent', 'nextCyberEventAt', 'decision', 'nextDecisionAt'
+];
+
 export function doPrestigeReset() {
   const gain = prestigeGain();
   if (gain <= 0) return false;
-  const keep = {
-    artifacts: [...state.artifacts],
-    achievements: [...state.achievements],
-    milestones: [...(state.prestigeMilestones || [])],
-    upgrades: { ...state.chronicleUpgrades },
-    chronicle: state.chronicle + gain,
-    prestigeCount: state.stats.prestigeCount + 1,
-    stats: JSON.parse(JSON.stringify(state.stats)),
-    ownedChips: [...(state.ownedChips || [])],
-    equippedChips: [...(state.equippedChips || [])],
-    mainframeSlots: state.mainframeSlots || 3,
-    questIndex: state.questIndex,
-    buyAmount: state.buyAmount,
-    auto: { ...state.auto },
-    stocks: { ...(state.stocks || {}) },
-    log: [...state.log]
-  };
+  const prestigeCount = state.stats.prestigeCount + 1;
 
   const fresh = defaultState();
-  for (const key of Object.keys(fresh)) setState(key, fresh[key]);
-
-  setState('artifacts', keep.artifacts);
-  setState('achievements', keep.achievements);
-  setState('prestigeMilestones', keep.milestones);
-  setState('chronicleUpgrades', keep.upgrades);
-  setState('chronicle', keep.chronicle);
-  setState('questIndex', keep.questIndex);
-  setState('buyAmount', keep.buyAmount);
-  setState('auto', keep.auto);
-  setState('stocks', keep.stocks);
-  setState('ownedChips', keep.ownedChips);
-  setState('equippedChips', keep.equippedChips);
-  setState('mainframeSlots', keep.mainframeSlots);
-  setState('log', keep.log);
-  setState('stats', 'prestigeCount', keep.prestigeCount);
-  setState('stats', 'lifetime', keep.stats.lifetime);
-  setState('stats', 'total', keep.stats.total);
-  setState('stats', 'totalAtLastPrestige', { ...keep.stats.total });
-  setState('stats', 'max', keep.stats.max);
-  setState('stats', 'projectsBuilt', keep.stats.projectsBuilt);
-  setState('stats', 'expeditionsDone', keep.stats.expeditionsDone);
-  setState('stats', 'firstSeen', keep.stats.firstSeen);
-  setState('stats', 'manualClicks', keep.stats.manualClicks);
-  setState('stats', 'protocolsUsed', keep.stats.protocolsUsed || 0);
-  setState('stats', 'questsDone', keep.stats.questsDone || 0);
-  setState('stats', 'decisionsMade', keep.stats.decisionsMade || 0);
-  setState('stats', 'fleetXP', keep.stats.fleetXP || 0);
-  setState('stats', 'fleetLevel', keep.stats.fleetLevel || 0);
+  for (const key of RUN_KEYS) setState(key, fresh[key]);
+  setState('chronicle', state.chronicle + gain);
+  setState('stats', 'prestigeCount', prestigeCount);
+  setState('stats', 'totalAtLastPrestige', { ...state.stats.total });
   setState('cache', { bonuses: null, rates: {} });
 
   // Startkapital via Seed Funding
@@ -174,12 +144,8 @@ export function doPrestigeReset() {
   setState('resources', 'energy', 20 + mon * 40);
   setState('buildings', 'intern', 1 + mon * 2);
   setState('buildings', 'google_ads', 1 + mon);
-  setState('nextEventAt', Date.now() + rand(4 * 60e3, 8 * 60e3));
-  setState('nextCyberEventAt', Date.now() + rand(4 * 60e3, 9 * 60e3));
-  setState('nextDecisionAt', Date.now() + rand(6 * 60e3, 10 * 60e3));
-  setState('nextAsteroidAt', Date.now() + rand(60e3, 150e3));
 
-  log(`🔁 Hard Refactor #${keep.prestigeCount}: +${gain} XP.`);
+  log(`🔁 Hard Refactor #${prestigeCount}: +${gain} XP.`);
   return true;
 }
 
@@ -209,17 +175,17 @@ export function colonyFoundCost() {
 }
 
 export function canFoundColony() {
-  return colonyCount() < bonuses().colonyCap && canAfford(colonyFoundCost());
+  return colonyCount() < currentBonuses().colonyCap && canAfford(colonyFoundCost());
 }
 
 export function foundColony() {
-  if (colonyCount() >= bonuses().colonyCap) return false;
+  if (colonyCount() >= currentBonuses().colonyCap) return false;
   const cost = colonyFoundCost();
   if (!canAfford(cost)) return false;
   spend(cost);
   const world = WORLDS[colonyCount() % WORLDS.length];
   const colony = {
-    id: (globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`),
+    id: newId(),
     name: world.name,
     world: world.id,
     focus: colonyCount() % 2 === 0 ? 'extraction' : 'science',
@@ -242,9 +208,7 @@ export function colonyUpgradeCost(c) {
   };
 }
 
-export const COLONY_MAX_LEVEL = 15;
-
-export function upgradeColony(id) {
+export function upgradeColony(id, { quiet = false } = {}) {
   const idx = state.colonies.findIndex(c => c.id === id);
   if (idx === -1) return false;
   const colony = state.colonies[idx];
@@ -254,26 +218,17 @@ export function upgradeColony(id) {
   spend(cost);
   setState('colonies', idx, 'level', colony.level + 1);
   setState('colonies', idx, 'stability', clamp(colony.stability + 4, 45, 130));
-  log(`${colony.name} auf Stufe ${colony.level + 1}.`);
+  if (!quiet) log(`${colony.name} auf Stufe ${colony.level + 1}.`);
   return true;
 }
 
 export function upgradeAllColonies() {
   let upgraded = 0;
-  let didUpgrade = true;
-  while (didUpgrade && upgraded < 200) {
-    didUpgrade = false;
-    for (let idx = 0; idx < state.colonies.length; idx++) {
-      const colony = state.colonies[idx];
-      if (colony.level >= COLONY_MAX_LEVEL) continue;
-      const cost = colonyUpgradeCost(colony);
-      if (canAfford(cost)) {
-        spend(cost);
-        setState('colonies', idx, 'level', colony.level + 1);
-        setState('colonies', idx, 'stability', clamp(colony.stability + 4, 45, 130));
-        didUpgrade = true;
-        upgraded++;
-      }
+  let progress = true;
+  while (progress && upgraded < 200) {
+    progress = false;
+    for (const colony of state.colonies) {
+      if (upgradeColony(colony.id, { quiet: true })) { upgraded++; progress = true; }
     }
   }
   if (upgraded > 0) log(`${upgraded} Standort-Upgrades durchgeführt.`);
@@ -292,27 +247,20 @@ export function setColonyFocus(id, focusId) {
   return true;
 }
 
-export function cycleColonyFocus(id) {
-  const colony = state.colonies.find(c => c.id === id);
-  if (!colony) return false;
-  const fIdx = FOCI.findIndex(f => f.id === colony.focus);
-  return setColonyFocus(id, FOCI[(fIdx + 1) % FOCI.length].id);
-}
-
 // ── Freelance ──
 export function missionPowerReq(mission) { return mission.power * 0.65; }
 
 export function launchMission(missionId) {
   const mission = MISSIONS.find(m => m.id === missionId);
   if (!mission) return false;
-  const b = bonuses();
+  const b = currentBonuses();
   if (b.availableExpeditionSlots <= 0) return false;
   const powerReq = missionPowerReq(mission);
   if (b.availableExpeditionPower < powerReq) return false;
   const now = Date.now();
   const duration = Math.max(30e3, (mission.duration * 1000) / b.expeditionSpeed);
   setState('expeditions', [...state.expeditions, {
-    id: (globalThis.crypto?.randomUUID ? crypto.randomUUID() : `${now}-${Math.random()}`),
+    id: newId(),
     missionId: mission.id,
     name: mission.name,
     start: now,
@@ -365,9 +313,7 @@ export function activateProtocol(protocolId) {
 
 // ── Klick ──
 export function handleManualClick() {
-  const b = bonuses();
-  const rates = state.cache.rates || estimateRatesSnapshot();
-  const gain = clickValue(b, rates);
+  const gain = clickValue(currentBonuses(), currentRates());
   add('scrap', gain);
   setState('stats', 'manualClicks', state.stats.manualClicks + 1);
   return { scrap: gain };
@@ -379,17 +325,13 @@ export function equipChip(chipId) {
   if (state.equippedChips.includes(chipId)) return false;
   if (state.equippedChips.length >= (state.mainframeSlots || 3)) return false;
   setState('equippedChips', [...state.equippedChips, chipId]);
-  log(`Chip installiert: ${CHIPS.find(c => c.id === chipId)?.name || chipId}.`);
+  log(`Chip installiert: ${getChip(chipId)?.name || chipId}.`);
   return true;
 }
 
 export function unequipChip(chipId) {
   if (!state.equippedChips.includes(chipId)) return false;
   setState('equippedChips', state.equippedChips.filter(id => id !== chipId));
-  log(`Chip entfernt: ${CHIPS.find(c => c.id === chipId)?.name || chipId}.`);
+  log(`Chip entfernt: ${getChip(chipId)?.name || chipId}.`);
   return true;
 }
-
-// ── Börse ──
-export function buyStockAction(stockId, shares) { return doBuyStock(stockId, shares); }
-export function sellStockAction(stockId, shares) { return doSellStock(stockId, shares); }

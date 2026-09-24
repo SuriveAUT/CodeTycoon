@@ -1,29 +1,29 @@
 import { onMount, onCleanup, createSignal } from 'solid-js';
-import { state, setState, saveState, log as gameLog, SAVE_KEY, normalizeState, hadLocalSave, totalBuildings, techCount, projectCount, forceCloudSync, snapshotState, getTech } from '../store/gameState.js';
-import { computeBonuses, estimateRatesSnapshot, clickValue } from '../store/bonuses.js';
-import { processTick } from '../engine/tick.js';
+import { state, setState, saveState, log as gameLog, SAVE_KEY, normalizeState, hadLocalSave, totalBuildings, techCount, projectCount, forceCloudSync, snapshotState, getTech, BUY_AMOUNTS } from '../store/gameState.js';
+import { computeBonuses, estimateRatesSnapshot, currentBonuses, currentRates, clickValue } from '../store/bonuses.js';
+import { processTick, runProgressChecks } from '../engine/tick.js';
 import {
   purchaseBuilding, sellBuilding, purchaseTech, purchaseProject, doPrestigeReset, buyChronicle, foundColony, upgradeColony,
   upgradeAllColonies, setColonyFocus, launchMission, setDoctrine, setOperationsMode, activateProtocol, prestigeGain,
-  handleManualClick, equipChip, unequipChip, buyStockAction, sellStockAction
+  handleManualClick, equipChip, unequipChip
 } from '../engine/actions.js';
 import { clickAnomaly } from '../engine/events.js';
 import { autoExpeditions } from '../engine/automation.js';
 import { clickCyberEvent } from '../engine/cyberEvents.js';
-import { renderTabContent, renderNav, renderTopbar, renderSidebarFoot, renderCyberEventOverlay, setAdminUsers, setAdminSelectedUser, collectAdminSaveEdits, VALID_TABS, navBadges } from './renderers.js';
+import { renderTabContent, renderNav, renderTopbar, renderSidebarFoot, renderCyberEventOverlay, renderKeepReset, doctrineCard, setAdminUsers, setAdminSelectedUser, collectAdminSaveEdits, TABS, VALID_TABS, navBadges } from './renderers.js';
 import { AstraforgeAPI } from '../lib/api-client.js';
 import { RESOURCES, RESOURCE_LABELS, DOCTRINES } from '../data/misc.js';
-import { fmt, fmtSec, rand } from '../lib/format.js';
+import { fmt, fmtSec, fmtRate, rand } from '../lib/format.js';
 import { escapeHtml } from '../lib/sanitize.js';
 import { onToast } from '../lib/toast.js';
-import { fetchServerStockPrices } from '../engine/stocks.js';
+import { fetchServerStockPrices, buyStock, sellStock } from '../engine/stocks.js';
 import { resolveDecision } from '../engine/decisions.js';
 import { getSetting, toggleSetting } from '../lib/settings.js';
 
 const FRESH_FLAG = 'codetycoon-fresh-start';
 
-const TAB_KEYS = { o: 'overview', b: 'buildings', r: 'research', p: 'projects', e: 'expansion', m: 'market', s: 'prestige', c: 'codex', a: 'account' };
-const BUY_KEYS = { 1: 1, 2: 10, 3: 100, 4: 'max' };
+// Tastatur-Shortcuts: Tab-Tasten aus TABS, Kaufmenge 1–4 aus BUY_AMOUNTS
+const TAB_KEYS = Object.fromEntries(TABS.filter(t => t.key).map(t => [t.key.toLowerCase(), t.id]));
 
 export default function App() {
   let contentRef, navRef, bottomNavRef, topbarRef, footRef, tooltipRef, cyberEventRef, toastContainerRef;
@@ -58,15 +58,13 @@ export default function App() {
   let chatIntervalId = null;
 
   // ── Modal ──
+  // Löst mit der `action` des geklickten Buttons auf ('cancel' bei Esc/Overlay)
   function showModal(title, message, buttons) {
     return new Promise(resolve => {
       modalResolve = resolve;
       setModalTitle(title);
       setModalMessage(message);
-      setModalButtons(buttons || [
-        { label: 'Abbrechen', action: 'cancel', cls: '' },
-        { label: 'Bestätigen', action: 'confirm', cls: 'danger' }
-      ]);
+      setModalButtons(buttons);
       setModalVisible(true);
     });
   }
@@ -74,14 +72,15 @@ export default function App() {
     setModalVisible(false);
     if (modalResolve) { modalResolve(result); modalResolve = null; }
   }
+  // Ja/Nein-Dialog → Promise<boolean>
+  function confirmModal(title, message, okLabel, okCls = 'primary') {
+    return showModal(title, message, [{ label: 'Abbrechen', action: 'cancel' }, { label: okLabel, action: 'confirm', cls: okCls }]).then(r => r === 'confirm');
+  }
+  function showError(title, err) {
+    showModal(title, `<p>${escapeHtml(String(err))}</p>`, [{ label: 'Ok', action: 'cancel' }]);
+  }
   function showDoctrineModal() {
-    const docHTML = DOCTRINES.map(d => `<div class="doctrine-opt">
-        <strong>${escapeHtml(d.name)}</strong>
-        <span class="muted small">${escapeHtml(d.desc)}</span>
-        <div class="tag-list">${d.effects.map(e => `<span class="badge good">${escapeHtml(e)}</span>`).join('')}</div>
-        <button class="btn primary sm" data-action="modal-doctrine" data-id="${d.id}">Wählen</button>
-      </div>`).join('');
-    showModal('Core Values wählen', `<p class="muted small" style="margin-bottom:8px">Eine Doktrin pro Run. Sie gilt bis zum nächsten Hard Refactor.</p>${docHTML}`, [{ label: 'Später', action: 'cancel', cls: '' }]);
+    showModal('Core Values wählen', `<p class="muted small" style="margin-bottom:8px">Eine Doktrin pro Run. Sie gilt bis zum nächsten Hard Refactor.</p><div class="grid-auto-sm">${DOCTRINES.map(d => doctrineCard(d)).join('')}</div>`, [{ label: 'Später', action: 'cancel' }]);
   }
 
   // passive = Engine-Benachrichtigung (Quests, Errungenschaften …); direkte Aktions-Rückmeldungen bleiben immer sichtbar
@@ -115,7 +114,7 @@ export default function App() {
     const last = state.stats.lastSave > 0 ? state.stats.lastSave : Date.now();
     const elapsed = Math.max(0, (Date.now() - last) / 1000);
     if (elapsed < 10) return;
-    const bonuses = computeBonuses();
+    const bonuses = currentBonuses();
     const cap = (bonuses.offlineCapHours || 8) * 3600;
     const sim = Math.min(elapsed, cap);
     const efficiency = bonuses.offlineEfficiency || 0.5;
@@ -127,6 +126,7 @@ export default function App() {
       processTick(step * efficiency, { silent: true, auto: true, offline: true });
       left -= step;
     }
+    runProgressChecks(true);
     const gains = RESOURCES.map(r => [r, (state.resources[r] || 0) - before[r]]).filter(([, d]) => d >= 0.5).sort((a, z) => z[1] - a[1]).slice(0, 4);
     const summary = gains.length ? gains.map(([r, d]) => `+${fmt(d)} ${RESOURCE_LABELS[r]}`).join(', ') : 'nichts Nennenswertes';
     gameLog(`Offline ${fmtSec(sim)} (${Math.round(efficiency * 100)}%): ${summary}.`);
@@ -138,6 +138,7 @@ export default function App() {
 
   // ── Rendering ──
   function renderAll(force) {
+    liveNodes = null;
     if (contentRef) {
       const skipContent = (!force && state.selectedTab === 'account' && contentRef.querySelector('#auth-user') && document.activeElement && contentRef.contains(document.activeElement))
         || (!force && state.selectedTab === 'admin' && contentRef.querySelector('#admin-flag-username'));
@@ -158,15 +159,17 @@ export default function App() {
     refreshTooltipUnderCursor();
   }
 
+  // Nur neu setzen, wenn sich das HTML geändert hat (spart Layout und erhält Scroll-Position)
+  const setHtmlIfChanged = (el, html) => { if (el && el.__html !== html) { el.__html = html; el.innerHTML = html; return true; } return false; };
+
   function renderChrome() {
     document.title = `${fmt(state.resources.scrap || 0)} Code · CodeTycoon`;
     if (topbarRef) topbarRef.innerHTML = renderTopbar();
     const badges = navBadges();
-    if (navRef) navRef.innerHTML = renderNav(false, badges);
+    setHtmlIfChanged(navRef, renderNav(false, badges));
     if (bottomNavRef) {
       const scrollLeft = bottomNavRef.scrollLeft;
-      bottomNavRef.innerHTML = renderNav(true, badges);
-      bottomNavRef.scrollLeft = scrollLeft;
+      if (setHtmlIfChanged(bottomNavRef, renderNav(true, badges))) bottomNavRef.scrollLeft = scrollLeft;
       // Nur beim Tab-Wechsel zum aktiven Tab scrollen, nicht bei jedem Sekunden-Render
       if (lastScrolledTab !== state.selectedTab && bottomNavRef.clientWidth > 0) {
         lastScrolledTab = state.selectedTab;
@@ -174,22 +177,28 @@ export default function App() {
         if (active) bottomNavRef.scrollTo({ left: active.offsetLeft - (bottomNavRef.clientWidth - active.offsetWidth) / 2, behavior: 'smooth' });
       }
     }
-    if (footRef) footRef.innerHTML = renderSidebarFoot();
+    setHtmlIfChanged(footRef, renderSidebarFoot());
   }
 
+  // Live-Zähler (10 Hz): Knoten einmal pro Render einsammeln statt bei jedem Update das Dokument zu durchsuchen
+  let liveNodes = null;
+  function collectLiveNodes() {
+    const byRes = attr => Object.fromEntries(RESOURCES.map(r => [r, [...document.querySelectorAll(`[${attr}="${r}"]`)]]));
+    return { vals: byRes('data-res-val'), rates: byRes('data-res-rate'), click: document.querySelector('[data-live="click"]') };
+  }
   function updateResourceCounters() {
-    const rates = state.cache.rates || {};
+    if (!liveNodes) liveNodes = collectLiveNodes();
+    const rates = currentRates();
     RESOURCES.forEach(r => {
-      document.querySelectorAll(`[data-res-val="${r}"]`).forEach(el => { el.textContent = fmt(state.resources[r] || 0); });
+      liveNodes.vals[r].forEach(el => { el.textContent = fmt(state.resources[r] || 0); });
       const rate = Number(rates[r] || 0);
-      document.querySelectorAll(`[data-res-rate="${r}"]`).forEach(el => {
-        el.textContent = `${rate > 0 ? '+' : rate < 0 ? '−' : ''}${fmt(Math.abs(rate))}/s`;
+      liveNodes.rates[r].forEach(el => {
+        el.textContent = fmtRate(rate);
         el.classList.toggle('good', rate > 0.0001);
         el.classList.toggle('bad', rate < -0.0001);
       });
     });
-    const clickEl = document.querySelector('[data-live="click"]');
-    if (clickEl) clickEl.textContent = fmt(clickValue(state.cache.bonuses || computeBonuses(), rates));
+    if (liveNodes.click) liveNodes.click.textContent = fmt(clickValue(currentBonuses(), rates));
   }
 
   // ── Bug-Anomalie ──
@@ -287,9 +296,6 @@ export default function App() {
       case 'decide': resolveDecision(Number(btn.dataset.index || 0)); done(); return;
       case 'toggle-setting': toggleSetting(id); renderAll(true); return;
       case 'manual-click': runManualClick(btn); return;
-      case 'modal-confirm': closeModal(true); return;
-      case 'modal-cancel': closeModal(false); return;
-      case 'modal-doctrine': closeModal(null); setDoctrine(id); done(); return;
       case 'tab': selectTab(btn.dataset.tab); return;
       case 'set-buy-amount': {
         const v = btn.dataset.value === 'max' ? 'max' : Number(btn.dataset.value);
@@ -323,22 +329,15 @@ export default function App() {
       case 'prestige': {
         const gain = prestigeGain();
         if (gain <= 0) return;
-        showModal('Hard Refactor',
-          `<p>Du bekommst <strong class="good">+${fmt(gain)} XP</strong> (Guthaben danach: ${fmt(state.chronicle + gain)}).</p>
-           <div class="keep-reset" style="margin-top:12px">
-             <div class="keep"><p class="good">Bleibt</p><ul><li>${state.artifacts.length} Funde, ${state.ownedChips.length} Chips</li><li>${state.achievements.length} Errungenschaften</li><li>Chronicle & Meilensteine</li><li>Aufgaben, Depot, Statistiken</li></ul></div>
-             <div class="reset"><p class="bad">Weg</p><ul><li>Mitarbeiter & Tech-Stack</li><li>Releases & Standorte</li><li>Ressourcen & Aufträge</li><li>Core Values</li></ul></div>
-           </div>`,
-          [{ label: 'Abbrechen', action: 'cancel', cls: '' }, { label: `Refactor (+${fmt(gain)} XP)`, action: 'confirm', cls: 'primary' }]
+        confirmModal('Hard Refactor',
+          `<p>Du bekommst <strong class="good">+${fmt(gain)} XP</strong> (Guthaben danach: ${fmt(state.chronicle + gain)}).</p><div style="margin-top:12px">${renderKeepReset()}</div>`,
+          `Refactor (+${fmt(gain)} XP)`
         ).then(confirmed => {
-          if (confirmed !== 'confirm' && confirmed !== true) return;
-          if (doPrestigeReset()) {
-            showToast(`Hard Refactor abgeschlossen: +${fmt(gain)} XP`, 'good', true);
-            setState('selectedTab', 'prestige');
-            done();
-            const b2 = computeBonuses();
-            if (b2.doctrineUnlock && !state.doctrine) setTimeout(showDoctrineModal, 400);
-          }
+          if (!confirmed || !doPrestigeReset()) return;
+          showToast(`Hard Refactor abgeschlossen: +${fmt(gain)} XP`, 'good', true);
+          setState('selectedTab', 'prestige');
+          done();
+          if (currentBonuses().doctrineUnlock && !state.doctrine) setTimeout(showDoctrineModal, 400);
         });
         return;
       }
@@ -349,16 +348,16 @@ export default function App() {
       case 'send-mission': if (launchMission(id)) showToast('Auftrag angenommen.', 'good'); done(); return;
       case 'fill-missions': {
         const before = state.expeditions.length;
-        autoExpeditions(computeBonuses());
+        autoExpeditions(currentBonuses());
         const started = state.expeditions.length - before;
         showToast(started > 0 ? `${started} Auftrag${started > 1 ? 'e' : ''} gestartet.` : 'Kein Auftrag startbar (Slots/Power).', started > 0 ? 'good' : 'warn');
         done(); return;
       }
-      case 'doctrine': setDoctrine(id); done(); return;
+      case 'doctrine': closeModal(null); setDoctrine(id); done(); return; // auch aus dem Doktrin-Modal
       case 'equip-chip': equipChip(id); done(); return;
       case 'unequip-chip': unequipChip(id); done(); return;
-      case 'buy-stock': buyStockAction(id, Number(btn.dataset.shares || 1)); done(); return;
-      case 'sell-stock': sellStockAction(id, Number(btn.dataset.shares || 1)); done(); return;
+      case 'buy-stock': buyStock(id, Number(btn.dataset.shares || 1)); done(); return;
+      case 'sell-stock': sellStock(id, Number(btn.dataset.shares || 1)); done(); return;
       case 'export-save': {
         const text = btoa(unescape(encodeURIComponent(JSON.stringify(snapshotState()))));
         navigator.clipboard?.writeText(text).then(() => showToast('Spielstand in Zwischenablage kopiert.', 'good')).catch(() => {
@@ -367,8 +366,8 @@ export default function App() {
         return;
       }
       case 'import-save': {
-        showModal('Import', '<p class="muted small">Exportierten Spielstand einfügen. Der aktuelle lokale Stand wird überschrieben.</p><textarea id="import-text" class="input" style="height:120px;font-size:11px;margin-top:8px"></textarea>', [{ label: 'Abbrechen', action: 'cancel' }, { label: 'Laden', action: 'confirm', cls: 'danger' }]).then(result => {
-          if (result !== 'confirm' && result !== true) return;
+        confirmModal('Import', '<p class="muted small">Exportierten Spielstand einfügen. Der aktuelle lokale Stand wird überschrieben.</p><textarea id="import-text" class="input" style="height:120px;font-size:11px;margin-top:8px"></textarea>', 'Laden', 'danger').then(ok => {
+          if (!ok) return;
           try {
             const raw = document.getElementById('import-text')?.value?.trim() || '';
             const json = raw.startsWith('{') ? raw : decodeURIComponent(escape(atob(raw)));
@@ -379,8 +378,8 @@ export default function App() {
         return;
       }
       case 'hard-reset': {
-        showModal('Alles löschen?', `<p>Kompletter Neustart – auch XP, Funde und Chips gehen verloren.${AstraforgeAPI.isLoggedIn() ? ' Der Cloud-Save wird dabei ebenfalls überschrieben.' : ''}</p>`, [{ label: 'Abbrechen', action: 'cancel' }, { label: 'Ja, alles löschen', action: 'confirm', cls: 'danger' }]).then(result => {
-          if (result !== 'confirm' && result !== true) return;
+        confirmModal('Alles löschen?', `<p>Kompletter Neustart – auch XP, Funde und Chips gehen verloren.${AstraforgeAPI.isLoggedIn() ? ' Der Cloud-Save wird dabei ebenfalls überschrieben.' : ''}</p>`, 'Ja, alles löschen', 'danger').then(ok => {
+          if (!ok) return;
           try { localStorage.setItem(FRESH_FLAG, '1'); } catch (_) { /* ignore */ }
           reloadWithoutLocalSave();
         });
@@ -407,9 +406,9 @@ export default function App() {
         if (!u || !p) { showToast('Name und Passwort eingeben.', 'warn'); return; }
         const doRegister = () => AstraforgeAPI.register(u, p).then(() => {
           showModal('Account erstellt', '<p>Das Spiel wird frisch geladen, damit kein alter Fortschritt auf den neuen Account kopiert wird.</p>', [{ label: 'Ok', action: 'confirm', cls: 'primary' }]).then(() => reloadWithoutLocalSave());
-        }).catch(err => showModal('Fehler', `<p>${escapeHtml(String(err))}</p>`, [{ label: 'Ok', action: 'cancel' }]));
+        }).catch(err => showError('Fehler', err));
         if (hasMeaningfulLocalProgress()) {
-          showModal('Lokaler Fortschritt vorhanden', '<p>Ein neuer Account startet frisch. Der lokale Spielstand wird nach der Registrierung von diesem Gerät entfernt.</p>', [{ label: 'Abbrechen', action: 'cancel' }, { label: 'Frisch registrieren', action: 'confirm', cls: 'danger' }]).then(result => { if (result === 'confirm' || result === true) doRegister(); });
+          confirmModal('Lokaler Fortschritt vorhanden', '<p>Ein neuer Account startet frisch. Der lokale Spielstand wird nach der Registrierung von diesem Gerät entfernt.</p>', 'Frisch registrieren', 'danger').then(ok => { if (ok) doRegister(); });
         } else doRegister();
         return;
       }
@@ -422,49 +421,45 @@ export default function App() {
           return AstraforgeAPI.loadGame().then(res => {
             if (res?.gameData && applyRemoteSave(res.gameData, { force: true })) { gameLog('Cloud-Save geladen.'); saveState(); }
           }).catch(err => console.warn('Cloud-Save nach Login nicht geladen', err)).finally(() => { renderAll(true); refreshLeaderboard(); showToast(`Willkommen, ${u}!`, 'good'); });
-        }).catch(err => showModal('Login fehlgeschlagen', `<p>${escapeHtml(String(err))}</p>`, [{ label: 'Ok', action: 'cancel' }]));
+        }).catch(err => showError('Login fehlgeschlagen', err));
         return;
       }
       case 'auth-logout':
         forceCloudSync().catch(() => {}).finally(() => { AstraforgeAPI.logout(); reloadWithoutLocalSave(); });
         return;
       case 'force-sync':
-        forceCloudSync().then(() => showToast('In der Cloud gespeichert.', 'good')).catch(err => showModal('Sync-Fehler', `<p>${escapeHtml(String(err))}</p>`, [{ label: 'Ok', action: 'cancel' }]));
+        forceCloudSync().then(() => showToast('In der Cloud gespeichert.', 'good')).catch(err => showError('Sync-Fehler', err));
         return;
       case 'load-cloud':
         AstraforgeAPI.loadGame().then(res => {
           if (res?.gameData && applyRemoteSave(res.gameData, { force: true })) { offlineCatchup(); saveState(); renderAll(true); showToast('Cloud-Save geladen.', 'good'); }
           else showToast('Kein Cloud-Save gefunden.', 'bad');
-        }).catch(err => showModal('Fehler', `<p>${escapeHtml(String(err))}</p>`, [{ label: 'Ok', action: 'cancel' }]));
+        }).catch(err => showError('Fehler', err));
         return;
       case 'refresh-lb': refreshLeaderboard(); return;
       // ── Admin ──
       case 'admin-refresh': refreshAdminData(); return;
-      case 'admin-unflag':
-        AstraforgeAPI.unflagUser(btn.dataset.username).then(() => { showToast(`${btn.dataset.username} entflaggt.`); refreshAdminData(); }).catch(err => showToast(`Fehler: ${err.message}`, 'bad'));
-        return;
+      case 'admin-unflag': adminCall(AstraforgeAPI.unflagUser(btn.dataset.username), `${btn.dataset.username} entflaggt.`); return;
       case 'admin-ban': {
         const uname = btn.dataset.username;
         const reason = prompt(`Grund für "${uname}":`) || 'Manuell geflaggt von Admin';
-        AstraforgeAPI.flagUser(uname, reason).then(() => { showToast(`${uname} geflaggt.`); refreshAdminData(); }).catch(err => showToast(`Fehler: ${err.message}`, 'bad'));
+        adminCall(AstraforgeAPI.flagUser(uname, reason), `${uname} geflaggt.`);
         return;
       }
       case 'admin-rename-user': {
         const uname = (btn.dataset.username || document.getElementById('admin-rename-old-username')?.value || '').trim();
         const newName = (btn.dataset.username ? (prompt(`Neuer Name für "${uname}":`) || '') : (document.getElementById('admin-rename-new-username')?.value || '')).trim();
         if (!uname || !newName) return;
-        showModal('Account umbenennen', `<p>${escapeHtml(uname)} → <strong>${escapeHtml(newName)}</strong>?</p>`, [{ label: 'Abbrechen', action: 'cancel' }, { label: 'Umbenennen', action: 'confirm', cls: 'primary' }]).then(result => {
-          if (result !== 'confirm' && result !== true) return;
-          AstraforgeAPI.renameUser(uname, newName).then(() => { showToast(`${uname} → ${newName}.`); refreshAdminData(); }).catch(err => showToast(`Fehler: ${err.message}`, 'bad'));
+        confirmModal('Account umbenennen', `<p>${escapeHtml(uname)} → <strong>${escapeHtml(newName)}</strong>?</p>`, 'Umbenennen').then(ok => {
+          if (ok) adminCall(AstraforgeAPI.renameUser(uname, newName), `${uname} → ${newName}.`);
         });
         return;
       }
       case 'admin-delete-user': {
         const uname = (btn.dataset.username || document.getElementById('admin-delete-username')?.value || '').trim();
         if (!uname) return;
-        showModal('Account löschen', `<p>Account <strong>${escapeHtml(uname)}</strong> endgültig löschen?</p>`, [{ label: 'Abbrechen', action: 'cancel' }, { label: 'Löschen', action: 'confirm', cls: 'danger' }]).then(result => {
-          if (result !== 'confirm' && result !== true) return;
-          AstraforgeAPI.deleteUser(uname).then(() => { showToast(`${uname} gelöscht.`); refreshAdminData(); }).catch(err => showToast(`Fehler: ${err.message}`, 'bad'));
+        confirmModal('Account löschen', `<p>Account <strong>${escapeHtml(uname)}</strong> endgültig löschen?</p>`, 'Löschen', 'danger').then(ok => {
+          if (ok) adminCall(AstraforgeAPI.deleteUser(uname), `${uname} gelöscht.`);
         });
         return;
       }
@@ -472,7 +467,7 @@ export default function App() {
         const uname = (document.getElementById('admin-flag-username')?.value || '').trim();
         const reason = (document.getElementById('admin-flag-reason')?.value || '').trim() || 'Manuell geflaggt von Admin';
         if (!uname) return;
-        AstraforgeAPI.flagUser(uname, reason).then(() => { showToast(`${uname} geflaggt.`); refreshAdminData(); }).catch(err => showToast(`Fehler: ${err.message}`, 'bad'));
+        adminCall(AstraforgeAPI.flagUser(uname, reason), `${uname} geflaggt.`);
         return;
       }
       case 'admin-load-user': {
@@ -494,14 +489,13 @@ export default function App() {
         };
         const newPw = (document.getElementById('admin-editor-new-password')?.value || '').trim();
         if (newPw) payload.new_password = newPw;
-        showModal('Daten speichern', `<p>Daten von <strong>${escapeHtml(uname)}</strong> überschreiben?</p>`, [{ label: 'Abbrechen', action: 'cancel' }, { label: 'Speichern', action: 'confirm', cls: 'primary' }]).then(result => {
-          if (result !== 'confirm' && result !== true) return;
-          AstraforgeAPI.updateAdminUserData(uname, payload).then(() => {
-            showToast(`${uname} aktualisiert.`);
+        confirmModal('Daten speichern', `<p>Daten von <strong>${escapeHtml(uname)}</strong> überschreiben?</p>`, 'Speichern').then(ok => {
+          if (!ok) return;
+          adminCall(AstraforgeAPI.updateAdminUserData(uname, payload).then(() => {
             if (uname === AstraforgeAPI.username && payload.game_save) {
               try { applyRemoteSave(JSON.parse(payload.game_save), { force: true }); saveState(); renderAll(true); } catch (_) { /* ignore */ }
             }
-          }).catch(err => showToast(`Fehler: ${err.message}`, 'bad'));
+          }), `${uname} aktualisiert.`);
         });
         return;
       }
@@ -525,7 +519,13 @@ export default function App() {
     }
     const tab = TAB_KEYS[e.key?.toLowerCase()];
     if (tab) { e.preventDefault(); selectTab(tab); return; }
-    if (BUY_KEYS[e.key] !== undefined && state.selectedTab === 'buildings') { setState('buyAmount', BUY_KEYS[e.key]); renderAll(); saveState(); }
+    const buyAmount = BUY_AMOUNTS[Number(e.key) - 1];
+    if (buyAmount !== undefined && state.selectedTab === 'buildings') { setState('buyAmount', buyAmount); renderAll(); saveState(); }
+  }
+
+  // Admin-Aufruf: Erfolg → Toast + Liste neu laden, Fehler → Toast
+  function adminCall(promise, okMsg) {
+    promise.then(() => { showToast(okMsg); refreshAdminData(); }).catch(err => showToast(`Fehler: ${err.message}`, 'bad'));
   }
 
   function refreshAdminData() {
@@ -653,7 +653,7 @@ export default function App() {
   }
   function showTooltipFor(el) {
     try {
-      const payload = decodeURIComponent(el.dataset.tt);
+      const payload = el.dataset.tt;
       if (!payload) return;
       tooltipRef.innerHTML = payload;
       tooltipRef.classList.add('visible');
@@ -733,8 +733,7 @@ export default function App() {
       setState('cache', 'rates', estimateRatesSnapshot());
       renderAll(true);
       if (state.selectedTab === 'account') refreshLeaderboard();
-      const b = computeBonuses();
-      if (!state.doctrine && b.doctrineUnlock && state.stats.prestigeCount > 0) setTimeout(showDoctrineModal, 600);
+      if (!state.doctrine && currentBonuses().doctrineUnlock && state.stats.prestigeCount > 0) setTimeout(showDoctrineModal, 600);
       saveState();
       initTooltipLogic();
       toastUnsubscribe = onToast((msg, type) => showToast(msg, type, false, true));

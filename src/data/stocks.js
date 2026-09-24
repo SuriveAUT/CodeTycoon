@@ -3,6 +3,10 @@
 export const DIVIDEND_PER_SHARE = 0.0001; // +0,01% je Aktie
 export const MAX_DIVIDEND_BONUS = 0.5;    // max. +50% je Ressource
 
+export function dividendBonusForShares(shares) {
+  return Math.min(MAX_DIVIDEND_BONUS, (shares || 0) * DIVIDEND_PER_SHARE);
+}
+
 export const STOCKS = [
   {
     id: 'stk_scrap',

@@ -30,5 +30,12 @@ export function fmtSec(s) {
   return `${sec}s`;
 }
 
+// Vorzeichenbehaftete Rate: +12,3/s, −4/s, 0/s
+export function fmtRate(v, unit = '/s') {
+  const n = Number(v) || 0;
+  if (Math.abs(n) < 1e-9) return `0${unit}`;
+  return `${n > 0 ? '+' : '−'}${fmt(Math.abs(n))}${unit}`;
+}
+
 export function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 export function rand(a, b) { return a + Math.random() * (b - a); }

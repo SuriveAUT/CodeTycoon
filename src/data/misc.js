@@ -1,5 +1,9 @@
 export const RESOURCES = ['scrap', 'energy', 'alloy', 'components', 'data', 'research', 'influence', 'relics'];
 
+export const zeroResources = () => RESOURCES.reduce((o, r) => (o[r] = 0, o), {});
+
+export const COLONY_MAX_LEVEL = 15;
+
 export const RESOURCE_LABELS = {
   scrap: 'Code', energy: 'Revenue', alloy: 'Bugs', components: 'Module',
   data: 'Users', research: 'Ideas', influence: 'Hype', relics: 'Legacy Code'

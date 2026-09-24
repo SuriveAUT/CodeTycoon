@@ -1,5 +1,6 @@
 // decisions.js – Entscheidungs-Ereignisse (Wahl mit Konsequenzen).
 import { state, setState, add, log } from '../store/gameState.js';
+import { currentRates } from '../store/bonuses.js';
 import { DECISIONS } from '../data/decisions.js';
 import { rand, fmt } from '../lib/format.js';
 import { emitToast } from '../lib/toast.js';
@@ -20,8 +21,7 @@ export function spawnDecision(now = Date.now()) {
 }
 
 function applyOption(def, option, silent) {
-  const rates = state.cache.rates || {};
-  const produced = rates.__produced || {};
+  const produced = currentRates().__produced || {};
   const parts = [];
   if (option.cost) {
     const have = state.resources[option.cost.res] || 0;

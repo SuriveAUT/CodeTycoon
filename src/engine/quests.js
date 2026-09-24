@@ -1,6 +1,7 @@
 // quests.js – Sequenzielle Aufgaben (Onboarding + Ziele).
 import { state, setState, add, log, totalBuildings, techCount, projectCount, colonyCount } from '../store/gameState.js';
 import { QUESTS } from '../data/quests.js';
+import { runScrap } from './actions.js';
 import { emitToast } from '../lib/toast.js';
 import { fmt } from '../lib/format.js';
 import { RESOURCE_LABELS } from '../data/misc.js';
@@ -10,7 +11,8 @@ function helpers(s) {
     totalBuildings: totalBuildings(s),
     techCount: techCount(s),
     projectCount: projectCount(s),
-    colonyCount: colonyCount(s)
+    colonyCount: colonyCount(s),
+    runScrap: runScrap(s)
   };
 }
 
