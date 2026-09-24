@@ -14,7 +14,6 @@ import { buyStock as doBuyStock, sellStock as doSellStock } from './stocks.js';
 
 function bonuses() { return state.cache.bonuses || computeBonuses(); }
 
-export function nextCostWithMultipliers(def) { return calcNextBuildingCost(def); }
 export function nextResearchCost(tech, b = bonuses()) { return Math.ceil(tech.cost * b.researchCostMult); }
 export function nextProjectCost(project, b = bonuses()) {
   const out = {};
@@ -90,10 +89,14 @@ export function runScrap(s = state) {
   return Math.max(0, (s.stats.total.scrap || 0) - (s.stats.totalAtLastPrestige?.scrap || 0));
 }
 
+// Strukturbonus: Techs, Releases und Standorte des Runs erhöhen die XP
+export function prestigeStructBonus(s = state) {
+  return 1 + techCount(s) * 0.02 + projectCount(s) * 0.05 + colonyCount(s) * 0.03;
+}
+
 export function prestigeGainRaw(s = state, b = s.cache?.bonuses || computeBonuses(s)) {
   const base = 6 * Math.cbrt(runScrap(s) / 1e7);
-  const structBonus = 1 + techCount(s) * 0.02 + projectCount(s) * 0.05 + colonyCount(s) * 0.03;
-  return base * structBonus * (b.prestigeGainMult || 1);
+  return base * prestigeStructBonus(s) * (b.prestigeGainMult || 1);
 }
 
 export function prestigeGain(s = state) {
@@ -103,8 +106,7 @@ export function prestigeGain(s = state) {
 // Wie viel Code fehlt bis zum nächsten vollen XP-Punkt?
 export function scrapForNextXp(s = state) {
   const b = s.cache?.bonuses || computeBonuses(s);
-  const structBonus = 1 + techCount(s) * 0.02 + projectCount(s) * 0.05 + colonyCount(s) * 0.03;
-  const mult = structBonus * (b.prestigeGainMult || 1);
+  const mult = prestigeStructBonus(s) * (b.prestigeGainMult || 1);
   const nextXp = prestigeGain(s) + 1;
   const needed = Math.pow(nextXp / (6 * mult), 3) * 1e7;
   return Math.max(0, needed - runScrap(s));

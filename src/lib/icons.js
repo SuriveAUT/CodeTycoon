@@ -6,11 +6,6 @@ export function resIcon(res, cls = '') {
   return getIcon(res, `res-${res} ${cls}`);
 }
 
-export const CATEGORY_ICONS = {
-  'Dev Team': 'scrap',
-  'Sales & Ads': 'energy',
-  'QA & DevOps': 'alloy',
-  'Marketing & R&D': 'research',
-  'Social Media': 'influence',
-  'Management': 'briefcase'
-};
+import { CATEGORIES } from '../data/buildings.js';
+
+export const CATEGORY_ICONS = Object.fromEntries(CATEGORIES.map(c => [c.id, c.icon]));

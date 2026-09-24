@@ -7,7 +7,7 @@ import {
 import { computeBonuses, estimateRatesSnapshot, buildingOutputPerSecond, buildingInputPerSecond, clickValue, MAX_COLONIES, MODIFIER_CAP } from '../store/bonuses.js';
 import {
   nextResearchCost, nextProjectCost, chronicleCost, colonyFoundCost, canFoundColony, colonyUpgradeCost, COLONY_MAX_LEVEL,
-  prestigeGain, prestigeGainRaw, scrapForNextXp, runScrap, missionPowerReq
+  prestigeGain, prestigeGainRaw, scrapForNextXp, runScrap, missionPowerReq, prestigeStructBonus
 } from '../engine/actions.js';
 import { currentQuest, questProgress } from '../engine/quests.js';
 import { missionSuccessChance, getDynamicMissionRewards } from '../engine/events.js';
@@ -169,7 +169,7 @@ function bestInvestmentId(b) {
 }
 
 // ── Navigation ──
-function navBadges() {
+export function navBadges() {
   const b = bonuses();
   const badges = {};
   const affordableTechs = TECHS.filter(t => !hasTech(t.id) && isTechUnlocked(t) && state.resources.research >= nextResearchCost(t, b)).length;
@@ -185,8 +185,7 @@ function navBadges() {
   return badges;
 }
 
-export function renderNav(mobile = false) {
-  const badges = navBadges();
+export function renderNav(mobile = false, badges = navBadges()) {
   const tabs = [...TABS];
   if (AstraforgeAPI.username === ADMIN_USERNAME) tabs.push({ id: 'admin', label: 'Admin', icon: 'shield', blurb: 'Moderation.' });
   return tabs.map(tab => {
@@ -401,7 +400,8 @@ function buildingRow(def, b, bestId) {
   const owned = buildingCount(def.id);
   const unlocked = isBuildingUnlocked(def);
   const qty = state.buyAmount;
-  const amount = qty === 'max' ? Math.max(1, maxAffordable(def)) : qty;
+  const maxN = qty === 'max' && unlocked ? maxAffordable(def) : 0;
+  const amount = qty === 'max' ? Math.max(1, maxN) : qty;
   const cost = calcBuildingCost(def, owned, amount);
   const affordable = unlocked && canAfford(cost);
   const single = calcNextBuildingCost(def);
@@ -435,7 +435,7 @@ function buildingRow(def, b, bestId) {
     : next
       ? `<div class="lbl"><span>×${ms * 2} bei ${next}</span><span>${owned}/${next}</span></div>${progress(owned, next)}`
       : `<div class="lbl"><span>Max-Meilenstein</span><span>×${ms}</span></div>${progress(1, 1, 'good')}`;
-  const buyLabel = qty === 'max' ? `Max (${maxAffordable(def)})` : `+${qty}`;
+  const buyLabel = qty === 'max' ? `Max (${maxN})` : `+${qty}`;
   const sell = owned > 0 ? `<button class="btn xs ghost" data-action="sell-building" data-id="${def.id}" ${tt('Entlassen', `1× ${def.name} entlassen. 50% der letzten Kosten zurück.`)}>${getIcon('minus')}</button>` : '';
   const isNew = !seenBuildings.has(def.id);
   return `<div class="b-row ${affordable ? 'affordable' : ''} ${starved ? 'starved' : ''} ${isNew ? 'new' : ''}" ${tt(def.name, def.desc, {
@@ -775,7 +775,7 @@ function renderPrestige() {
       <section class="panel accent">
         <div class="eyebrow">Hard Refactor</div>
         <div class="row-between" style="align-items:flex-end">
-          <div><div class="xp-big">+${fmt(gain)} <small>XP bei Refactor</small></div><div class="muted small" style="margin-top:6px">Run: ${fmt(runScrap())} Code · XP = 6 · ∛(Code / 10 Mio.) · Struktur-Bonus ×${fmt(1 + techCount() * 0.02 + projectCount() * 0.05 + colonyCount() * 0.03)} · ${fmt(bonuses().prestigeGainMult)}× Multiplikator</div></div>
+          <div><div class="xp-big">+${fmt(gain)} <small>XP bei Refactor</small></div><div class="muted small" style="margin-top:6px">Run: ${fmt(runScrap())} Code · XP = 6 · ∛(Code / 10 Mio.) · Struktur-Bonus ×${fmt(prestigeStructBonus())} · ${fmt(bonuses().prestigeGainMult)}× Multiplikator</div></div>
           <div class="kpi"><div class="kpi-label">XP-Guthaben</div><div class="kpi-value">${fmt(state.chronicle)}</div><div class="kpi-sub">${state.stats.prestigeCount} Refactors</div></div>
         </div>
         <div style="margin:12px 0 6px">${progress(frac, 1)}<div class="muted small" style="margin-top:4px">Nächster XP-Punkt in ${fmt(nextIn)} Code</div></div>

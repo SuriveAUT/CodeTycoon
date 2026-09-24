@@ -41,7 +41,7 @@ export const QUESTS = [
     progress: (s) => [s.techs.length, 8], reward: { scrap: 15000 } },
   { id: 'q_mission_1', title: 'Ersten Auftrag abschließen', desc: 'Freelance-Aufträge laufen im Hintergrund und bringen Belohnungen.', tab: 'expansion',
     progress: (s) => [s.stats.expeditionsDone || 0, 1], reward: { research: 1000 } },
-  { id: 'q_build_100', title: '100 Mitarbeiter', desc: 'Jeder Mitarbeiter gibt +0,5% Team-Synergie auf alles.', tab: 'buildings',
+  { id: 'q_build_100', title: '100 Mitarbeiter', desc: 'Jeder Mitarbeiter gibt +0,2% Team-Synergie auf alles (max. +200%).', tab: 'buildings',
     progress: (s, h) => [h.totalBuildings, 100], reward: { scrap: 50000 } },
   { id: 'q_influence_1k', title: '1.000 Hype', desc: 'Tech Blogger machen aus Ideas Hype. Hype brauchst du für Standorte.', tab: 'buildings',
     progress: (s) => [s.stats.total.influence || 0, 1000], reward: { energy: 20000 } },

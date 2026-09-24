@@ -109,6 +109,7 @@ export const CYBER_EVENTS = [
 
 export function spawnCyberEvent() {
   if (state.cyberEvent) return;
+  if (state.decision) return; // Entscheidung läuft – nicht überlagern
   if (state.event) return; // don't stack with regular events
 
   const pool = CYBER_EVENTS.filter(e => {

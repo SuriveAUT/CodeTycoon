@@ -1,5 +1,5 @@
 import { onMount, onCleanup, createSignal } from 'solid-js';
-import { state, setState, saveState, log as gameLog, SAVE_KEY, normalizeState, hadLocalSave, totalBuildings, techCount, projectCount, forceCloudSync, snapshotState } from '../store/gameState.js';
+import { state, setState, saveState, log as gameLog, SAVE_KEY, normalizeState, hadLocalSave, totalBuildings, techCount, projectCount, forceCloudSync, snapshotState, getTech } from '../store/gameState.js';
 import { computeBonuses, estimateRatesSnapshot, clickValue } from '../store/bonuses.js';
 import { processTick } from '../engine/tick.js';
 import {
@@ -10,7 +10,7 @@ import {
 import { clickAnomaly } from '../engine/events.js';
 import { autoExpeditions } from '../engine/automation.js';
 import { clickCyberEvent } from '../engine/cyberEvents.js';
-import { renderTabContent, renderNav, renderTopbar, renderSidebarFoot, renderCyberEventOverlay, setAdminUsers, setAdminSelectedUser, collectAdminSaveEdits, VALID_TABS } from './renderers.js';
+import { renderTabContent, renderNav, renderTopbar, renderSidebarFoot, renderCyberEventOverlay, setAdminUsers, setAdminSelectedUser, collectAdminSaveEdits, VALID_TABS, navBadges } from './renderers.js';
 import { AstraforgeAPI } from '../lib/api-client.js';
 import { RESOURCES, RESOURCE_LABELS, DOCTRINES } from '../data/misc.js';
 import { fmt, fmtSec, rand } from '../lib/format.js';
@@ -30,7 +30,6 @@ export default function App() {
   let lastFrame = performance.now();
   let lastRender = 0;
   let lastCounterUpdate = 0;
-  let lastNavRender = 0;
   let currentBugTimeout = null;
   let autosaveIntervalId = null;
   let animationFrameId = null;
@@ -43,7 +42,7 @@ export default function App() {
   let cloudPollIntervalId = null;
   let accountStatusIntervalId = null;
   let stockPriceIntervalId = null;
-  let renderDirty = true;
+  let lastScrolledTab = null;
 
   const [modalVisible, setModalVisible] = createSignal(false);
   const [modalTitle, setModalTitle] = createSignal('');
@@ -156,19 +155,22 @@ export default function App() {
       cyberEventRef.classList.toggle('hidden', !state.cyberEvent && !state.decision);
     }
     refreshTooltipUnderCursor();
-    renderDirty = false;
   }
 
   function renderChrome() {
     document.title = `${fmt(state.resources.scrap || 0)} Code · CodeTycoon`;
     if (topbarRef) topbarRef.innerHTML = renderTopbar();
-    if (navRef) navRef.innerHTML = renderNav(false);
+    const badges = navBadges();
+    if (navRef) navRef.innerHTML = renderNav(false, badges);
     if (bottomNavRef) {
-      bottomNavRef.innerHTML = renderNav(true);
-      const active = bottomNavRef.querySelector('.nav-item.active');
-      if (active && bottomNavRef.offsetParent !== null) {
-        const left = active.offsetLeft - (bottomNavRef.clientWidth - active.offsetWidth) / 2;
-        if (Math.abs(bottomNavRef.scrollLeft - left) > 4) bottomNavRef.scrollTo({ left, behavior: 'smooth' });
+      const scrollLeft = bottomNavRef.scrollLeft;
+      bottomNavRef.innerHTML = renderNav(true, badges);
+      bottomNavRef.scrollLeft = scrollLeft;
+      // Nur beim Tab-Wechsel zum aktiven Tab scrollen, nicht bei jedem Sekunden-Render
+      if (lastScrolledTab !== state.selectedTab && bottomNavRef.offsetParent !== null) {
+        lastScrolledTab = state.selectedTab;
+        const active = bottomNavRef.querySelector('.nav-item.active');
+        if (active) bottomNavRef.scrollTo({ left: active.offsetLeft - (bottomNavRef.clientWidth - active.offsetWidth) / 2, behavior: 'smooth' });
       }
     }
     if (footRef) footRef.innerHTML = renderSidebarFoot();
@@ -235,7 +237,6 @@ export default function App() {
   function runManualClick(sourceEl, fromKeyboard = false) {
     const gained = handleManualClick();
     updateResourceCounters();
-    renderDirty = true;
     if (Date.now() - lastSaveTs > 3000) { saveState(); lastSaveTs = Date.now(); }
 
     const btn = sourceEl || document.querySelector('.click-btn') || document.querySelector('[data-action="manual-click"]');
@@ -298,7 +299,7 @@ export default function App() {
       }
       case 'sell-building': sellBuilding(id, 1); done(); return;
       case 'buy-tech': {
-        if (purchaseTech(id)) { showToast(`Gelernt: ${btn.closest('.t-row')?.querySelector('.t-name')?.textContent?.trim() || id}`, 'good'); }
+        if (purchaseTech(id)) showToast(`Gelernt: ${getTech(id)?.name || id}`, 'good');
         done(); return;
       }
       case 'buy-project': { if (purchaseProject(id)) showToast('Release erfolgreich!', 'good'); done(); return; }
@@ -506,7 +507,12 @@ export default function App() {
   function handleKeydown(e) {
     if (e.repeat || isTypingTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === 'Escape' && modalVisible()) { closeModal('cancel'); return; }
-    if (e.code === 'Space') { e.preventDefault(); runManualClick(null, true); return; }
+    if (modalVisible()) return; // Modal: Tastatur gehört den Modal-Buttons
+    const activeTag = document.activeElement?.tagName?.toLowerCase();
+    if (e.code === 'Space') {
+      if (activeTag === 'button' || activeTag === 'a') return; // native Aktivierung nicht blockieren
+      e.preventDefault(); runManualClick(null, true); return;
+    }
     const tab = TAB_KEYS[e.key?.toLowerCase()];
     if (tab) { e.preventDefault(); selectTab(tab); return; }
     if (BUY_KEYS[e.key] !== undefined && state.selectedTab === 'buildings') { setState('buyAmount', BUY_KEYS[e.key]); renderAll(); saveState(); }

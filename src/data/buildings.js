@@ -14,7 +14,7 @@ export const CATEGORIES = [
   { id: 'QA & DevOps', icon: 'alloy', desc: 'Wandelt Code in Bugs und Bugs in Module um.' },
   { id: 'Marketing & R&D', icon: 'research', desc: 'Erzeugt Ideas (Forschung) und Users.' },
   { id: 'Social Media', icon: 'influence', desc: 'Erzeugt Hype und gräbt Legacy Code aus.' },
-  { id: 'Management', icon: 'components', desc: 'Passive Boni auf das ganze Unternehmen.' },
+  { id: 'Management', icon: 'briefcase', desc: 'Passive Boni auf das ganze Unternehmen.' },
 ];
 
 export const BUILDINGS = [

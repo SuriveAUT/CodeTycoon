@@ -10,6 +10,8 @@ import { tickDecisions } from './decisions.js';
 import { tickStockDividends } from './stocks.js';
 import { tickTheme } from './themeEngine.js';
 
+let lastChecksAt = 0;
+
 /**
  * Ein Simulationsschritt von `dt` Sekunden.
  * opts.silent   – keine Log/Toast-Ausgaben (Offline-Catchup)
@@ -87,15 +89,18 @@ export function processTick(dt, opts = {}) {
 
   if (!opts.skipLifetime) setState('stats', 'lifetime', state.stats.lifetime + dt);
 
-  checkAchievements(silent);
-  checkPrestigeMilestones(silent);
-  checkQuests(silent);
+  if (dt >= 1 || now - lastChecksAt >= 1000) {
+    lastChecksAt = now;
+    checkAchievements(silent);
+    checkPrestigeMilestones(silent);
+    checkQuests(silent);
+  }
 
   tickStockDividends(dt);
 
   if (!opts.offline) {
     tickCyberEvent(now);
-    tickDecisions(now);
+    tickDecisions(now, silent);
     if (!silent && typeof document !== 'undefined') tickTheme(performance.now());
   }
 }

@@ -1,5 +1,5 @@
-import { state, setState, canAfford, spend, hasTech, log, getBuilding, isBuildingUnlocked, calcNextBuildingCost, colonyCount } from '../store/gameState.js';
-import { resourceMult, converterInputScale } from '../store/bonuses.js';
+import { state, setState, canAfford, spend, hasTech, log, getBuilding, isBuildingUnlocked, calcNextBuildingCost } from '../store/gameState.js';
+import { resourceMult, converterInputScale, MODIFIER_CAP } from '../store/bonuses.js';
 import { BUILD_ORDER, milestoneMult } from '../data/buildings.js';
 import { TECHS } from '../data/techs.js';
 import { PROJECTS } from '../data/projects.js';
@@ -18,14 +18,18 @@ export function autoBuild(b) {
     const def = getBuilding(id);
     if (!def || !isBuildingUnlocked(def)) continue;
 
-    const newCount = (state.buildings[id] || 0) + 1;
-    const ms = milestoneMult(newCount);
+    const oldCount = state.buildings[id] || 0;
+    const newCount = oldCount + 1;
     const bm = b.buildingMults[id] || 1;
+    // Effektive Stückzahl-Änderung inkl. Meilenstein (ein Meilenstein verdoppelt alle vorhandenen Einheiten)
+    const unitsDelta = newCount * milestoneMult(newCount) - oldCount * milestoneMult(oldCount);
+
+    if (def.type === 'modifier' && oldCount >= MODIFIER_CAP) continue;
 
     if (def.type === 'converter') {
       let safe = true;
       for (const [res, need] of Object.entries(def.inputs)) {
-        const drain = need * converterInputScale(b) * def.rate * ms * bm;
+        const drain = need * converterInputScale(b) * def.rate * unitsDelta * bm;
         if ((net[res] || 0) - drain <= 0) { safe = false; break; }
       }
       if (!safe) continue;
@@ -38,17 +42,17 @@ export function autoBuild(b) {
     spend(cost);
     setState('buildings', id, newCount);
     if (def.type === 'converter') {
-      for (const [res, need] of Object.entries(def.inputs)) net[res] = (net[res] || 0) - need * converterInputScale(b) * def.rate * ms * bm;
-      for (const [res, per] of Object.entries(def.outputs)) net[res] = (net[res] || 0) + per * def.rate * ms * bm * resourceMult(res, b);
+      for (const [res, need] of Object.entries(def.inputs)) net[res] = (net[res] || 0) - need * converterInputScale(b) * def.rate * unitsDelta * bm;
+      for (const [res, per] of Object.entries(def.outputs)) net[res] = (net[res] || 0) + per * def.rate * unitsDelta * bm * resourceMult(res, b);
     } else if (def.type === 'producer') {
-      for (const [res, per] of Object.entries(def.outputs)) net[res] = (net[res] || 0) + per * def.rate * ms * bm * resourceMult(res, b);
+      for (const [res, per] of Object.entries(def.outputs)) net[res] = (net[res] || 0) + per * def.rate * unitsDelta * bm * resourceMult(res, b);
     }
   }
 }
 
-// Auto-Learn: günstigste verfügbare Technologie.
+// Auto-Learn: günstigste verfügbare Technologie. Entweder/Oder-Entscheidungen bleiben dem Spieler überlassen.
 export function autoResearch(b) {
-  const candidates = TECHS.filter(t => !hasTech(t.id) && t.prereq.every(p => hasTech(p)) && !(t.excludes || []).some(id => hasTech(id)));
+  const candidates = TECHS.filter(t => !hasTech(t.id) && !t.excludes && t.prereq.every(p => hasTech(p)));
   if (!candidates.length) return;
   const next = candidates.sort((a, z) => a.cost - z.cost)[0];
   const cost = nextResearchCost(next, b);

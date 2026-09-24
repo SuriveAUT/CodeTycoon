@@ -8,7 +8,7 @@ import { RESOURCE_LABELS } from '../data/misc.js';
 const DECISION_TIMEOUT_MS = 90 * 1000;
 
 export function spawnDecision(now = Date.now()) {
-  if (state.decision || state.cyberEvent) return false;
+  if (state.decision || state.cyberEvent || state.event) return false;
   if ((state.techs?.length || 0) < 4) return false;
   const recent = state.lastDecisionId;
   const pool = DECISIONS.filter(d => d.id !== recent);
@@ -64,15 +64,16 @@ export function resolveDecision(index, silent = false) {
   return true;
 }
 
-export function tickDecisions(now) {
+export function tickDecisions(now, silent = false) {
   if (state.decision) {
     if (now >= state.decision.endsAt) {
       const def = DECISIONS.find(d => d.id === state.decision.id);
-      resolveDecision(def?.defaultIndex ?? 0, false);
+      resolveDecision(def?.defaultIndex ?? 0, silent);
     }
     return;
   }
-  if (now >= (state.nextDecisionAt || 0)) spawnDecision(now);
+  // Nur spawnen, wenn der Spieler zuschaut (nicht im Hintergrund-Tick)
+  if (!silent && now >= (state.nextDecisionAt || 0)) spawnDecision(now);
 }
 
 export function currentDecisionDef() {

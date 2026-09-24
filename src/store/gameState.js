@@ -207,7 +207,10 @@ export function normalizeState(candidate) {
   merged.stockMarket = base.stockMarket; // kommt immer vom Server
   if (!merged.nextCyberEventAt) merged.nextCyberEventAt = Date.now() + rand(4 * 60e3, 9 * 60e3);
   if (!merged.nextDecisionAt) merged.nextDecisionAt = Date.now() + rand(6 * 60e3, 10 * 60e3);
-  if (merged.decision && typeof merged.decision !== 'object') merged.decision = null;
+  // Flüchtige Zustände: fliegender Bug nie persistieren, abgelaufene Overlays verwerfen
+  merged.asteroidActive = false;
+  if (!merged.decision || typeof merged.decision !== 'object' || Number(merged.decision.endsAt || 0) <= Date.now()) merged.decision = null;
+  if (!merged.cyberEvent || typeof merged.cyberEvent !== 'object' || Number(merged.cyberEvent.endsAt || 0) <= Date.now()) merged.cyberEvent = null;
   if (!merged.nextAsteroidAt) merged.nextAsteroidAt = Date.now() + rand(90e3, 180e3);
   merged.version = VERSION;
   return merged;
