@@ -330,45 +330,45 @@ function renderOverview() {
     </div>
 
     <div class="grid-2">
-      <section class="panel">
-        <div class="panel-head"><div><div class="eyebrow">Status</div><h3>${getIcon('zap')} Aktive Effekte</h3></div></div>
-        ${renderActiveEffects()}
-        <div style="margin-top:14px">
-          <div class="eyebrow">Sprint-Modus</div>
-          <div class="toggle-row">${OPERATIONS_MODES.map(mode => `<button class="btn sm ${state.operationsMode === mode.id ? 'primary' : ''}" data-action="set-operations-mode" data-id="${mode.id}" ${tt(mode.name, mode.desc)}>${escapeHtml(mode.name)}</button>`).join('')}</div>
-          <p class="muted small" style="margin-top:6px">${escapeHtml(OPERATIONS_MODES.find(m => m.id === state.operationsMode)?.desc || '')}</p>
-        </div>
-      </section>
-      <section class="panel">
-        <div class="panel-head"><div><div class="eyebrow">Boosts</div><h3>${getIcon('star')} Protokolle</h3><div class="sub">Temporäre Boosts mit Cooldown. Nur eines gleichzeitig.</div></div></div>
-        <div class="stack">${renderProtocols()}</div>
-      </section>
-    </div>
-
-    ${anyAuto || state.converterThrottle !== 1 || BUILDINGS.some(bd => bd.type === 'converter' && buildingCount(bd.id) > 0) ? `
-    <section class="panel">
-      <div class="panel-head"><div><div class="eyebrow">DevOps</div><h3>${getIcon('settings')} Automatisierung & Drossel</h3></div></div>
-      <div class="row-between">
-        <div class="toggle-row">
-          ${[['build', 'Auto-Hire', b.autoBuild, 'Kauft Mitarbeiter automatisch (Tech: Auto-Hire Skript).'], ['research', 'Auto-Learn', b.autoResearch, 'Lernt die günstigste Tech automatisch (Tech: Auto-Tutorials).'], ['expeditions', 'Auto-Freelance', b.autoExpeditions, 'Startet Aufträge automatisch (Tech: Auto-Freelance).'], ['projects', 'Auto-Deploy', b.autoProjects, 'Kauft Releases automatisch (Tech: Auto-Deploy).']].map(([key, label, unlocked, desc]) =>
-            `<button class="btn sm ${state.auto[key] && unlocked ? 'good' : ''}" data-action="toggle" data-id="${key}" ${unlocked ? '' : 'disabled'} ${tt(label, desc, { requirement: unlocked ? '' : 'Noch nicht freigeschaltet.' })}>${unlocked ? (state.auto[key] ? getIcon('check') : '') : getIcon('lock')} ${label}</button>`).join('')}
-        </div>
-        <div class="row">
-          <span class="muted small" ${tt('Konverter-Drossel', 'Begrenzt alle Konverter auf einen Anteil ihrer Kapazität – hilfreich, wenn sie zu viel Basisressourcen fressen.')}>Konverter-Drossel</span>
-          <div class="seg">${[0.25, 0.5, 0.75, 1].map(v => `<button class="btn ${state.converterThrottle === v ? 'active' : ''}" data-action="set-converter-throttle" data-value="${v}">${Math.round(v * 100)}%</button>`).join('')}</div>
-        </div>
+      <div class="stack" style="gap:14px">
+        <section class="panel">
+          <div class="panel-head"><div><div class="eyebrow">Status</div><h3>${getIcon('zap')} Aktive Effekte</h3></div></div>
+          ${renderActiveEffects()}
+          <div style="margin-top:14px">
+            <div class="eyebrow">Sprint-Modus</div>
+            <div class="toggle-row">${OPERATIONS_MODES.map(mode => `<button class="btn sm ${state.operationsMode === mode.id ? 'primary' : ''}" data-action="set-operations-mode" data-id="${mode.id}" ${tt(mode.name, mode.desc)}>${escapeHtml(mode.name)}</button>`).join('')}</div>
+            <p class="muted small" style="margin-top:6px">${escapeHtml(OPERATIONS_MODES.find(m => m.id === state.operationsMode)?.desc || '')}</p>
+          </div>
+        </section>
+        ${anyAuto || state.converterThrottle !== 1 || BUILDINGS.some(bd => bd.type === 'converter' && buildingCount(bd.id) > 0) ? `
+        <section class="panel">
+          <div class="panel-head"><div><div class="eyebrow">DevOps</div><h3>${getIcon('settings')} Automatisierung & Drossel</h3></div></div>
+          <div class="stack">
+            <div class="toggle-row">
+              ${[['build', 'Auto-Hire', b.autoBuild, 'Kauft Mitarbeiter automatisch (Tech: Auto-Hire Skript).'], ['research', 'Auto-Learn', b.autoResearch, 'Lernt die günstigste Tech automatisch (Tech: Auto-Tutorials).'], ['expeditions', 'Auto-Freelance', b.autoExpeditions, 'Startet Aufträge automatisch (Tech: Auto-Freelance).'], ['projects', 'Auto-Deploy', b.autoProjects, 'Kauft Releases automatisch (Tech: Auto-Deploy).']].map(([key, label, unlocked, desc]) =>
+                `<button class="btn sm ${state.auto[key] && unlocked ? 'good' : ''}" data-action="toggle" data-id="${key}" ${unlocked ? '' : 'disabled'} ${tt(label, desc, { requirement: unlocked ? '' : 'Noch nicht freigeschaltet.' })}>${unlocked ? (state.auto[key] ? getIcon('check') : '') : getIcon('lock')} ${label}</button>`).join('')}
+            </div>
+            <div class="row-between">
+              <span class="muted small" ${tt('Konverter-Drossel', 'Begrenzt alle Konverter auf einen Anteil ihrer Kapazität – hilfreich, wenn sie zu viel Basisressourcen fressen.')}>Konverter-Drossel</span>
+              <div class="seg">${[0.25, 0.5, 0.75, 1].map(v => `<button class="btn ${state.converterThrottle === v ? 'active' : ''}" data-action="set-converter-throttle" data-value="${v}">${Math.round(v * 100)}%</button>`).join('')}</div>
+            </div>
+          </div>
+        </section>` : ''}
+        <section class="panel">
+          <div class="panel-head"><div><div class="eyebrow">Wirtschaft</div><h3>${getIcon('market')} Ressourcenfluss</h3></div></div>
+          ${renderFlowTable()}
+        </section>
       </div>
-    </section>` : ''}
-
-    <div class="grid-2">
-      <section class="panel">
-        <div class="panel-head"><div><div class="eyebrow">Wirtschaft</div><h3>${getIcon('market')} Ressourcenfluss</h3></div></div>
-        ${renderFlowTable()}
-      </section>
-      <section class="panel">
-        <div class="panel-head"><div><div class="eyebrow">Git Log</div><h3>${getIcon('codex')} Letzte Ereignisse</h3></div></div>
-        <div class="log">${state.log.map(entry => `<div class="log-item"><span class="t">${new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><span>${escapeHtml(entry.text)}</span></div>`).join('')}</div>
-      </section>
+      <div class="stack" style="gap:14px">
+        <section class="panel">
+          <div class="panel-head"><div><div class="eyebrow">Boosts</div><h3>${getIcon('star')} Protokolle</h3><div class="sub">Temporäre Boosts mit Cooldown. Nur eines gleichzeitig.</div></div></div>
+          <div class="stack">${renderProtocols()}</div>
+        </section>
+        <section class="panel">
+          <div class="panel-head"><div><div class="eyebrow">Git Log</div><h3>${getIcon('codex')} Letzte Ereignisse</h3></div></div>
+          <div class="log">${state.log.map(entry => `<div class="log-item"><span class="t">${new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><span>${escapeHtml(entry.text)}</span></div>`).join('')}</div>
+        </section>
+      </div>
     </div>
   `;
 }

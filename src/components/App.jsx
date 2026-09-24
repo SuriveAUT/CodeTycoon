@@ -19,6 +19,8 @@ import { fetchServerStockPrices } from '../engine/stocks.js';
 import { resolveDecision } from '../engine/decisions.js';
 import { getSetting, toggleSetting } from '../lib/settings.js';
 
+const FRESH_FLAG = 'codetycoon-fresh-start';
+
 const TAB_KEYS = { o: 'overview', b: 'buildings', r: 'research', p: 'projects', e: 'expansion', m: 'market', s: 'prestige', c: 'codex', a: 'account' };
 const BUY_KEYS = { 1: 1, 2: 10, 3: 100, 4: 'max' };
 
@@ -159,7 +161,14 @@ export default function App() {
   function renderChrome() {
     if (topbarRef) topbarRef.innerHTML = renderTopbar();
     if (navRef) navRef.innerHTML = renderNav(false);
-    if (bottomNavRef) bottomNavRef.innerHTML = renderNav(true);
+    if (bottomNavRef) {
+      bottomNavRef.innerHTML = renderNav(true);
+      const active = bottomNavRef.querySelector('.nav-item.active');
+      if (active && bottomNavRef.offsetParent !== null) {
+        const left = active.offsetLeft - (bottomNavRef.clientWidth - active.offsetWidth) / 2;
+        if (Math.abs(bottomNavRef.scrollLeft - left) > 4) bottomNavRef.scrollTo({ left, behavior: 'smooth' });
+      }
+    }
     if (footRef) footRef.innerHTML = renderSidebarFoot();
   }
 
@@ -356,8 +365,10 @@ export default function App() {
         return;
       }
       case 'hard-reset': {
-        showModal('Alles löschen?', '<p>Kompletter Neustart – auch XP, Funde und Chips gehen verloren. Ein Cloud-Save bleibt bestehen, bis du erneut speicherst.</p>', [{ label: 'Abbrechen', action: 'cancel' }, { label: 'Ja, alles löschen', action: 'confirm', cls: 'danger' }]).then(result => {
-          if (result === 'confirm' || result === true) reloadWithoutLocalSave();
+        showModal('Alles löschen?', `<p>Kompletter Neustart – auch XP, Funde und Chips gehen verloren.${AstraforgeAPI.isLoggedIn() ? ' Der Cloud-Save wird dabei ebenfalls überschrieben.' : ''}</p>`, [{ label: 'Abbrechen', action: 'cancel' }, { label: 'Ja, alles löschen', action: 'confirm', cls: 'danger' }]).then(result => {
+          if (result !== 'confirm' && result !== true) return;
+          try { localStorage.setItem(FRESH_FLAG, '1'); } catch (_) { /* ignore */ }
+          reloadWithoutLocalSave();
         });
         return;
       }
@@ -680,7 +691,12 @@ export default function App() {
   }
 
   onMount(() => {
-    if (AstraforgeAPI.isLoggedIn()) {
+    let freshStart = false;
+    try { freshStart = localStorage.getItem(FRESH_FLAG) === '1'; if (freshStart) localStorage.removeItem(FRESH_FLAG); } catch (_) { /* ignore */ }
+    if (freshStart && AstraforgeAPI.isLoggedIn()) {
+      // Bewusster Neustart: Cloud nicht laden, sondern frischen Stand hochladen
+      forceCloudSync().catch(() => {}).finally(finishMount);
+    } else if (AstraforgeAPI.isLoggedIn()) {
       AstraforgeAPI.loadGame().then(res => {
         if (res?.gameData && applyRemoteSave(res.gameData, { force: !hadLocalSave })) gameLog('Cloud-Save geladen.');
       }).catch(err => console.warn('Cloud-Save nicht lesbar', err)).finally(finishMount);

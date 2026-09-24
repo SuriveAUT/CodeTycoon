@@ -41,10 +41,11 @@ No test or lint scripts are configured. The engine runs headless in Node (see "B
   - `quests.js` — sequential quest system (`currentQuest`, `questProgress`, `checkQuests`)
   - `events.js` — missions completion, random events, achievements, prestige milestones, bug anomaly
   - `cyberEvents.js` — interactive pop-up events
+  - `decisions.js` — choice events (`data/decisions.js`), rendered in the same top-right overlay as cyber events
   - `stocks.js` — server-driven stock market client
   - `themeEngine.js` — accent theme by progress (early/mid/late)
 - `src/data/` — static content: `buildings.js` (42 buildings, categories, `milestoneMult`), `techs.js` (39 techs in 5 tiers), `projects.js`, `artifacts.js`, `chips.js`, `quests.js` (32 quests), `effects.js` (bonus functions), `misc.js` (resources, worlds, foci, doctrines, ops modes, protocols, missions, achievements, chronicle upgrades, prestige milestones)
-- `src/lib/` — `api-client.js` (HTTP to backend, node-safe), `format.js`, `icons.js` (SVG sprite lookup; sprite lives in `index.html`), `sanitize.js`, `toast.js`
+- `src/lib/` — `api-client.js` (HTTP to backend, node-safe), `format.js`, `icons.js` (SVG sprite lookup; sprite lives in `index.html`), `sanitize.js`, `toast.js`, `settings.js` (per-device settings in localStorage, not part of the save)
 - `src/index.css` — the design system (CSS variables, layout, components). No other stylesheet.
 
 ### Economy model (important when balancing)

@@ -133,6 +133,12 @@ function migrateState(candidate) {
   if (candidate.selectedTab === 'colonies' || candidate.selectedTab === 'expeditions') candidate.selectedTab = 'expansion';
   delete candidate.market;
   delete candidate.tutorialDone;
+  // Neue XP-Formel: offenes Run-Guthaben alter Saves auf max. 1 Mrd. Code deckeln
+  const total = candidate.stats?.total?.scrap || 0;
+  const baseline = candidate.stats?.totalAtLastPrestige?.scrap || 0;
+  if (total - baseline > 1e9) {
+    candidate.stats.totalAtLastPrestige = { ...(candidate.stats.totalAtLastPrestige || {}), scrap: total - 1e9 };
+  }
   return candidate;
 }
 
