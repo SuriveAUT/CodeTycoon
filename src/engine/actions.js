@@ -8,6 +8,8 @@ import { MISSIONS, WORLDS, FOCI, DOCTRINES, CHRONICLE_UPGRADES, OPERATIONS_MODES
 import { CHIPS } from '../data/chips.js';
 import { clamp, rand } from '../lib/format.js';
 import { checkAchievements } from './events.js';
+import { milestoneMult } from '../data/buildings.js';
+import { emitToast } from '../lib/toast.js';
 import { buyStock as doBuyStock, sellStock as doSellStock } from './stocks.js';
 
 function bonuses() { return state.cache.bonuses || computeBonuses(); }
@@ -24,6 +26,7 @@ export function purchaseBuilding(id, qty = 1) {
   const def = getBuilding(id);
   if (!def || !isBuildingUnlocked(def)) return 0;
   const wanted = qty === 'max' ? maxAffordable(def) : Number(qty) || 1;
+  const before = state.buildings[id] || 0;
   let bought = 0;
   for (let i = 0; i < wanted; i++) {
     const cost = calcNextBuildingCost(def);
@@ -32,7 +35,14 @@ export function purchaseBuilding(id, qty = 1) {
     setState('buildings', id, (state.buildings[id] || 0) + 1);
     bought += 1;
   }
-  if (bought) log(`${def.name}: +${bought}.`);
+  if (bought) {
+    log(`${def.name}: +${bought}.`);
+    const after = state.buildings[id] || 0;
+    if (milestoneMult(after) > milestoneMult(before)) {
+      log(`🚀 Meilenstein: ${def.name} ×${milestoneMult(after)} Output!`);
+      emitToast(`${def.name}: Output ×${milestoneMult(after)}!`, 'good');
+    }
+  }
   return bought;
 }
 

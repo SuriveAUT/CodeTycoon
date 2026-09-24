@@ -48,6 +48,19 @@ export function setAdminUsers(rows) { adminUsers = rows || []; }
 let adminSelectedUser = null;
 export function setAdminSelectedUser(user) { adminSelectedUser = user || null; }
 
+// ── "Neu"-Markierungen (pro Sitzung): was seit dem letzten Tab-Besuch freigeschaltet wurde ──
+const seenBuildings = new Set();
+const seenTechs = new Set();
+let seenInitialized = false;
+function initSeen() {
+  if (seenInitialized) return;
+  seenInitialized = true;
+  BUILDINGS.filter(isBuildingUnlocked).forEach(b => seenBuildings.add(b.id));
+  TECHS.filter(t => isTechUnlocked(t) || hasTech(t.id)).forEach(t => seenTechs.add(t.id));
+}
+function newBuildings() { initSeen(); return BUILDINGS.filter(b => isBuildingUnlocked(b) && !seenBuildings.has(b.id)); }
+function newTechs() { initSeen(); return TECHS.filter(t => !hasTech(t.id) && isTechUnlocked(t) && !seenTechs.has(t.id)); }
+
 // ── Helfer ──
 function bonuses() { return state.cache.bonuses || computeBonuses(); }
 function rates() { return state.cache.rates && state.cache.rates.__produced ? state.cache.rates : estimateRatesSnapshot(); }
@@ -142,6 +155,8 @@ function navBadges() {
   if (affordableChronicle) badges.prestige = affordableChronicle;
   const freeSlot = hasTech('freelance_platform') && b.availableExpeditionSlots > 0 && MISSIONS.some(m => b.availableExpeditionPower >= missionPowerReq(m));
   if (freeSlot || canFoundColony()) badges.expansion = 'dot';
+  const fresh = newBuildings().length;
+  if (fresh && state.selectedTab !== 'buildings') badges.buildings = fresh;
   return badges;
 }
 
@@ -397,7 +412,8 @@ function buildingRow(def, b) {
       : `<div class="lbl"><span>Max-Meilenstein</span><span>×${ms}</span></div>${progress(1, 1, 'good')}`;
   const buyLabel = qty === 'max' ? `Max (${maxAffordable(def)})` : `+${qty}`;
   const sell = owned > 0 ? `<button class="btn xs ghost" data-action="sell-building" data-id="${def.id}" ${tt('Entlassen', `1× ${def.name} entlassen. 50% der letzten Kosten zurück.`)}>${getIcon('minus')}</button>` : '';
-  return `<div class="b-row ${affordable ? 'affordable' : ''} ${starved ? 'starved' : ''}" ${tt(def.name, def.desc, {
+  const isNew = !seenBuildings.has(def.id);
+  return `<div class="b-row ${affordable ? 'affordable' : ''} ${starved ? 'starved' : ''} ${isNew ? 'new' : ''}" ${tt(def.name, def.desc, {
     icon: getIcon(icon) + ' ',
     meta: `${def.category} · ${def.type === 'producer' ? 'Producer' : def.type === 'converter' ? 'Konverter' : 'Modifier'}`,
     sectionTitle: `Nächstes Stück`,
@@ -405,7 +421,7 @@ function buildingRow(def, b) {
   })}>
     <div class="b-icon">${getIcon(icon, `res-${def.outputs && Object.keys(def.outputs)[0] || 'components'}`)}</div>
     <div>
-      <div class="b-name">${escapeHtml(def.name)}<span class="b-count">×${fmt(owned)}</span>${ms > 1 ? `<span class="badge accent">×${ms}</span>` : ''}${def.type === 'converter' ? '<span class="badge">Konverter</span>' : ''}</div>
+      <div class="b-name">${escapeHtml(def.name)}<span class="b-count">×${fmt(owned)}</span>${isNew ? '<span class="badge accent">Neu</span>' : ''}${ms > 1 ? `<span class="badge accent">×${ms}</span>` : ''}${def.type === 'converter' ? '<span class="badge">Konverter</span>' : ''}</div>
       <div class="b-desc">${escapeHtml(def.desc)}</div>
     </div>
     <div class="b-flow">${flow}</div>
@@ -422,6 +438,10 @@ function buildingRow(def, b) {
 function renderBuildings() {
   const b = bonuses();
   const qty = state.buyAmount;
+  initSeen();
+  const fresh = newBuildings();
+  // Nach ~4s Anzeige als gesehen markieren
+  if (fresh.length) setTimeout(() => fresh.forEach(d => seenBuildings.add(d.id)), 4000);
   const seg = [1, 10, 100, 'max'].map(v => `<button class="btn ${qty === v ? 'active' : ''}" data-action="set-buy-amount" data-value="${v}">${v === 'max' ? 'Max' : `×${v}`}</button>`).join('');
   const sections = CATEGORIES.map(cat => {
     const defs = BUILDINGS.filter(d => d.category === cat.id);
@@ -469,6 +489,9 @@ function techUnlockChips(techId) {
 function renderResearch() {
   const b = bonuses();
   const r = rates();
+  initSeen();
+  const freshTechs = newTechs();
+  if (freshTechs.length) setTimeout(() => freshTechs.forEach(t => seenTechs.add(t.id)), 4000);
   const learned = TECHS.filter(t => hasTech(t.id));
   const maxLearnedTier = learned.reduce((m, t) => Math.max(m, t.tier), 0);
   const visibleTierMax = Math.min(5, Math.max(1, maxLearnedTier + 1));
@@ -482,8 +505,9 @@ function renderResearch() {
       const affordable = available && state.resources.research >= cost;
       const missing = tech.prereq.filter(id => !hasTech(id)).map(id => getTech(id)?.name || id);
       const eta = available && !affordable ? etaLabel({ research: cost }) : '';
-      return `<div class="t-row ${available ? '' : 'locked'} ${affordable ? 'affordable' : ''}" ${tt(tech.name, tech.desc, { meta: `Stufe ${tier.tier} · ${tier.name}`, requirement: available ? '' : `Benötigt: ${missing.join(', ')}` })}>
-        <div><div class="t-name">${available ? getIcon('tech', 'res-research') : getIcon('lock')} ${escapeHtml(tech.name)}${tech.excludes ? '<span class="badge warn">Entweder/Oder</span>' : ''}</div>
+      const isNew = available && !seenTechs.has(tech.id);
+      return `<div class="t-row ${available ? '' : 'locked'} ${affordable ? 'affordable' : ''} ${isNew ? 'new' : ''}" ${tt(tech.name, tech.desc, { meta: `Stufe ${tier.tier} · ${tier.name}`, requirement: available ? '' : `Benötigt: ${missing.join(', ')}` })}>
+        <div><div class="t-name">${available ? getIcon('tech', 'res-research') : getIcon('lock')} ${escapeHtml(tech.name)}${isNew ? '<span class="badge accent">Neu</span>' : ''}${tech.excludes ? '<span class="badge warn">Entweder/Oder</span>' : ''}</div>
           ${!available ? `<div class="t-desc bad">Benötigt: ${escapeHtml(missing.join(', '))}</div>` : ''}
         </div>
         <div><div class="t-desc">${escapeHtml(tech.desc)}</div><div class="t-unlocks">${techUnlockChips(tech.id)}</div></div>

@@ -411,6 +411,7 @@ details.cat[open] > summary .chev { transform: rotate(180deg); }
 }
 .t-row.locked { opacity: 0.5; }
 .t-row.affordable { border-color: color-mix(in srgb, var(--good) 35%, var(--border)); }
+.t-row.new { box-shadow: inset 3px 0 0 var(--accent); }
 .t-row .t-name { font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .t-row .t-desc { color: var(--muted); font-size: 0.76rem; }
 .t-row .t-unlocks { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }

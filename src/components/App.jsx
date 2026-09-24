@@ -489,7 +489,7 @@ export default function App() {
     if (e.code === 'Space') { e.preventDefault(); runManualClick(null, true); return; }
     const tab = TAB_KEYS[e.key?.toLowerCase()];
     if (tab) { e.preventDefault(); selectTab(tab); return; }
-    if (BUY_KEYS[e.key] !== undefined && state.selectedTab === 'buildings') { setState('buyAmount', BUY_KEYS[e.key]); renderAll(); }
+    if (BUY_KEYS[e.key] !== undefined && state.selectedTab === 'buildings') { setState('buyAmount', BUY_KEYS[e.key]); renderAll(); saveState(); }
   }
 
   function refreshAdminData() {
