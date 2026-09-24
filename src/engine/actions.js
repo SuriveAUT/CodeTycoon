@@ -22,8 +22,8 @@ export function nextProjectCost(project, b = currentBonuses()) {
   return out;
 }
 
-// Kauft bis zu `qty` Stück ('max' = so viele wie leistbar). quiet unterdrückt den Kauf-Log (Automation),
-// der Meilenstein-Hinweis bleibt. Gibt die Anzahl gekaufter Einheiten zurück.
+// Kauft bis zu `qty` Stück ('max' = so viele wie leistbar). quiet unterdrückt Kauf-Log und Meilenstein-Hinweis
+// (Automation, auch im stillen Offline-Catchup). Gibt die Anzahl gekaufter Einheiten zurück.
 export function purchaseBuilding(id, qty = 1, { quiet = false } = {}) {
   const def = getBuilding(id);
   if (!def || !isBuildingUnlocked(def)) return 0;
@@ -37,8 +37,8 @@ export function purchaseBuilding(id, qty = 1, { quiet = false } = {}) {
     setState('buildings', id, buildingCount(id) + 1);
     bought += 1;
   }
-  if (bought) {
-    if (!quiet) log(`${def.name}: +${bought}.`);
+  if (bought && !quiet) {
+    log(`${def.name}: +${bought}.`);
     const after = buildingCount(id);
     if (milestoneMult(after) > milestoneMult(before)) {
       log(`🚀 Meilenstein: ${def.name} ×${milestoneMult(after)} Output!`);

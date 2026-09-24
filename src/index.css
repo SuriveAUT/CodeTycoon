@@ -574,7 +574,6 @@ label.lbl { display: grid; gap: 4px; font-size: 0.76rem; color: var(--muted); }
 .modal-box h3 { font-size: 1.05rem; margin-bottom: 8px; }
 .modal-box p { color: var(--text-2); font-size: 0.86rem; }
 .modal-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
-.doctrine-opt { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; margin: 6px 0; display: grid; gap: 6px; text-align: left; }
 
 /* ─────────────── Bug (Anomalie) ─────────────── */
 .bug {

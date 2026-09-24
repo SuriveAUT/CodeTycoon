@@ -82,15 +82,17 @@ export function processTick(dt, opts = {}) {
 
   if (!opts.skipLifetime) setState('stats', 'lifetime', state.stats.lifetime + dt);
 
-  // Automation und Schwellen-Checks laufen 1× pro Sekunde (oder pro großem Schritt), nicht pro Frame.
+  // Automation läuft pro Schritt (Auto-Hire kauft je Aufruf höchstens 1 Stück pro Mitarbeiter-Typ).
+  if (auto) {
+    if (state.auto.build && b.autoBuild) autoBuild(b);
+    if (state.auto.research && b.autoResearch) autoResearch(b);
+    if (state.auto.expeditions && b.autoExpeditions) autoExpeditions(b);
+    if (state.auto.projects && b.autoProjects) autoProjects(b);
+  }
+
+  // Schwellen-Checks 1× pro Sekunde (oder pro großem Schritt), nicht pro Frame.
   if (dt >= 1 || now - lastChecksAt >= 1000) {
     lastChecksAt = now;
-    if (auto) {
-      if (state.auto.build && b.autoBuild) autoBuild(b);
-      if (state.auto.research && b.autoResearch) autoResearch(b);
-      if (state.auto.expeditions && b.autoExpeditions) autoExpeditions(b);
-      if (state.auto.projects && b.autoProjects) autoProjects(b);
-    }
     if (!opts.offline) runProgressChecks(silent);
   }
 

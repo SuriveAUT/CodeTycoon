@@ -56,7 +56,7 @@ No test or lint scripts are configured. The engine runs headless in Node (see "B
 - Cost growth 1.15 per purchase (modifiers 1.6), soft cap ×1.03 per level above 100. Modifier effects cap at 20 units (`MODIFIER_CAP`), colonies at 8 (`MAX_COLONIES`), team synergy at +200%.
 - Prestige XP = `6 · ∛(runScrap / 1e7) · structBonus · prestigeGainMult` (`prestigeGainRaw` in actions.js).
 - Rates cache: `state.cache.rates[res]` = net/s, plus `__produced`, `__consumed`, `__utilization`, `__starved`. Read it through `currentRates()` / `currentBonuses()` (bonuses.js), which fall back to a fresh computation when the cache is empty; never read `state.cache.*` directly.
-- Automation and the threshold checks (achievements, milestones, quests via `runProgressChecks()`) run once per second inside `processTick`; with `opts.offline` the checks are skipped and the caller runs `runProgressChecks(true)` once afterwards.
+- Automation runs every tick (auto-hire buys at most one unit per building per call); the threshold checks (achievements, milestones, quests via `runProgressChecks()`) run once per second inside `processTick`. With `opts.offline` the checks are skipped and the caller runs `runProgressChecks(true)` once afterwards.
 
 ### Balancing
 
