@@ -1,115 +1,74 @@
 # CodeTycoon
 
-**Baue dein Tech-Imperium — von der Garage bis zur KI-Monopolstellung.**
+**Baue dein Tech-Imperium — vom Praktikanten bis zur AGI.**
 
-Ein browserbasiertes Idle-/Incremental-Game mit Startup-Thematik, persistentem Cloud-Save, globalem Leaderboard und tiefem Progression-System.
+Ein browserbasiertes Idle-/Incremental-Game mit Startup-Thematik, Cloud-Save, globalem Leaderboard und tiefem Progression-System.
 
 **[► Jetzt spielen auf game.fersd.com](https://game.fersd.com)**
 
 ---
 
-## Screenshots
+## Was ist neu (Rework)
 
-> *Übersicht-, Team-, Forschungs- und Prestige-Tab — alle in einem Dark-UI mit deutschem Interface.*
-
----
+- **Neues UI**: Sidebar (Desktop) bzw. Bottom-Navigation (Mobile), Ressourcenleiste mit Live-Raten, kompakte Zeilen statt Riesenkarten, Tooltips überall.
+- **Klarer Einstieg**: Der Klick-Button steht oben im Büro-Tab, 32 sequenzielle **Aufgaben** führen vom ersten Klick bis zur AGI und geben Belohnungen.
+- **Echte Wirtschaft**: Konverter verbrauchen wirklich Vorrat und laufen gedrosselt, wenn Input fehlt – kein verstecktes "Netto auf 0 kappen" mehr.
+- **Meilensteine**: Bei 10 / 25 / 50 / 100 / 200 / 300 / 400 / 500 Stück verdoppelt sich der Output eines Gebäudes. Der Fortschritt dahin ist in jeder Zeile sichtbar.
+- **Neue Balance**: Glatte Kostenkurve (×1.15 pro Kauf, ~×10 pro Stufe), 5 Tech-Stufen, Prestige-XP nach Kubikwurzel, erstes Prestige lohnt sich nach ~1,5–2 h aktivem Spiel.
+- **Komfort**: Kaufmenge ×1/×10/×100/Max (Tasten 1–4), "leistbar in Xs"-Anzeige, Badges in der Navigation, wenn etwas kaufbar ist, Export/Import des Spielstands.
 
 ## Features
 
-### Kernmechaniken
-- **Idle-Loop** — Ressourcen fließen auch wenn du weg bist (Offline-Progression bis zu 12h+)
-- **Manuelles Klicken** — Leertaste oder Klick-Button für direkten Scrap-Boost
-- **Autosave** — Spielstand wird automatisch lokal gespeichert
-- **Tastenkürzel** — `B` Team · `R` Forschung · `C` Büros · `E` Reisen · `P` Releases · `M` Börse · `S` Prestige · `A` Account · `O` Übersicht
+### Kernloop
+- Code schreiben (Klick / Leertaste) → Praktikanten einstellen → Google Ads für Revenue → SEO-Experten für Ideas → Technologien lernen → bessere Mitarbeiter.
+- **Idle**: Produktion läuft weiter, Offline-Fortschritt bis zum Offline-Limit (Standard 8 h, 50 % Effizienz – beides per Chronicle ausbaubar).
+- **Autosave** lokal, optional Cloud-Sync.
 
 ### Ressourcen (8)
-| Ressource | Anzeigename | Rolle |
-|-----------|-------------|-------|
-| `scrap` | Code | Hauptwährung, produziert vom Dev-Team |
-| `energy` | Revenue | Kaufkraft, produziert durch Sales |
-| `alloy` | Bugs | Zwischenprodukt aus QA-Konvertern |
-| `components` | Module | Zwischenprodukt für Marketing |
-| `data` | Users | Konvertiert zu Ideas |
-| `research` | Ideas | Schaltet Technologien frei |
-| `influence` | Hype | Prestige-relevante Leitwährung |
-| `relics` | Legacy Code | Seltene Drops, für Artefakte |
+| ID | Anzeige | Herkunft / Zweck |
+|----|---------|------------------|
+| `scrap` | Code | Dev-Team. Hauptwährung. |
+| `energy` | Revenue | Sales & Ads. Zweite Währung, füttert Konverter. |
+| `alloy` | Bugs | QA-Konverter aus Code. Baumaterial. |
+| `components` | Module | NPM Install aus Bugs. Für Growth, Releases, Standorte. |
+| `data` | Users | SEO / Growth Hacker. Für Brainstorming und Archäologen. |
+| `research` | Ideas | SEO, Brainstorming, Workshops. Kauft Technologien. |
+| `influence` | Hype | Tech Blogger & Co. Für Standorte und große Releases. |
+| `relics` | Legacy Code | Archäologen und Aufträge. Selten, für Endgame-Releases. |
 
-### Gebäude (42 Einträge, 7 Kategorien)
-Jedes Gebäude skaliert mit einem Wachstumsfaktor (×1.17–1.30 pro Kauf). Milestone-Boni ab je 10 Stück (+15% Output). Drei Typen:
-- **Producer** — produzieren Ressourcen passiv
-- **Converter** — wandeln eine Ressource in eine andere um
-- **Modifier** — schalten globale Boni oder Slots frei
+### Team (42 Gebäude, 6 Kategorien)
+- **Producer** (Dev Team, Sales & Ads) erzeugen Code bzw. Revenue.
+- **Konverter** (QA & DevOps, Marketing & R&D, Social Media) wandeln Ressourcen um und verbrauchen dabei echten Vorrat.
+- **Modifier** (Management) geben passive Boni (wirken bis 20 Stück).
 
-Kategorien: *Dev Team · QA & DevOps · Sales & Ads · Marketing & R&D · Social Media · Management · C-Level*
+### Technologien (39, 5 Stufen)
+Garage → Startup → Scale-up → Konzern → Singularität. Jede Tech zeigt direkt, was sie freischaltet. Einige sind Entweder/Oder (Open Source vs. Enterprise).
 
-### Forschung (39 Techs)
-Linearer Tech-Baum von `Frontend Basics` bis `AGI Completion`. Jedes Tech schaltet neue Gebäude, Passivboni oder Spielsysteme frei. Voraussetzungs-Ketten erzwingen strategische Reihenfolge.
+### Releases (10) & Funde (12)
+Einmalige Megaprojekte mit permanentem Effekt im Run (ToDo App bis Internet 3.0). Funde sind seltene Drops aus Aufträgen und bleiben für immer.
 
-Auswahl:
-`TypeScript Static` · `React Framework` · `Docker Containers` · `CI/CD Pipelines` · `Microservices Arch` · `Kubernetes Orch` · `Machine Learning` · `Generative AI` · `AGI Completion`
+### Expansion
+- **Freelance-Aufträge**: 9 Aufträge (5 min – 3 h), Belohnung skaliert mit deiner Produktion, Chance auf Funde und Mainframe-Chips, Agentur-Level.
+- **Standorte**: bis zu 8 Büros in 6 Städten mit eigenen Boni, 6 Fokus-Einstellungen, 15 Ausbaustufen.
+- **Core Values**: eine Doktrin pro Run.
 
-### Megaprojekte (10)
-Einmalige Langzeit-Investitionen mit dauerhaften Welteffekten:
+### Büro-Tab
+Klick-Button, aktuelle Aufgabe, KPIs, aktive Effekte, Sprint-Modus (4 Modi), Protokolle (4 temporäre Boosts mit Cooldown), Automatisierung, Konverter-Drossel, Ressourcenfluss-Tabelle, Log.
 
-| Projekt | Beschreibung |
-|---------|-------------|
-| Todo App | Erstes MVP. Niemand braucht es wirklich. |
-| Tech Blog | Content is King (manchmal). |
-| Freelance Portal | Verbindet Talente mit Auftraggebern. |
-| Social Network | Daten sind das neue Öl. |
-| Crypto Exchange | Finanzielle Innovation oder Chaos? |
-| B2B SaaS | Enterprise-Verträge mit 24 Monaten Laufzeit. |
-| Metaverse Project | VR-Büros, die niemand betreten will. |
-| Stack Overflow Clone | Endlich: Alle Antworten von 2009. |
-| Operating System | Das Fundament. Alles hängt davon ab. |
-| Internet Three | Endspiel-Projekt. Dezentralisiert alles. |
+### Prestige (Hard Refactor)
+XP = 5 · ∛(Code im Run / 10 Mio.) · Struktur-Bonus. Erhalten bleiben Funde, Chips, Errungenschaften, Chronicle-Upgrades (11), Meilensteine (12), Aufgaben-Fortschritt, Aktien-Depot. Mainframe-Chips (10) mit Tradeoffs.
 
-### Kolonien & Expeditionen
-- **Kolonien** — Bürostandorte mit Fokus-Einstellung (Crunch Time / Brainstorming / Refactoring / Diplomatie / Relics / Stabilität) und Stabilitätswert
-- **Expeditionen** — zeitgesteuerte Missionen mit Ressourcenbelohnungen, skalieren mit Fleet-XP und Kolonien
-- **Welten** — 6 verschiedene Standorte (Mamas Keller, Neo-Berlin, Silicon Valley, Night-City, Neo-Tokyo, Lagos Tech Hub)
-
-### Prestige — Hard Refactor
-Setzt den Lauf zurück und vergibt **XP** (Chronicle Points). Erhalten bleiben:
-- Artefakte & Errungenschaften
-- Mainframe-Chips
-- Chronicle-Upgrades (alle Level)
-- Lebenszeit-Statistiken
-
-**Chronicle-Upgrades (11):** Dauerhaft investierbare XP-Upgrades — Clean Architecture, Async Workflow, Management-Overhead, Seed Funding, Remote-First, Tech Debt Mastery, Series A, IPO, 4-Tage-Woche, Synergie-Effekte, 10x Typist
-
-**Prestige-Meilensteine (12):** Einmal freigeschaltet, für immer aktiv — basieren auf Lifetime-Klicks, Scrap, Forschung, Expeditionen und Prestige-Anzahl
-
-### Artefakte (12)
-Passive Dauerboni, durch Expeditionen oder seltene Drops erspielt:
-
-*Floppy Disk · Kaffeeversorgung · Rubber Duck · Stack Overflow Buch · Mechanische Tastatur · Monitor-Setup · Premium Laptop · Vim Config · Framework Cache · Git Cheat Sheet · SSD-Upgrade · Seniority Badge*
-
-### Mainframe & Chips (10)
-Ausrüstbare Chips für den Mainframe — jeder mit einzigartigem Effekt und optionalem Tradeoff. Slots über Prestige erweiterbar.
-
-### Dynamisches Ereignissystem
-Zufällige Anomalie-Ereignisse mit positiven/negativen Effektmodifikatoren. Cyber-Events mit Klick-Interaktion. `eventResist`-Wert reduziert die Häufigkeit.
+### Ereignisse
+Zufallsereignisse, interaktive Cyber-Events (Ransomware, DDoS, Investor Call …) und der herumfliegende Bug 🐛 mit Sofort-Bonus.
 
 ### Börse
-Geteilter Echtzeit-Aktienmarkt (serverbasiert). Kurse ändern sich durch Trades aller Spieler. Dividenden, Kurshistorie, Buy/Sell direkt im Interface.
+Serverbasierter Aktienmarkt (alle Spieler sehen dieselben Kurse), Dividenden in Ressourcen, auch offline.
 
-### Doctrine & Protokolle
-- **Doctrines** — Passiver Spielstil-Entscheid nach erstem Prestige
-- **Operations-Modi** — Efficiency / Balanced / Overdrive / Survey — beeinflussen Ressourcen-Throughput
-- **Protokolle** — temporäre Aktivierungen mit Cooldown
+### Cloud & Community
+JWT-Login, Cloud-Save mit Konfliktauflösung, Leaderboard, Profile, globaler Chat mit Befehlen.
 
-### Automation
-- **Auto-Build** — kauft Gebäude automatisch; Converter werden erst gebaut wenn der Input-Ressourcen-Netto-Fluss ausreichend positiv ist (verhindert Ressourcen-Death-Spiral)
-- **Auto-Research** — researcht die nächste verfügbare Tech
-- **Auto-Expeditions** — startet Missionen automatisch
-- **Auto-Projects** — baut Megaprojekte automatisch
-
-### Cloud Save & Account
-- JWT-Authentifizierung (7 Tage gültig)
-- Cloud-Save mit Konfliktauflösung (neuester Timestamp gewinnt)
-- Globales Leaderboard (nach Prestige-Score & Total Scrap)
-- Spieler-Profil öffentlich einsehbar
+### Tastatur
+`Leertaste` Code schreiben · `O B R P E M S C A` Tabs · `1 2 3 4` Kaufmenge · `Esc` Modal schließen
 
 ---
 
@@ -120,49 +79,35 @@ Geteilter Echtzeit-Aktienmarkt (serverbasiert). Kurse ändern sich durch Trades 
 | Frontend | [SolidJS](https://www.solidjs.com/) + [Vite](https://vitejs.dev/) |
 | Backend | [Express.js](https://expressjs.com/) + SQLite3 |
 | Auth | JWT (jsonwebtoken + bcryptjs) |
-| Deployment | Docker (Multi-Stage-Build) · PM2 |
+| Deployment | Docker (Multi-Stage-Build) |
 | Sprache | Deutsch (UI) · JavaScript (ESM) |
 
 ### Projektstruktur
 ```
 ├── src/
 │   ├── components/
-│   │   ├── App.jsx          # Root-Komponente, Game Loop, Modal-System
-│   │   └── renderers.js     # DOM-Render-Funktionen pro Tab
+│   │   ├── App.jsx          # App-Shell, Game Loop, Modal/Toast/Tooltip, Action-Dispatcher
+│   │   └── renderers.js     # HTML-Renderer für Navigation, Topbar und alle Tabs
 │   ├── engine/
-│   │   ├── loop.js          # Tick-Orchestrierung
-│   │   ├── tick.js          # Pro-Frame Ressourcenproduktion
-│   │   ├── actions.js       # Spieler-Aktionen (kaufen, forschen, prestige)
-│   │   ├── automation.js    # Auto-Build, Auto-Research etc.
-│   │   ├── events.js        # Anomalie-Ereignisse, Errungenschaften, Meilensteine
-│   │   ├── market.js        # Markt-Mechaniken
-│   │   └── stocks.js        # Börse
+│   │   ├── tick.js          # Simulationsschritt
+│   │   ├── actions.js       # Spieler-Aktionen
+│   │   ├── automation.js    # Auto-Hire / Learn / Freelance / Deploy
+│   │   ├── quests.js        # Aufgaben-System
+│   │   ├── events.js        # Aufträge, Ereignisse, Errungenschaften, Meilensteine
+│   │   ├── cyberEvents.js   # Interaktive Events
+│   │   ├── stocks.js        # Börse (Client)
+│   │   └── themeEngine.js   # Akzent-Theme nach Fortschritt
 │   ├── store/
-│   │   ├── gameState.js     # Zentraler SolidJS-Store
-│   │   └── bonuses.js       # Bonus-Berechnung (computeBonuses)
-│   ├── data/                # Statische Spielinhalte
-│   │   ├── buildings.js     # 42 Gebäude
-│   │   ├── techs.js         # 39 Technologien
-│   │   ├── projects.js      # 10 Megaprojekte
-│   │   ├── artifacts.js     # 12 Artefakte
-│   │   ├── chips.js         # 10 Mainframe-Chips
-│   │   ├── effects.js       # Bonus-Effekt-Definitionen
-│   │   ├── misc.js          # Worlds, Foci, Achievements, Chronicle, Milestones
-│   │   └── i18n.js          # Deutsche UI-Strings
-│   └── lib/
-│       ├── api-client.js    # HTTP-Client (Fetch + Retry + Auth)
-│       ├── format.js        # Zahlenformatierung (fmt, fmtSec)
-│       ├── icons.js         # Icon-Mapping
-│       ├── sanitize.js      # HTML-Escape
-│       └── toast.js         # Toast-Notification-System
+│   │   ├── gameState.js     # Zentraler Store, Save/Load/Migration
+│   │   └── bonuses.js       # Bonus-Berechnung + Produktionsmodell
+│   ├── data/                # Statische Spielinhalte (buildings, techs, projects, quests, ...)
+│   ├── lib/                 # api-client, format, icons, sanitize, toast
+│   └── index.css            # Design-System
 └── backend/
-    ├── server.js            # Express-App, SPA-Serving
-    ├── db.js                # SQLite-Init
-    └── routes/
-        ├── auth.js          # /api/auth/register · /api/auth/login
-        ├── game.js          # /api/game/* (save, load, leaderboard, admin)
-        ├── chat.js          # /api/chat/*
-        └── stocks.js        # /api/stocks/*
+    ├── server.js
+    ├── db.js
+    ├── lib/                 # stockMarket, profanityFilter
+    └── routes/              # auth, game, chat, stocks
 ```
 
 ---
@@ -172,30 +117,21 @@ Geteilter Echtzeit-Aktienmarkt (serverbasiert). Kurse ändern sich durch Trades 
 **Voraussetzungen:** Node.js 18+
 
 ```bash
-# 1. Abhängigkeiten installieren
 npm install
 cd backend && npm install && cd ..
-
-# 2. Umgebungsvariablen anlegen
 cp .env.example .env
-# Optional: VITE_API_BASE_URL und VITE_API_TIMEOUT_MS anpassen
-
-# 3. Fullstack starten (Frontend :5173, Backend :3005)
-npm run dev
+npm run dev          # Frontend :5173, Backend :3005
 ```
 
-Dann im Browser: `http://localhost:5173`
-
-### Nur Frontend (ohne Backend)
+### Nur Frontend
 ```bash
-npm run dev
-# Kein Login, kein Cloud-Save — alles läuft lokal im Browser
+npm run dev          # Kein Login, kein Cloud-Save – alles lokal im Browser
 ```
 
 ### Production Build
 ```bash
 npm run build        # dist/ erstellen
-cd backend && npm start   # Backend serviert dist/ statisch auf :3005
+cd backend && npm start   # Backend serviert dist/ auf :3005
 ```
 
 ### Docker
@@ -203,10 +139,6 @@ cd backend && npm start   # Backend serviert dist/ statisch auf :3005
 docker build -t codetycoon .
 docker run -p 3005:3005 codetycoon
 ```
-
-Das Multi-Stage-Dockerfile baut das Frontend, installiert Backend-Produktionsabhängigkeiten und startet `node backend/server.js`.
-
----
 
 ## Umgebungsvariablen
 
@@ -217,17 +149,7 @@ Das Multi-Stage-Dockerfile baut das Frontend, installiert Backend-Produktionsabh
 | `JWT_SECRET` | `change_me` | Geheimnis für JWT-Signierung |
 | `PORT` | `3005` | Backend-Port |
 | `ADMIN_USERNAME` | — | Benutzername mit Admin-Rechten |
-
----
-
-## Spielen
-
-**[game.fersd.com](https://game.fersd.com)** — kein Download, kein Install, läuft direkt im Browser.
-
-- Kein Account nötig zum Starten
-- Account anlegen für Cloud-Save, Leaderboard-Eintrag und Spielstand-Sync über Geräte
-
----
+| `ALLOWED_ORIGIN` | — | CORS-Origin in Produktion |
 
 ## Lizenz
 
