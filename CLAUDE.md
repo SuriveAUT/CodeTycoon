@@ -44,7 +44,7 @@ No test or lint scripts are configured. The engine runs headless in Node (see "B
   - `decisions.js` — choice events (`data/decisions.js`), rendered in the same top-right overlay as cyber events
   - `stocks.js` — server-driven stock market client; held shares give a per-resource production bonus (`dividendBonus`, +0.01%/share, cap +50%) applied in `computeBonuses`
   - `themeEngine.js` — accent theme by progress (early/mid/late)
-- `src/data/` — static content: `buildings.js` (42 buildings, categories, `milestoneMult`), `techs.js` (39 techs in 5 tiers), `projects.js`, `artifacts.js`, `chips.js`, `quests.js` (32 quests), `effects.js` (bonus functions), `misc.js` (resources, worlds, foci, doctrines, ops modes, protocols, missions, achievements, chronicle upgrades, prestige milestones)
+- `src/data/` — static content: `buildings.js` (42 buildings, categories, `milestoneMult`), `techs.js` (39 techs in 5 tiers), `projects.js`, `artifacts.js`, `chips.js`, `quests.js` (32 quests), `effects.js` (bonus functions), `events.js` (random event pool), `decisions.js` (choice events), `stocks.js` (stock list + dividend constants), `misc.js` (resources, `zeroResources()`, worlds, foci, doctrines, ops modes, protocols, missions, achievements, chronicle upgrades, prestige milestones, `COLONY_MAX_LEVEL`)
 - `src/lib/` — `api-client.js` (HTTP to backend, node-safe), `format.js`, `icons.js` (SVG sprite lookup; sprite lives in `index.html`), `sanitize.js`, `toast.js`, `settings.js` (per-device settings in localStorage, not part of the save)
 - `src/index.css` — the design system (CSS variables, layout, components). No other stylesheet.
 
@@ -55,7 +55,8 @@ No test or lint scripts are configured. The engine runs headless in Node (see "B
 - Building milestones: output ×2 at 10/25/50/100/200/300/400/500 owned (`MILESTONE_STEPS`).
 - Cost growth 1.15 per purchase (modifiers 1.6), soft cap ×1.03 per level above 100. Modifier effects cap at 20 units (`MODIFIER_CAP`), colonies at 8 (`MAX_COLONIES`), team synergy at +200%.
 - Prestige XP = `6 · ∛(runScrap / 1e7) · structBonus · prestigeGainMult` (`prestigeGainRaw` in actions.js).
-- Rates cache: `state.cache.rates[res]` = net/s, plus `__produced`, `__consumed`, `__utilization`, `__starved`.
+- Rates cache: `state.cache.rates[res]` = net/s, plus `__produced`, `__consumed`, `__utilization`, `__starved`. Read it through `currentRates()` / `currentBonuses()` (bonuses.js), which fall back to a fresh computation when the cache is empty; never read `state.cache.*` directly.
+- Automation and the threshold checks (achievements, milestones, quests via `runProgressChecks()`) run once per second inside `processTick`; with `opts.offline` the checks are skipped and the caller runs `runProgressChecks(true)` once afterwards.
 
 ### Balancing
 
@@ -86,6 +87,8 @@ Multi-stage `Dockerfile`: builds the frontend, installs backend prod deps, runs 
 ### Conventions
 
 - All UI is rendered as HTML strings via template literals; every interactive element uses `data-action` (+ `data-id`, etc.) and is handled in `App.jsx → handleAction`. Escape user/content strings with `escapeHtml`.
-- Tooltips: `data-tt="<encoded html>"` via the `tt()` helper in renderers.js.
+- Tooltips: `data-tt="<html>"` via the `tt()` helper in renderers.js (attribute-escaped, read back with `el.dataset.tt`).
+- Modals: `showModal(title, html, buttons)` resolves with the clicked button's `action`; use `confirmModal()` for yes/no and `showError()` for error dialogs in App.jsx.
+- Buy amounts and tab shortcut keys derive from `BUY_AMOUNTS` (gameState.js) and `TABS` (renderers.js); don't hardcode them elsewhere.
 - Live numbers in the topbar are patched at 10 Hz via `[data-res-val]` / `[data-res-rate]`; everything else re-renders once per second.
 - Keep save-format changes backward compatible in `normalizeState()`; bump `VERSION` and migrate in `migrateState()`.
