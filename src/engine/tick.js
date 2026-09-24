@@ -7,7 +7,6 @@ import { completeMission, spawnEvent, checkAchievements, checkPrestigeMilestones
 import { checkQuests } from './quests.js';
 import { tickCyberEvent } from './cyberEvents.js';
 import { tickDecisions } from './decisions.js';
-import { tickStockDividends } from './stocks.js';
 import { tickTheme } from './themeEngine.js';
 
 let lastChecksAt = 0;
@@ -96,7 +95,6 @@ export function processTick(dt, opts = {}) {
     checkQuests(silent);
   }
 
-  tickStockDividends(dt);
 
   if (!opts.offline) {
     tickCyberEvent(now);

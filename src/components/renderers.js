@@ -23,7 +23,7 @@ import {
   ACHIEVEMENTS, CHRONICLE_UPGRADES, PRESTIGE_MILESTONES
 } from '../data/misc.js';
 import { CHIPS } from '../data/chips.js';
-import { STOCKS, BROKER_FEE, getStockPrice, getOwnedShares, portfolioValue, totalDividendRate, timeUntilNextPriceUpdate } from '../engine/stocks.js';
+import { STOCKS, BROKER_FEE, getStockPrice, getOwnedShares, portfolioValue, totalDividendBonus, dividendBonus, sharesToCap, timeUntilNextPriceUpdate, DIVIDEND_PER_SHARE, MAX_DIVIDEND_BONUS } from '../engine/stocks.js';
 import { AstraforgeAPI } from '../lib/api-client.js';
 import { fmt, fmtSec } from '../lib/format.js';
 import { getIcon, resIcon, CATEGORY_ICONS } from '../lib/icons.js';
@@ -716,9 +716,11 @@ function renderStockCard(stock) {
     + `<button class="mkt-btn sell" data-action="sell-stock" data-id="${stock.id}" data-shares="${owned}" ${owned > 0 ? '' : 'disabled'}>Alle<small>${fmt(owned * price * (1 - BROKER_FEE))}</small></button>`;
   const pct = prevPrice ? ((price / prevPrice - 1) * 100).toFixed(1) : '0.0';
   return `<article class="item mkt">
-    <div class="mkt-head"><div><strong>${escapeHtml(stock.name)}</strong><div class="muted small mono">${escapeHtml(stock.ticker)} · Dividende ${fmt(stock.dividendRate)} ${escapeHtml(RESOURCE_LABELS[stock.resource])}/s je Aktie</div></div><span class="badge mono ${trendClass}">${trend === 'up' ? '▲' : trend === 'down' ? '▼' : '—'} ${Number(pct) >= 0 ? '+' : ''}${pct}%</span></div>
+    <div class="mkt-head"><div><strong>${escapeHtml(stock.name)}</strong><div class="muted small mono">${escapeHtml(stock.ticker)} · +${(DIVIDEND_PER_SHARE * 100).toFixed(2)}% ${escapeHtml(RESOURCE_LABELS[stock.resource])}-Produktion je Aktie</div></div><span class="badge mono ${trendClass}">${trend === 'up' ? '▲' : trend === 'down' ? '▼' : '—'} ${Number(pct) >= 0 ? '+' : ''}${pct}%</span></div>
     <div class="mkt-spark"><svg viewBox="0 0 100 34" preserveAspectRatio="none"><polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
     <div class="row-between"><span class="mono">Kurs <strong>${fmt(price)}</strong> <span class="muted">Revenue</span></span><span class="muted small">Depot: <strong class="mono">${fmt(owned)}</strong> Aktien</span></div>
+    <div class="row-between"><span class="badge ${dividendBonus(stock.id) > 0 ? 'good' : ''}" ${tt('Dividende', `Jede Aktie erhöht deine ${RESOURCE_LABELS[stock.resource]}-Produktion um ${(DIVIDEND_PER_SHARE * 100).toFixed(2)}%, maximal +${Math.round(MAX_DIVIDEND_BONUS * 100)}%.`)}>${resIcon(stock.resource)} +${(dividendBonus(stock.id) * 100).toFixed(1)}% ${escapeHtml(RESOURCE_LABELS[stock.resource])}</span><span class="muted small">${sharesToCap(stock.id) > 0 ? `${fmt(sharesToCap(stock.id))} bis Max` : 'Maximum erreicht'}</span></div>
+    ${progress(dividendBonus(stock.id), MAX_DIVIDEND_BONUS, 'thin good')}
     <div class="mkt-btns">${buy}</div>
     <div class="mkt-btns">${sell}</div>
   </article>`;
@@ -729,15 +731,15 @@ function renderMarket() {
     return `<section class="panel">${emptyState('lock', 'Börse gesperrt', 'Schalte „Upwork Account“ in der Forschung frei, um Aktien zu handeln.')}</section>`;
   }
   const nextUpdate = timeUntilNextPriceUpdate();
-  const dividends = totalDividendRate();
+  const dividends = totalDividendBonus();
   return `
     <section class="panel tight"><div class="kpis">
       ${kpi('Depotwert', `${fmt(portfolioValue())}`, 'Revenue')}
       ${kpi('Gebühr', `${Math.round(BROKER_FEE * 100)}%`, 'beim Verkauf')}
       ${kpi('Kurs-Update', nextUpdate === null ? 'Verbinde…' : fmtSec(nextUpdate / 1000), '<span class="live">LIVE</span> serverbasiert, alle Spieler')}
-      ${kpi('Dividenden', Object.keys(dividends).length ? Object.entries(dividends).map(([res, v]) => `<span class="res-${res}">${fmt(v)}</span>`).join(' · ') : '–', 'pro Sekunde')}
+      ${kpi('Dividenden', Object.keys(dividends).length ? Object.entries(dividends).map(([res, v]) => `<span class="res-${res}">+${Math.round(v * 100)}%</span>`).join(' · ') : '–', 'Produktionsbonus aus Aktien')}
     </div></section>
-    <section class="panel"><div class="panel-head"><div><div class="eyebrow">Ressourcen-Börse</div><h3>${getIcon('market')} Aktien</h3><div class="sub">Kaufe mit Revenue. Jede Aktie zahlt Dividenden in ihrer Ressource – auch offline.</div></div></div>
+    <section class="panel"><div class="panel-head"><div><div class="eyebrow">Ressourcen-Börse</div><h3>${getIcon('market')} Aktien</h3><div class="sub">Kaufe mit Revenue. Jede Aktie erhöht die Produktion ihrer Ressource um ${(DIVIDEND_PER_SHARE * 100).toFixed(2)}% (max. +${Math.round(MAX_DIVIDEND_BONUS * 100)}%). Kurse steigen, wenn viele Spieler kaufen.</div></div></div>
       <div class="grid-auto">${STOCKS.map(renderStockCard).join('')}</div>
     </section>`;
 }

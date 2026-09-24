@@ -62,7 +62,7 @@ XP = 6 · ∛(Code im Run / 10 Mio.) · Struktur-Bonus. Erhalten bleiben Funde, 
 Zufallsereignisse, interaktive Cyber-Events (Ransomware, DDoS, Investor Call …) und der herumfliegende Bug 🐛 mit Sofort-Bonus.
 
 ### Börse
-Serverbasierter Aktienmarkt (alle Spieler sehen dieselben Kurse), Dividenden in Ressourcen, auch offline.
+Serverbasierter Aktienmarkt (alle Spieler sehen dieselben Kurse). Jede Aktie erhöht die Produktion ihrer Ressource um 0,01 % (max. +50 % je Ressource).
 
 ### Cloud & Community
 JWT-Login, Cloud-Save mit Konfliktauflösung, Leaderboard, Profile, globaler Chat mit Befehlen.

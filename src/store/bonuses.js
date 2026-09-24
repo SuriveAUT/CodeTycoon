@@ -8,6 +8,7 @@ import { BUILDINGS, milestoneMult } from '../data/buildings.js';
 import { RESOURCES, WORLDS, FOCI, PROTOCOLS, PRESTIGE_MILESTONES, CHRONICLE_UPGRADES } from '../data/misc.js';
 import { BONUS_EFFECTS, PROJECT_EFFECTS, ARTIFACT_EFFECTS, DOCTRINE_EFFECTS } from '../data/effects.js';
 import { CHIPS } from '../data/chips.js';
+import { STOCKS, dividendBonus } from '../engine/stocks.js';
 import { clamp } from '../lib/format.js';
 
 export const MAX_COLONIES = 8;
@@ -90,6 +91,12 @@ export function computeBonuses(s = state) {
     if (!chip) return;
     applyEffects(b, chip.effects);
     applyEffects(b, chip.tradeoffs);
+  });
+
+  // Börse: Dividenden als Produktionsbonus je Ressource
+  STOCKS.forEach(st => {
+    const bonus = dividendBonus(st.id, s);
+    if (bonus > 0) b[`${st.resource}Mult`] = (b[`${st.resource}Mult`] || 1) * (1 + bonus);
   });
 
   switch (s.operationsMode) {

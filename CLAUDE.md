@@ -42,7 +42,7 @@ No test or lint scripts are configured. The engine runs headless in Node (see "B
   - `events.js` — missions completion, random events, achievements, prestige milestones, bug anomaly
   - `cyberEvents.js` — interactive pop-up events
   - `decisions.js` — choice events (`data/decisions.js`), rendered in the same top-right overlay as cyber events
-  - `stocks.js` — server-driven stock market client
+  - `stocks.js` — server-driven stock market client; held shares give a per-resource production bonus (`dividendBonus`, +0.01%/share, cap +50%) applied in `computeBonuses`
   - `themeEngine.js` — accent theme by progress (early/mid/late)
 - `src/data/` — static content: `buildings.js` (42 buildings, categories, `milestoneMult`), `techs.js` (39 techs in 5 tiers), `projects.js`, `artifacts.js`, `chips.js`, `quests.js` (32 quests), `effects.js` (bonus functions), `misc.js` (resources, worlds, foci, doctrines, ops modes, protocols, missions, achievements, chronicle upgrades, prestige milestones)
 - `src/lib/` — `api-client.js` (HTTP to backend, node-safe), `format.js`, `icons.js` (SVG sprite lookup; sprite lives in `index.html`), `sanitize.js`, `toast.js`, `settings.js` (per-device settings in localStorage, not part of the save)
