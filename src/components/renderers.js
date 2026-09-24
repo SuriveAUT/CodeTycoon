@@ -4,10 +4,10 @@ import {
   isTechUnlocked, hasTech, hasProject, hasArtifact, totalBuildings, techCount, projectCount, artifactCount, colonyCount,
   isProjectRequirementMet, projectRequirementLabel, getTech, getBuilding
 } from '../store/gameState.js';
-import { computeBonuses, estimateRatesSnapshot, buildingOutputPerSecond, buildingInputPerSecond, clickValue, MAX_COLONIES, MODIFIER_CAP } from '../store/bonuses.js';
+import { computeBonuses, estimateRatesSnapshot, buildingOutputPerSecond, buildingInputPerSecond, clickValue, MODIFIER_CAP, chronicleCostFor } from '../store/bonuses.js';
 import {
   nextResearchCost, nextProjectCost, chronicleCost, colonyFoundCost, canFoundColony, colonyUpgradeCost, COLONY_MAX_LEVEL,
-  prestigeGain, prestigeGainRaw, scrapForNextXp, runScrap, missionPowerReq, prestigeStructBonus
+  prestigeGain, prestigeGainRaw, scrapForNextXp, runScrap, missionPowerReq, prestigeStructBonus, PRESTIGE_XP_BASE
 } from '../engine/actions.js';
 import { currentQuest, questProgress } from '../engine/quests.js';
 import { missionSuccessChance, getDynamicMissionRewards } from '../engine/events.js';
@@ -777,7 +777,7 @@ function renderPrestige() {
       <section class="panel accent">
         <div class="eyebrow">Hard Refactor</div>
         <div class="row-between" style="align-items:flex-end">
-          <div><div class="xp-big">+${fmt(gain)} <small>XP bei Refactor</small></div><div class="muted small" style="margin-top:6px">Run: ${fmt(runScrap())} Code · XP = 6 · ∛(Code / 10 Mio.) · Struktur-Bonus ×${fmt(prestigeStructBonus())} · ${fmt(bonuses().prestigeGainMult)}× Multiplikator</div></div>
+          <div><div class="xp-big">+${fmt(gain)} <small>XP bei Refactor</small></div><div class="muted small" style="margin-top:6px">Run: ${fmt(runScrap())} Code · XP = ${PRESTIGE_XP_BASE} · ∛(Code / 10 Mio.) · Struktur-Bonus ×${fmt(prestigeStructBonus())} · ${fmt(bonuses().prestigeGainMult)}× Multiplikator</div></div>
           <div class="kpi"><div class="kpi-label">XP-Guthaben</div><div class="kpi-value">${fmt(state.chronicle)}</div><div class="kpi-sub">${state.stats.prestigeCount} Refactors</div></div>
         </div>
         <div style="margin:12px 0 6px">${progress(frac, 1)}<div class="muted small" style="margin-top:4px">Nächster XP-Punkt in ${fmt(nextIn)} Code</div></div>
@@ -826,7 +826,7 @@ function renderCodex() {
     ['Ideas & Users', 'SEO-Experten machen aus Revenue Ideas und Users. Brainstorming macht aus Users noch mehr Ideas. Ideas kaufen Techs.'],
     ['Bugs & Module', 'QA Tester verwandeln Code in Bugs, NPM Install Bugs in Module. Beides braucht man für Releases, Growth Hacker und Standorte.'],
     ['Hype & Legacy', 'Tech Blogger machen aus Ideas Hype (für Standorte, große Releases). Code-Archäologen und Aufträge liefern Legacy Code.'],
-    ['Prestige', 'Ein Hard Refactor gibt XP = 6·∛(Run-Code/10 Mio.). XP kauft permanente Chronicle-Upgrades. Ab ~10 XP lohnt es sich.'],
+    ['Prestige', `Ein Hard Refactor gibt XP = ${PRESTIGE_XP_BASE}·∛(Run-Code/10 Mio.). XP kauft permanente Chronicle-Upgrades. Ab ~10 XP lohnt es sich.`],
     ['Offline', 'Bis zum Offline-Limit (Standard 8h) wird mit 50% Effizienz weitergerechnet. Chronicle-Upgrades erhöhen beides.']
   ];
   const keys = [['Leertaste', 'Code schreiben'], ['O / B / R / P / E / M / S / C / A', 'Tabs wechseln'], ['1 / 2 / 3 / 4', 'Kaufmenge ×1 / ×10 / ×100 / Max'], ['Esc', 'Modal schließen']];
@@ -858,7 +858,7 @@ function renderCodex() {
         <div class="stat-list">${RESOURCES.map(res => statRow(`${RESOURCE_LABELS[res]} gesamt`, `<span class="res-${res}">${fmt(state.stats.total[res] || 0)}</span>`)).join('')}</div>
         <div class="stat-list">
           ${statRow('Refactors', fmt(state.stats.prestigeCount || 0))}
-          ${statRow('XP gesamt verdient', fmt((state.chronicle || 0) + CHRONICLE_UPGRADES.reduce((a, u) => { let sum = 0; for (let l = 0; l < (state.chronicleUpgrades[u.id] || 0); l++) sum += Math.floor(u.base * Math.pow(1.32, l)); return a + sum; }, 0)))}
+          ${statRow('XP gesamt verdient', fmt((state.chronicle || 0) + CHRONICLE_UPGRADES.reduce((a, u) => { let sum = 0; for (let l = 0; l < (state.chronicleUpgrades[u.id] || 0); l++) sum += chronicleCostFor(u.id, l); return a + sum; }, 0)))}
           ${statRow('Releases gebaut', fmt(state.stats.projectsBuilt || 0))}
           ${statRow('Aufträge erledigt', fmt(state.stats.expeditionsDone || 0))}
           ${statRow('Entscheidungen getroffen', fmt(state.stats.decisionsMade || 0))}

@@ -8,10 +8,14 @@ import { BUILDINGS, milestoneMult } from '../data/buildings.js';
 import { RESOURCES, WORLDS, FOCI, PROTOCOLS, PRESTIGE_MILESTONES, CHRONICLE_UPGRADES } from '../data/misc.js';
 import { BONUS_EFFECTS, PROJECT_EFFECTS, ARTIFACT_EFFECTS, DOCTRINE_EFFECTS } from '../data/effects.js';
 import { CHIPS } from '../data/chips.js';
-import { STOCKS, dividendBonus } from '../engine/stocks.js';
+import { STOCKS, DIVIDEND_PER_SHARE, MAX_DIVIDEND_BONUS } from '../data/stocks.js';
 import { clamp } from '../lib/format.js';
 
 export const MAX_COLONIES = 8;
+export const RES_MULT_KEY = {
+  scrap: 'scrapMult', energy: 'energyMult', alloy: 'alloyMult', components: 'componentsMult',
+  data: 'dataMult', research: 'researchMult', influence: 'influenceMult', relics: 'relicMult'
+};
 export const MODIFIER_CAP = 20;
 
 const MULT_KEYS = new Set([
@@ -95,8 +99,9 @@ export function computeBonuses(s = state) {
 
   // Börse: Dividenden als Produktionsbonus je Ressource
   STOCKS.forEach(st => {
-    const bonus = dividendBonus(st.id, s);
-    if (bonus > 0) b[`${st.resource}Mult`] = (b[`${st.resource}Mult`] || 1) * (1 + bonus);
+    const owned = (s.stocks || {})[st.id] || 0;
+    const bonus = Math.min(MAX_DIVIDEND_BONUS, owned * DIVIDEND_PER_SHARE);
+    if (bonus > 0) b[RES_MULT_KEY[st.resource]] *= 1 + bonus;
   });
 
   switch (s.operationsMode) {
@@ -166,12 +171,7 @@ export function computeBonuses(s = state) {
 }
 
 export function resourceMult(resource, b) {
-  const map = {
-    scrap: b.scrapMult, energy: b.energyMult, alloy: b.alloyMult,
-    components: b.componentsMult, data: b.dataMult, research: b.researchMult,
-    influence: b.influenceMult, relics: b.relicMult
-  };
-  return (map[resource] || 1) * b.allMult;
+  return (b[RES_MULT_KEY[resource]] || 1) * b.allMult;
 }
 
 function zeroMap() { return RESOURCES.reduce((o, r) => (o[r] = 0, o), {}); }

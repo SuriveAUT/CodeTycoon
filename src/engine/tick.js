@@ -72,7 +72,7 @@ export function processTick(dt, opts = {}) {
   });
 
   // Zufallsereignisse
-  if (!state.event && now >= state.nextEventAt && state.techs.length >= 2) {
+  if (!state.event && !state.decision && now >= state.nextEventAt && state.techs.length >= 2) {
     const event = spawnEvent(b);
     setState('event', event);
     setState('eventEnds', now + event.duration);

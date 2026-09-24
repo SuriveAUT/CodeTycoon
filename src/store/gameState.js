@@ -8,7 +8,7 @@ import { ARTIFACTS } from '../data/artifacts.js';
 import { RESOURCES } from '../data/misc.js';
 
 export const SAVE_KEY = 'dev-tycoon-save-v1';
-const VERSION = 5;
+const VERSION = 6;
 
 // Sehr alte Saves (Astraforge-Weltraum-Thema) auf die aktuellen IDs mappen.
 const ID_MAP = {
@@ -133,11 +133,13 @@ function migrateState(candidate) {
   if (candidate.selectedTab === 'colonies' || candidate.selectedTab === 'expeditions') candidate.selectedTab = 'expansion';
   delete candidate.market;
   delete candidate.tutorialDone;
-  // Neue XP-Formel: offenes Run-Guthaben alter Saves auf max. 1 Mrd. Code deckeln
-  const total = candidate.stats?.total?.scrap || 0;
-  const baseline = candidate.stats?.totalAtLastPrestige?.scrap || 0;
-  if (total - baseline > 1e9) {
-    candidate.stats.totalAtLastPrestige = { ...(candidate.stats.totalAtLastPrestige || {}), scrap: total - 1e9 };
+  // v5 → v6 (Rework-Balance): offenes Run-Guthaben alter Saves für die neue XP-Formel auf 1 Mrd. Code deckeln
+  if ((candidate.version || 0) < 6) {
+    const total = candidate.stats?.total?.scrap || 0;
+    const baseline = candidate.stats?.totalAtLastPrestige?.scrap || 0;
+    if (total - baseline > 1e9) {
+      candidate.stats.totalAtLastPrestige = { ...(candidate.stats.totalAtLastPrestige || {}), scrap: total - 1e9 };
+    }
   }
   return candidate;
 }

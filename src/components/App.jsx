@@ -84,9 +84,10 @@ export default function App() {
     showModal('Core Values wählen', `<p class="muted small" style="margin-bottom:8px">Eine Doktrin pro Run. Sie gilt bis zum nächsten Hard Refactor.</p>${docHTML}`, [{ label: 'Später', action: 'cancel', cls: '' }]);
   }
 
-  function showToast(message, type = 'good', long = false) {
+  // passive = Engine-Benachrichtigung (Quests, Errungenschaften …); direkte Aktions-Rückmeldungen bleiben immer sichtbar
+  function showToast(message, type = 'good', long = false, passive = false) {
     if (!toastContainerRef) return;
-    if (!getSetting('toasts') && type !== 'bad') return;
+    if (passive && !getSetting('toasts')) return;
     while (toastContainerRef.children.length >= 4) toastContainerRef.firstChild.remove();
     const el = document.createElement('div');
     el.className = `toast toast--${type}${long ? ' toast--long' : ''}`;
@@ -167,7 +168,7 @@ export default function App() {
       bottomNavRef.innerHTML = renderNav(true, badges);
       bottomNavRef.scrollLeft = scrollLeft;
       // Nur beim Tab-Wechsel zum aktiven Tab scrollen, nicht bei jedem Sekunden-Render
-      if (lastScrolledTab !== state.selectedTab && bottomNavRef.offsetParent !== null) {
+      if (lastScrolledTab !== state.selectedTab && bottomNavRef.clientWidth > 0) {
         lastScrolledTab = state.selectedTab;
         const active = bottomNavRef.querySelector('.nav-item.active');
         if (active) bottomNavRef.scrollTo({ left: active.offsetLeft - (bottomNavRef.clientWidth - active.offsetWidth) / 2, behavior: 'smooth' });
@@ -271,6 +272,9 @@ export default function App() {
 
   // ── Aktionen ──
   function handleAction(e) {
+    // Nach Mausklicks den Fokus von Buttons/Links nehmen, damit die Leertaste weiter Code schreibt
+    const focusable = e.target.closest('button, a');
+    if (focusable && e.detail > 0) setTimeout(() => focusable.blur(), 0);
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
     const action = btn.dataset.action;
@@ -343,7 +347,13 @@ export default function App() {
       case 'upgrade-all-colonies': upgradeAllColonies(); done(); return;
       case 'set-focus': setColonyFocus(id, btn.dataset.focus); done(); return;
       case 'send-mission': if (launchMission(id)) showToast('Auftrag angenommen.', 'good'); done(); return;
-      case 'fill-missions': { autoExpeditions(computeBonuses()); showToast('Aufträge gestartet.', 'good'); done(); return; }
+      case 'fill-missions': {
+        const before = state.expeditions.length;
+        autoExpeditions(computeBonuses());
+        const started = state.expeditions.length - before;
+        showToast(started > 0 ? `${started} Auftrag${started > 1 ? 'e' : ''} gestartet.` : 'Kein Auftrag startbar (Slots/Power).', started > 0 ? 'good' : 'warn');
+        done(); return;
+      }
       case 'doctrine': setDoctrine(id); done(); return;
       case 'equip-chip': equipChip(id); done(); return;
       case 'unequip-chip': unequipChip(id); done(); return;
@@ -703,8 +713,13 @@ export default function App() {
     let freshStart = false;
     try { freshStart = localStorage.getItem(FRESH_FLAG) === '1'; if (freshStart) localStorage.removeItem(FRESH_FLAG); } catch (_) { /* ignore */ }
     if (freshStart && AstraforgeAPI.isLoggedIn()) {
-      // Bewusster Neustart: Cloud nicht laden, sondern frischen Stand hochladen
-      forceCloudSync().catch(() => {}).finally(finishMount);
+      // Bewusster Neustart: Cloud nicht laden, sondern frischen Stand hochladen (Server drosselt Saves < 8s → Retry)
+      const uploadFresh = (attempt) => forceCloudSync().then(() => showToast('Cloud-Save zurückgesetzt.', 'good')).catch(() => {
+        if (attempt < 4) setTimeout(() => uploadFresh(attempt + 1), 10000);
+        else showToast('Cloud-Save konnte nicht überschrieben werden – bitte unter Account „Jetzt speichern“.', 'bad', true);
+      });
+      uploadFresh(0);
+      finishMount();
     } else if (AstraforgeAPI.isLoggedIn()) {
       AstraforgeAPI.loadGame().then(res => {
         if (res?.gameData && applyRemoteSave(res.gameData, { force: !hadLocalSave })) gameLog('Cloud-Save geladen.');
@@ -722,7 +737,7 @@ export default function App() {
       if (!state.doctrine && b.doctrineUnlock && state.stats.prestigeCount > 0) setTimeout(showDoctrineModal, 600);
       saveState();
       initTooltipLogic();
-      toastUnsubscribe = onToast((msg, type) => showToast(msg, type));
+      toastUnsubscribe = onToast((msg, type) => showToast(msg, type, false, true));
 
       if (!AstraforgeAPI.isLoggedIn() && !localStorage.getItem('astraforge_welcomed')) {
         localStorage.setItem('astraforge_welcomed', '1');

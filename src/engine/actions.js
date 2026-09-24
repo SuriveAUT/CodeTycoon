@@ -89,13 +89,16 @@ export function runScrap(s = state) {
   return Math.max(0, (s.stats.total.scrap || 0) - (s.stats.totalAtLastPrestige?.scrap || 0));
 }
 
+export const PRESTIGE_XP_BASE = 6;      // XP = BASE · ∛(Run-Code / PRESTIGE_XP_SCALE)
+export const PRESTIGE_XP_SCALE = 1e7;
+
 // Strukturbonus: Techs, Releases und Standorte des Runs erhöhen die XP
 export function prestigeStructBonus(s = state) {
   return 1 + techCount(s) * 0.02 + projectCount(s) * 0.05 + colonyCount(s) * 0.03;
 }
 
 export function prestigeGainRaw(s = state, b = s.cache?.bonuses || computeBonuses(s)) {
-  const base = 6 * Math.cbrt(runScrap(s) / 1e7);
+  const base = PRESTIGE_XP_BASE * Math.cbrt(runScrap(s) / PRESTIGE_XP_SCALE);
   return base * prestigeStructBonus(s) * (b.prestigeGainMult || 1);
 }
 
@@ -108,7 +111,7 @@ export function scrapForNextXp(s = state) {
   const b = s.cache?.bonuses || computeBonuses(s);
   const mult = prestigeStructBonus(s) * (b.prestigeGainMult || 1);
   const nextXp = prestigeGain(s) + 1;
-  const needed = Math.pow(nextXp / (6 * mult), 3) * 1e7;
+  const needed = Math.pow(nextXp / (PRESTIGE_XP_BASE * mult), 3) * PRESTIGE_XP_SCALE;
   return Math.max(0, needed - runScrap(s));
 }
 
