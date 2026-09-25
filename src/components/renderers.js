@@ -12,6 +12,10 @@ import {
 import { currentQuest, questProgress } from '../engine/quests.js';
 import { missionSuccessChance, getDynamicMissionRewards } from '../engine/events.js';
 import { currentDecisionDef } from '../engine/decisions.js';
+import { dailyUnlocked, canClaimStandup, standupReward, ticketProgress, ticketLabel, coffeeUseAvailable } from '../engine/daily.js';
+import { activeChallenge, challengeStatus, challengeProgress, challengeTimeLeft, challengesDone } from '../engine/challenges.js';
+import { COFFEE_USES, COFFEE_MAX, STREAK_CYCLE, STANDUP_MINUTES } from '../data/daily.js';
+import { CHALLENGES } from '../data/challenges.js';
 import { getSetting } from '../lib/settings.js';
 import { BUILDINGS, CATEGORIES, milestoneMult, nextMilestone } from '../data/buildings.js';
 import { TECHS, TECH_TIERS } from '../data/techs.js';
@@ -177,6 +181,7 @@ export function navBadges() {
   if (freeSlot || canFoundColony()) badges.expansion = 'dot';
   const fresh = newBuildings().length;
   if (fresh && state.selectedTab !== 'buildings') badges.buildings = fresh;
+  if (dailyUnlocked() && canClaimStandup()) badges.overview = 'dot';
   return badges;
 }
 
@@ -256,6 +261,14 @@ function renderActiveEffects() {
     const bad = Object.values(state.event.effects || {}).some(v => v < 1 && v > 0 && v !== 0);
     fx.push(`<span class="fx ${bad ? 'bad' : 'good'}" ${tt(state.event.name, state.event.desc || 'Zufallsereignis', { meta: 'Ereignis' })}>${getIcon('zap')} ${escapeHtml(state.event.name)} <span class="fx-t">${fmtSec(left)}</span></span>`);
   }
+  if (state.boost && state.boost.endsAt > now) {
+    fx.push(`<span class="fx good" ${tt(state.boost.name, 'Temporärer Boost aus dem Tages-Loop (Tickets, Kaffee, Standup).', { meta: 'Boost' })}>${getIcon('zap')} ${escapeHtml(state.boost.name)} <span class="fx-t">${fmtSec((state.boost.endsAt - now) / 1000)}</span></span>`);
+  }
+  const sprint = activeChallenge();
+  if (sprint) {
+    const [cur, target] = challengeProgress(sprint);
+    fx.push(`<span class="fx bad" ${tt(`Sprint: ${sprint.name}`, sprint.desc, { meta: sprint.modLabel })}>${getIcon(sprint.icon)} Sprint: ${escapeHtml(sprint.name)} <span class="fx-t">${Math.min(100, Math.floor(cur / target * 100))}%</span></span>`);
+  }
   const proto = PROTOCOLS.find(p => p.id === state.activeProtocol && state.activeProtocolEndsAt > now);
   if (proto) fx.push(`<span class="fx good">${getIcon('star')} ${escapeHtml(proto.name)} <span class="fx-t">${fmtSec((state.activeProtocolEndsAt - now) / 1000)}</span></span>`);
   const mode = OPERATIONS_MODES.find(m => m.id === state.operationsMode);
@@ -289,6 +302,48 @@ function renderProtocols() {
       <div class="row-between">${locked ? '' : costChips(protocol.cost || {})}<button class="btn sm ${!disabled ? 'primary' : ''}" data-action="activate-protocol" data-id="${protocol.id}" ${disabled ? 'disabled' : ''}>${running ? 'Läuft' : 'Aktivieren'}</button></div>
     </div>`;
   }).join('');
+}
+
+// ── Daily Standup / Tickets / Kaffee ──
+function renderDaily() {
+  const now = Date.now();
+  const d = state.daily;
+  const claimable = canClaimStandup(state, now);
+  const info = standupReward(state, now);
+  // Tage der aktuellen Streak im 7er-Zyklus; bei verlorener Streak ist der nächste Claim Tag 1
+  const claimed = claimable ? info.streak - 1 : d.streak;
+  const filled = claimed > 0 && claimed % STREAK_CYCLE === 0 ? STREAK_CYCLE : claimed % STREAK_CYCLE;
+  const dots = STANDUP_MINUTES.map((m, i) => {
+    const day = i + 1;
+    const cls = day <= filled ? 'on' : (claimable && day === filled + 1 ? 'next' : '');
+    return `<span class="${cls} ${i === STREAK_CYCLE - 1 ? 'big' : ''}" ${tt(`Tag ${day}`, `${m} Minuten deiner Produktion${i === STREAK_CYCLE - 1 ? ' + Legacy Code + Retro-Bonus ×2 für 15 min' : ''}.`)}>${day}</span>`;
+  }).join('');
+  const claimRow = claimable
+    ? `<div class="row-between"><div class="row" style="flex-wrap:wrap"><span class="muted small">Belohnung:</span>${rewardChips(info.reward)}${info.week ? '<span class="badge good">+ Retro-Bonus ×2</span>' : ''}</div><button class="btn primary" data-action="daily-claim" ${tt('Daily Standup', `${info.minutes} Minuten deiner aktuellen Produktion geschenkt. Streak-Tag ${info.streak}.`)}>${getIcon('check')} Standup abhalten · Tag ${info.streak}</button></div>`
+    : `<div class="row-between"><span class="badge good">${getIcon('check')} Heute erledigt</span><span class="muted small">Morgen: Tag ${d.streak + 1} · ${STANDUP_MINUTES[d.streak % STREAK_CYCLE]} min Produktion${(d.streak + 1) % STREAK_CYCLE === 0 ? ' + Retro-Bonus' : ''}</span></div>`;
+  const tickets = d.tickets.map(t => {
+    const [cur, target] = ticketProgress(t);
+    return `<div class="ticket ${t.done ? 'done' : ''}">
+      <div class="ticket-label">${getIcon(t.done ? 'check' : 'flag')} ${escapeHtml(ticketLabel(t))}</div>
+      ${rewardChips(t.reward)}
+      ${progress(Math.min(cur, target), target, t.done ? 'good thin' : 'thin')}
+      <span class="num muted">${t.done ? 'erledigt' : `${fmt(Math.min(cur, target))} / ${fmt(target)}`}</span>
+    </div>`;
+  }).join('');
+  const allDone = d.tickets.length > 0 && d.tickets.every(t => t.done);
+  const c = state.coffee;
+  const beans = `${'☕'.repeat(c.beans)}<span class="muted">${'○'.repeat(Math.max(0, COFFEE_MAX - c.beans))}</span>`;
+  const nextIn = c.beans >= COFFEE_MAX ? 'Vorrat voll' : `nächste Bohne in ${fmtSec(Math.max(0, (c.nextBeanAt - now) / 1000))}`;
+  const uses = COFFEE_USES.map(u => `<button class="btn sm" data-action="coffee-use" data-id="${u.id}" ${coffeeUseAvailable(u.id) ? '' : 'disabled'} ${tt(u.name, u.desc, { meta: 'Kostet 1 Kaffee' })}>${getIcon(u.icon)} ${escapeHtml(u.name)}</button>`).join('');
+  return `
+    <section class="panel daily">
+      <div class="panel-head"><div><div class="eyebrow">Daily Standup</div><h3>${getIcon('time')} Tages-Loop</h3><div class="sub">Einmal am Tag vorbeischauen lohnt sich: Standup, Tickets, Kaffee.</div></div><span class="badge ${d.streak > 0 ? 'accent' : ''}" ${tt('Streak', 'Tage in Folge mit Standup. Ein verpasster Tag setzt die Streak auf 0. Tag 7 gibt den großen Bonus.')}>${getIcon('zap')} Streak ${d.streak}${d.bestStreak > d.streak ? ` · Best ${d.bestStreak}` : ''}</span></div>
+      <div class="streak">${dots}</div>
+      <div style="margin-top:10px">${claimRow}</div>
+      <div class="row-between" style="margin-top:14px;margin-bottom:6px"><div class="eyebrow" style="margin:0">Tages-Tickets</div>${allDone ? '<span class="badge good">Alle erledigt · Tages-Bonus ×1,5</span>' : '<span class="muted small">Alle drei → 30 min ×1,5 Produktion</span>'}</div>
+      <div class="stack">${tickets || '<span class="muted small">Tickets werden gerade verteilt…</span>'}</div>
+      <div class="row-between" style="margin-top:14px"><div><div class="eyebrow" ${tt('Kaffee', 'Reift alle 6 Stunden in Echtzeit – auch wenn du nicht spielst. Maximal 3 auf Vorrat.')}>Kaffee</div><div class="coffee">${beans}<span class="muted small" style="letter-spacing:0">${nextIn}</span></div></div><div class="toggle-row">${uses}</div></div>
+    </section>`;
 }
 
 function renderFlowTable() {
@@ -348,11 +403,12 @@ function renderOverview() {
 
     <div class="grid-2">
       <div class="stack" style="gap:14px">
+        ${dailyUnlocked() ? renderDaily() : ''}
         <section class="panel">
           <div class="panel-head"><div><div class="eyebrow">Status</div><h3>${getIcon('zap')} Aktive Effekte</h3></div></div>
           ${renderActiveEffects()}
           <div style="margin-top:14px">
-            <div class="eyebrow">Sprint-Modus</div>
+            <div class="eyebrow">Arbeitsmodus</div>
             <div class="toggle-row">${OPERATIONS_MODES.map(mode => `<button class="btn sm ${state.operationsMode === mode.id ? 'primary' : ''}" data-action="set-operations-mode" data-id="${mode.id}" ${tt(mode.name, mode.desc)}>${escapeHtml(mode.name)}</button>`).join('')}</div>
             <p class="muted small" style="margin-top:6px">${escapeHtml(OPERATIONS_MODES.find(m => m.id === state.operationsMode)?.desc || '')}</p>
           </div>
@@ -770,10 +826,40 @@ function renderMainframe() {
   </section>`;
 }
 
+export function challengeGoalText(def) {
+  return def.goal.type === 'techs' ? `${def.goal.value} Techs im Run` : `${fmt(def.goal.value)} Code im Run`;
+}
+
+function renderSprints() {
+  const now = Date.now();
+  const noPrestige = (state.stats.prestigeCount || 0) < 1;
+  const cards = CHALLENGES.map(def => {
+    const status = challengeStatus(def);
+    const [cur, target] = challengeProgress(def);
+    const goal = challengeGoalText(def);
+    let foot;
+    if (status === 'done') foot = `<span class="badge good">${getIcon('check')} Geschafft · ${escapeHtml(def.rewardLabel)}</span>`;
+    else if (status === 'active') foot = `<div class="sprint-progress">${progress(Math.min(cur, target), target, 'good')}<div class="row-between"><span class="muted small mono">${fmt(Math.min(cur, target))} / ${fmt(target)}${def.timeLimit ? ` · noch ${fmtSec(challengeTimeLeft(def, state, now) / 1000)}` : ''}</span><button class="btn xs danger" data-action="sprint-abort">Sprint beenden</button></div></div>`;
+    else if (status === 'locked') foot = `<span class="badge">${getIcon('lock')} ${noPrestige ? 'Ab dem ersten Hard Refactor' : `Nach ${def.requires} Sprint${def.requires > 1 ? 's' : ''}`}</span>`;
+    else foot = `<span class="muted small">${status === 'busy' ? 'Ein Sprint läuft bereits.' : 'Startet einen neuen Run.'}</span><button class="btn sm ${status === 'ready' ? 'primary' : ''}" data-action="sprint-start" data-id="${def.id}" ${status === 'ready' ? '' : 'disabled'}>Sprint starten</button>`;
+    const headBadge = status === 'active' ? '<span class="badge accent">Läuft</span>' : status === 'done' ? `<span class="badge good">${getIcon('check')}</span>` : status === 'locked' ? `<span class="badge">${getIcon('lock')}</span>` : '';
+    return `<article class="item sprint ${status}">
+      <div class="item-head"><strong>${getIcon(def.icon)} ${escapeHtml(def.name)}</strong>${headBadge}</div>
+      <p>${escapeHtml(def.desc)}</p>
+      <div class="tag-list"><span class="badge warn" ${tt('Handicap', def.desc)}>${getIcon('warning')} ${escapeHtml(def.modLabel)}</span><span class="badge" ${tt('Ziel', goal)}>${getIcon('flag')} ${escapeHtml(goal)}</span><span class="badge good" ${tt('Belohnung', 'Permanent – gilt in jedem weiteren Run.')}>${getIcon('star')} ${escapeHtml(def.rewardLabel)}</span></div>
+      <div class="item-foot">${foot}</div>
+    </article>`;
+  }).join('');
+  return `<section class="panel">
+    <div class="panel-head"><div><div class="eyebrow">Sprints</div><h3>${getIcon('zap')} Runs mit Handicap</h3><div class="sub">Ein Sprint startet wie ein Hard Refactor (XP gibt es trotzdem). Ziel erreicht → permanente Belohnung. Beenden jederzeit möglich, dann ohne Belohnung.</div></div><span class="meta">${challengesDone().length}/${CHALLENGES.length}</span></div>
+    <div class="grid-auto-sm">${cards}</div>
+  </section>`;
+}
+
 // Was ein Hard Refactor behält bzw. zurücksetzt (Prestige-Tab + Bestätigungs-Modal).
 export function renderKeepReset() {
-  const keep = [`${state.artifacts.length} Funde`, `${state.achievements.length} Errungenschaften`, `${state.ownedChips.length} Chips`, 'Chronicle-Upgrades & Meilensteine', 'Aufgaben-Fortschritt, Aktien-Depot', 'Lebenszeit-Statistiken'];
-  const reset = ['Alle Mitarbeiter (außer Start-Team)', 'Tech-Stack', 'Releases', 'Standorte & laufende Aufträge', 'Ressourcen', 'Core Values (neu wählen)'];
+  const keep = [`${state.artifacts.length} Funde`, `${state.achievements.length} Errungenschaften`, `${state.ownedChips.length} Chips`, 'Chronicle-Upgrades & Meilensteine', 'Aufgaben-Fortschritt, Aktien-Depot', 'Daily-Streak, Kaffee & Sprint-Belohnungen', 'Lebenszeit-Statistiken'];
+  const reset = ['Alle Mitarbeiter (außer Start-Team)', 'Tech-Stack', 'Releases', 'Standorte & laufende Aufträge', 'Ressourcen', 'Core Values (neu wählen)', 'Laufender Sprint (ohne Belohnung)'];
   return `<div class="keep-reset">
     <div class="keep"><p class="good">Bleibt</p><ul>${keep.map(k => `<li>${escapeHtml(k)}</li>`).join('')}</ul></div>
     <div class="reset"><p class="bad">Weg</p><ul>${reset.map(k => `<li>${escapeHtml(k)}</li>`).join('')}</ul></div>
@@ -819,6 +905,8 @@ function renderPrestige() {
       }).join('')}</div>
     </section>
 
+    ${renderSprints()}
+
     <section class="panel">
       <div class="panel-head"><div><div class="eyebrow">Dauerhaft</div><h3>${getIcon('trophy')} Meilensteine</h3><div class="sub">Einmal erreicht, für immer aktiv.</div></div><span class="meta">${(state.prestigeMilestones || []).length}/${PRESTIGE_MILESTONES.length}</span></div>
       <div class="grid-auto-sm">${PRESTIGE_MILESTONES.map(m => { const earned = (state.prestigeMilestones || []).includes(m.id); return `<article class="item ${earned ? 'done' : 'locked'}"><div class="item-head"><strong>${getIcon(earned ? 'check' : 'lock')} ${escapeHtml(m.name)}</strong><span class="badge ${earned ? 'good' : ''}">${escapeHtml(m.label)}</span></div><p>${escapeHtml(m.desc)}</p></article>`; }).join('')}</div>
@@ -838,7 +926,10 @@ function renderCodex() {
     ['Bugs & Module', 'QA Tester verwandeln Code in Bugs, NPM Install Bugs in Module. Beides braucht man für Releases, Growth Hacker und Standorte.'],
     ['Hype & Legacy', 'Tech Blogger machen aus Ideas Hype (für Standorte, große Releases). Code-Archäologen und Aufträge liefern Legacy Code.'],
     ['Prestige', `Ein Hard Refactor gibt XP = ${PRESTIGE_XP_BASE}·∛(Run-Code/10 Mio.). XP kauft permanente Chronicle-Upgrades. Ab ~10 XP lohnt es sich.`],
-    ['Offline', 'Bis zum Offline-Limit (Standard 8h) wird mit 50% Effizienz weitergerechnet. Chronicle-Upgrades erhöhen beides.']
+    ['Offline', 'Bis zum Offline-Limit (Standard 8h) wird mit 50% Effizienz weitergerechnet. Chronicle-Upgrades erhöhen beides.'],
+    ['Daily Standup', 'Einmal pro Tag im Büro abholen: Minuten deiner Produktion geschenkt, steigend mit der Streak. Tag 7 gibt Legacy Code und einen ×2-Boost. Ein verpasster Tag setzt die Streak zurück.'],
+    ['Tickets & Kaffee', 'Drei Tages-Tickets mit Belohnung; alle drei → 30 min ×1,5. Kaffee reift alle 6h in Echtzeit (max. 3): Espresso (×2 für 20 min), Crunch (Aufträge sofort fertig) oder neue Tickets.'],
+    ['Sprints', 'Ab dem ersten Refactor: Runs mit Handicap (Tab Prestige). Wer das Ziel erreicht, bekommt einen permanenten Bonus – Klick ×2, günstigere Mitarbeiter, mehr Synergie, mehr XP.']
   ];
   const keys = [
     ['Leertaste', 'Code schreiben'],
@@ -880,6 +971,10 @@ function renderCodex() {
           ${statRow('Entscheidungen getroffen', fmt(state.stats.decisionsMade || 0))}
           ${statRow('Protokolle aktiviert', fmt(state.stats.protocolsUsed || 0))}
           ${statRow('Agentur-Level', fmt(state.stats.fleetLevel || 0))}
+          ${statRow('Daily-Streak (Best)', `${fmt(state.daily.streak)} (${fmt(state.daily.bestStreak)})`)}
+          ${statRow('Tickets erledigt', fmt(state.daily.ticketsDone || 0))}
+          ${statRow('Kaffee getrunken', fmt(state.coffee.used || 0))}
+          ${statRow('Sprints geschafft', `${(state.challengesDone || []).length} / ${CHALLENGES.length}`)}
           ${statRow('Erster Start', new Date(state.stats.firstSeen).toLocaleDateString('de-DE'))}
         </div>
       </div>

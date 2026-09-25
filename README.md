@@ -18,14 +18,20 @@ Ein browserbasiertes Idle-/Incremental-Game mit Startup-Thematik, Cloud-Save, gl
 |---|---|
 | ![Tech](docs/screenshots/tech.png) | <img src="docs/screenshots/mobile-team.png" width="260" alt="Mobile Team-Tab" /> |
 
+| Tages-Loop (Standup, Tickets, Kaffee) | Sprints (Runs mit Handicap) |
+|---|---|
+| ![Tages-Loop](docs/screenshots/daily.png) | ![Sprints](docs/screenshots/sprints.png) |
+
 ## Was ist neu (Rework)
 
 - **Neues UI**: Sidebar (Desktop) bzw. Bottom-Navigation (Mobile), Ressourcenleiste mit Live-Raten, kompakte Zeilen statt Riesenkarten, Tooltips überall.
-- **Klarer Einstieg**: Der Klick-Button steht oben im Büro-Tab, 32 sequenzielle **Aufgaben** führen vom ersten Klick bis zur AGI und geben Belohnungen.
+- **Klarer Einstieg**: Der Klick-Button steht oben im Büro-Tab, 35 sequenzielle **Aufgaben** führen vom ersten Klick bis zur AGI und geben Belohnungen.
 - **Echte Wirtschaft**: Konverter verbrauchen wirklich Vorrat und laufen gedrosselt, wenn Input fehlt – kein verstecktes "Netto auf 0 kappen" mehr.
 - **Meilensteine**: Bei 10 / 25 / 50 / 100 / 200 / 300 / 400 / 500 Stück verdoppelt sich der Output eines Gebäudes. Der Fortschritt dahin ist in jeder Zeile sichtbar.
 - **Neue Balance**: Glatte Kostenkurve (×1.15 pro Kauf, ~×10 pro Stufe), 5 Tech-Stufen, Prestige-XP nach Kubikwurzel, erstes Prestige lohnt sich nach ~1,5–2 h aktivem Spiel.
 - **Komfort**: Kaufmenge ×1/×10/×100/Max (Tasten 1–4), "leistbar in Xs"-Anzeige, Badges in der Navigation, wenn etwas kaufbar ist, Export/Import des Spielstands.
+- **Tages-Loop**: Daily Standup mit Streak (Tag 7 = großer Bonus), drei Tages-Tickets mit Belohnung (alle drei → 30 min ×1,5), Kaffee reift alle 6 h in Echtzeit (Espresso ×2, Crunch, neue Tickets).
+- **Sprints**: Ab dem ersten Refactor sechs Runs mit Handicap (Handbetrieb, Sparflamme, Bootstrapped, Einzelkämpfer, Brain Drain, Speedrun). Ziel erreicht → permanenter Bonus.
 
 ## Features
 
@@ -63,10 +69,16 @@ Einmalige Megaprojekte mit permanentem Effekt im Run (ToDo App bis Internet 3.0)
 - **Core Values**: eine Doktrin pro Run.
 
 ### Büro-Tab
-Klick-Button, aktuelle Aufgabe, KPIs, aktive Effekte, Sprint-Modus (4 Modi), Protokolle (4 temporäre Boosts mit Cooldown), Automatisierung, Konverter-Drossel, Ressourcenfluss-Tabelle, Log.
+Klick-Button, aktuelle Aufgabe, KPIs, Tages-Loop (Daily Standup, Tickets, Kaffee), aktive Effekte, Arbeitsmodus (4 Modi), Protokolle (4 temporäre Boosts mit Cooldown), Automatisierung, Konverter-Drossel, Ressourcenfluss-Tabelle, Log.
+
+### Tages-Loop & Sprints
+- **Daily Standup**: einmal pro Tag im Büro abholen – Minuten deiner aktuellen Produktion, steigend mit der Streak (5 → 30 min). Tag 7 gibt Legacy Code und einen ×2-Boost; ein verpasster Tag setzt die Streak zurück.
+- **Tages-Tickets**: drei Aufgaben pro Tag aus einem Pool von zehn (Klicks, Einstellungen, Aufträge, Techs, Börse, Bugs …), Belohnung skaliert mit der Produktion. Alle drei → 30 min ×1,5.
+- **Kaffee**: reift alle 6 h in Echtzeit (auch offline, max. 3). Espresso (×2 für 20 min), Crunch (laufende Aufträge sofort fertig) oder neue Tickets würfeln.
+- **Sprints** (Prestige-Tab, ab dem ersten Refactor): Runs mit Handicap und Ziel. Belohnungen sind permanent: Klick ×2, Konverter −10 % Input, Mitarbeiter −5 %, Team-Synergie +25 %, Forschung −10 %, XP +15 %.
 
 ### Prestige (Hard Refactor)
-XP = 6 · ∛(Code im Run / 10 Mio.) · Struktur-Bonus. Erhalten bleiben Funde, Chips, Errungenschaften, Chronicle-Upgrades (11), Meilensteine (12), Aufgaben-Fortschritt, Aktien-Depot. Mainframe-Chips (10) mit Tradeoffs.
+XP = 6 · ∛(Code im Run / 10 Mio.) · Struktur-Bonus. Erhalten bleiben Funde, Chips, Errungenschaften, Chronicle-Upgrades (11), Meilensteine (14), Aufgaben-Fortschritt, Aktien-Depot, Daily-Streak, Kaffee und Sprint-Belohnungen. Mainframe-Chips (10) mit Tradeoffs.
 
 ### Ereignisse
 Zufallsereignisse, interaktive Cyber-Events (Ransomware, DDoS, Investor Call …) und der herumfliegende Bug 🐛 mit Sofort-Bonus.
@@ -103,6 +115,8 @@ JWT-Login, Cloud-Save mit Konfliktauflösung, Leaderboard, Profile, globaler Cha
 │   │   ├── actions.js       # Spieler-Aktionen
 │   │   ├── automation.js    # Auto-Hire / Learn / Freelance / Deploy
 │   │   ├── quests.js        # Aufgaben-System
+│   │   ├── daily.js         # Daily Standup, Tickets, Kaffee
+│   │   ├── challenges.js    # Sprints (Runs mit Handicap)
 │   │   ├── events.js        # Aufträge, Ereignisse, Errungenschaften, Meilensteine
 │   │   ├── cyberEvents.js   # Interaktive Events
 │   │   ├── stocks.js        # Börse (Client)

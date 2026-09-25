@@ -126,6 +126,13 @@ export const ACHIEVEMENTS = [
   { id: 'clicks_1k', name: 'Hackerman', desc: '1.000 Tastenanschläge.' },
   { id: 'clicks_50k', name: 'Mechanische Tastatur', desc: '50.000 Tastenanschläge.' },
   { id: 'clicks_100k', name: 'Karpaltunnel', desc: '100.000 Tastenanschläge.' },
+  { id: 'streak_7', name: 'Daily Driver', desc: '7 Tage in Folge beim Daily Standup.' },
+  { id: 'streak_30', name: 'Routine', desc: '30 Tage in Folge beim Daily Standup.' },
+  { id: 'tickets_50', name: 'Ticket-Maschine', desc: '50 Tages-Tickets erledigt.' },
+  { id: 'coffee_10', name: 'Koffein-Junkie', desc: '10 Kaffee getrunken.' },
+  { id: 'bugs_25', name: 'Bug-Jäger', desc: '25 fliegende Bugs gefangen.' },
+  { id: 'sprint_1', name: 'Sprint-Finisher', desc: 'Ersten Sprint abgeschlossen.' },
+  { id: 'sprints_all', name: 'Marathon', desc: 'Alle Sprints abgeschlossen.' },
   { id: 'playtime_1d', name: 'All-Nighter', desc: '24 Stunden Uptime.' },
   { id: 'playtime_7d', name: 'Crunch Week', desc: '7 Tage Uptime.' },
   { id: 'playtime_30d', name: 'Burnout', desc: '30 Tage Uptime.' }
@@ -159,5 +166,7 @@ export const PRESTIGE_MILESTONES = [
   { id: 'pm_first_prestige', name: 'Erster Neustart', desc: 'Den ersten Hard Refactor durchgeführt.', condition: (s) => s.stats.prestigeCount >= 1, effects: { allMult: 1.05 }, label: 'Gesamt +5%' },
   { id: 'pm_prestige_3', name: 'Serienentwickler', desc: 'Dreimal neu gestartet.', condition: (s) => s.stats.prestigeCount >= 3, effects: { allMult: 1.10 }, label: 'Gesamt +10%' },
   { id: 'pm_prestige_5', name: 'Veteranen-Coder', desc: 'Fünfmal neu gestartet.', condition: (s) => s.stats.prestigeCount >= 5, effects: { allMult: 1.15, researchMult: 1.10 }, label: 'Gesamt +15%, Ideas +10%' },
+  { id: 'pm_streak_14', name: 'Zwei Wochen Standup', desc: '14 Tage in Folge beim Daily Standup.', condition: (s) => (s.daily?.bestStreak || 0) >= 14, effects: { offlineCapHours: 2 }, label: 'Offline-Limit +2h' },
+  { id: 'pm_sprints_3', name: 'Sprint-Veteran', desc: 'Drei Sprints abgeschlossen.', condition: (s) => (s.challengesDone || []).length >= 3, effects: { allMult: 1.10 }, label: 'Gesamt +10%' },
   { id: 'pm_prestige_10', name: 'Hardcore-Optimierer', desc: 'Zehnmal neu gestartet.', condition: (s) => s.stats.prestigeCount >= 10, effects: { allMult: 1.20, clickPowerMult: 1.25 }, label: 'Gesamt +20%, Klick +25%' }
 ];
