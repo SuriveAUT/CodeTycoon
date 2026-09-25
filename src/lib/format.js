@@ -1,7 +1,10 @@
+import { getSetting } from './settings.js';
+
 export function fmt(n) {
   if (n === undefined || n === null || isNaN(n)) return '0';
   if (Math.abs(n) < 1e-9) return '0';
   if (n < 0) return '−' + fmt(-n);
+  if (n >= 1e6 && getSetting('sciNotation')) return n.toExponential(2).replace('e+', 'e');
   if (n < 1000) {
     // Show decimals for small values
     if (n < 10 && n !== Math.floor(n)) return n.toFixed(2);
@@ -25,6 +28,13 @@ export function fmtSec(s) {
   if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return `${m}m ${sec}s`;
   return `${sec}s`;
+}
+
+// Vorzeichenbehaftete Rate: +12,3/s, −4/s, 0/s
+export function fmtRate(v, unit = '/s') {
+  const n = Number(v) || 0;
+  if (Math.abs(n) < 1e-9) return `0${unit}`;
+  return `${n > 0 ? '+' : '−'}${fmt(Math.abs(n))}${unit}`;
 }
 
 export function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }

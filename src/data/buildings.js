@@ -1,61 +1,175 @@
+// buildings.js – Alle Gebäude / Mitarbeiter.
+//
+// Balancing-Grundsätze (Rework):
+//  - Kosten wachsen pro Kauf um `growth` (1.15 für Producer/Converter, 1.6 für Modifier).
+//  - Modifier wirken bis 20 Stück (MODIFIER_CAP in store/bonuses.js).
+//  - Jede Stufe kostet ~8-12x mehr als die vorherige und produziert ~5-7x mehr.
+//  - Converter verbrauchen echten Vorrat (siehe store/bonuses.js → simulateProduction).
+//    `inputs` sind Einheiten pro produzierter Output-Einheit, `rate` ist Output/s pro Gebäude.
+//  - Alle Werte sind Basiswerte ohne Multiplikatoren.
+
+export const CATEGORIES = [
+  { id: 'Dev Team', icon: 'scrap', desc: 'Produziert Code – die Basis für alles.' },
+  { id: 'Sales & Ads', icon: 'energy', desc: 'Produziert Revenue. Wird für Gehälter, Konverter und Expansion gebraucht.' },
+  { id: 'QA & DevOps', icon: 'alloy', desc: 'Wandelt Code in Bugs und Bugs in Module um.' },
+  { id: 'Marketing & R&D', icon: 'research', desc: 'Erzeugt Ideas (Forschung) und Users.' },
+  { id: 'Social Media', icon: 'influence', desc: 'Erzeugt Hype und gräbt Legacy Code aus.' },
+  { id: 'Management', icon: 'briefcase', desc: 'Passive Boni auf das ganze Unternehmen.' },
+];
+
 export const BUILDINGS = [
-  // Producer: Scrap
-  { id: 'intern', name: 'Praktikant', category: 'Dev Team', type: 'producer', unlock: 'start', cost: { scrap: 30, energy: 10 }, growth: 1.18, rate: 0.5, outputs: { scrap: 1 }, desc: 'Kopiert Code von StackOverflow. Manchmal kompiliert es sogar.' },
-  { id: 'junior_dev', name: 'Junior Dev', category: 'Dev Team', type: 'producer', unlock: 'tech:frontend_basics', cost: { scrap: 5000, energy: 900 }, growth: 1.17, rate: 32, outputs: { scrap: 1 }, desc: 'Schreibt viel Code. Versteht wenig davon.' },
-  { id: 'code_monkey', name: 'Code Monkey', category: 'Dev Team', type: 'producer', unlock: 'tech:typescript_static', cost: { scrap: 65000, energy: 8000 }, growth: 1.19, rate: 200, outputs: { scrap: 1 }, desc: 'Tippt Code ab, den ChatGPT ausgespuckt hat. Fragt nie warum.' },
-  { id: 'mid_dev', name: 'Mid-Level Dev', category: 'Dev Team', type: 'producer', unlock: 'tech:docker_containers', cost: { scrap: 450000, energy: 60000 }, growth: 1.20, rate: 3800, outputs: { scrap: 1 }, desc: 'Solide Arbeitstiere. Beschweren sich ueber die Codebase.' },
-  { id: 'staff_engineer', name: 'Staff Engineer', category: 'Dev Team', type: 'producer', unlock: 'tech:kubernetes_orch', cost: { scrap: 8000000, energy: 1200000 }, growth: 1.22, rate: 45000, outputs: { scrap: 1 }, desc: 'Macht Code-Reviews und sagt "eigentlich haette man das anders loesen koennen".' },
-  { id: 'senior_dev', name: 'Senior Dev', category: 'Dev Team', type: 'producer', unlock: 'tech:microservices_arch', cost: { scrap: 180000000, energy: 22000000 }, growth: 1.23, rate: 650000, outputs: { scrap: 1 }, desc: 'Schreiben in einer Stunde mehr, als Praktikanten im Jahr.' },
-  { id: 'tech_lead', name: 'Tech Lead', category: 'Dev Team', type: 'producer', unlock: 'tech:big_data_analytics', cost: { scrap: 45000000000, energy: 7000000000 }, growth: 1.25, rate: 80000000, outputs: { scrap: 1 }, desc: 'Meetings und Architektur. Wenn sie coden, bebt die Erde.' },
-  { id: 'principal_eng', name: 'Principal Engineer', category: 'Dev Team', type: 'producer', unlock: 'tech:machine_learning', cost: { scrap: 1.5e13, energy: 2e12 }, growth: 1.26, rate: 2e10, outputs: { scrap: 1 }, desc: 'Legenden, die in Vim coden ohne Plugins.' },
-  { id: 'ai_copilot', name: 'KI Co-Pilot', category: 'Dev Team', type: 'producer', unlock: 'tech:generative_ai', cost: { scrap: 6e16, energy: 8e15 }, growth: 1.28, rate: 6e13, outputs: { scrap: 1 }, desc: 'Generiert Code in Lichtgeschwindigkeit.' },
-  { id: 'ten_x_dev', name: '10x Developer', category: 'Dev Team', type: 'producer', unlock: 'tech:agi_completion', cost: { scrap: 3e20, energy: 4e19 }, growth: 1.28, rate: 2e17, outputs: { scrap: 1 }, desc: 'Mythologische Wesen, die das Universum in C neuschreiben.' },
+  // ───────────────────────── Dev Team (Code) ─────────────────────────
+  { id: 'intern', name: 'Praktikant', category: 'Dev Team', type: 'producer', unlock: 'start',
+    cost: { scrap: 15 }, growth: 1.15, rate: 0.2, outputs: { scrap: 1 },
+    desc: 'Kopiert Code von StackOverflow. Manchmal kompiliert es sogar.' },
+  { id: 'junior_dev', name: 'Junior Dev', category: 'Dev Team', type: 'producer', unlock: 'tech:frontend_basics',
+    cost: { scrap: 120 }, growth: 1.15, rate: 1.2, outputs: { scrap: 1 },
+    desc: 'Schreibt viel Code. Versteht wenig davon.' },
+  { id: 'code_monkey', name: 'Code Monkey', category: 'Dev Team', type: 'producer', unlock: 'tech:typescript_static',
+    cost: { scrap: 1300, energy: 450 }, growth: 1.15, rate: 8, outputs: { scrap: 1 },
+    desc: 'Tippt ab, was ChatGPT ausspuckt. Fragt nie warum.' },
+  { id: 'mid_dev', name: 'Mid-Level Dev', category: 'Dev Team', type: 'producer', unlock: 'tech:docker_containers',
+    cost: { scrap: 14000, energy: 5500 }, growth: 1.15, rate: 50, outputs: { scrap: 1 },
+    desc: 'Solides Arbeitstier. Beschwert sich über die Codebase.' },
+  { id: 'staff_engineer', name: 'Staff Engineer', category: 'Dev Team', type: 'producer', unlock: 'tech:cicd_pipelines',
+    cost: { scrap: 150000, energy: 60000 }, growth: 1.15, rate: 300, outputs: { scrap: 1 },
+    desc: 'Macht Code-Reviews und sagt "eigentlich hätte man das anders lösen können".' },
+  { id: 'senior_dev', name: 'Senior Dev', category: 'Dev Team', type: 'producer', unlock: 'tech:microservices_arch',
+    cost: { scrap: 1.8e6, energy: 7e5 }, growth: 1.15, rate: 1800, outputs: { scrap: 1 },
+    desc: 'Schreibt in einer Stunde mehr als Praktikanten im Jahr.' },
+  { id: 'tech_lead', name: 'Tech Lead', category: 'Dev Team', type: 'producer', unlock: 'tech:kubernetes_orch',
+    cost: { scrap: 2.2e7, energy: 9e6 }, growth: 1.15, rate: 11000, outputs: { scrap: 1 },
+    desc: 'Meetings und Architektur. Wenn sie coden, bebt die Erde.' },
+  { id: 'principal_eng', name: 'Principal Engineer', category: 'Dev Team', type: 'producer', unlock: 'tech:machine_learning',
+    cost: { scrap: 2.8e8, energy: 1.1e8 }, growth: 1.15, rate: 65000, outputs: { scrap: 1 },
+    desc: 'Legende, die in Vim codet. Ohne Plugins.' },
+  { id: 'ai_copilot', name: 'KI Co-Pilot', category: 'Dev Team', type: 'producer', unlock: 'tech:autogpt_agents',
+    cost: { scrap: 3.6e9, energy: 1.4e9 }, growth: 1.15, rate: 400000, outputs: { scrap: 1 },
+    desc: 'Generiert Code in Lichtgeschwindigkeit. Halluziniert nur selten.' },
+  { id: 'ten_x_dev', name: '10x Developer', category: 'Dev Team', type: 'producer', unlock: 'tech:agi_completion',
+    cost: { scrap: 5e10, energy: 2e10 }, growth: 1.15, rate: 2.5e6, outputs: { scrap: 1 },
+    desc: 'Mythologisches Wesen. Schreibt das Universum in C neu.' },
 
-  // Producer: Energy
-  { id: 'google_ads', name: 'Google Ads', category: 'Sales & Ads', type: 'producer', unlock: 'start', cost: { scrap: 40, energy: 0 }, growth: 1.18, rate: 0.36, outputs: { energy: 1 }, desc: 'Klicke auf die Banner, bitte.' },
-  { id: 'freemium_model', name: 'Freemium Modell', category: 'Sales & Ads', type: 'producer', unlock: 'tech:javascript_core', cost: { scrap: 6500, energy: 0 }, growth: 1.17, rate: 25, outputs: { energy: 1 }, desc: 'Lockt sie an, zockt sie ab.' },
-  { id: 'viral_app', name: 'Viral App', category: 'Sales & Ads', type: 'producer', unlock: 'tech:react_framework', cost: { scrap: 72000, energy: 0 }, growth: 1.19, rate: 230, outputs: { energy: 1 }, desc: 'Bekommt eine Million Downloads und verdient trotzdem nichts. Erzaehlt aber gerne davon.' },
-  { id: 'subscription_trap', name: 'Abo-Falle', category: 'Sales & Ads', type: 'producer', unlock: 'tech:docker_containers', cost: { scrap: 550000, energy: 25000 }, growth: 1.20, rate: 4200, outputs: { energy: 1 }, desc: 'Monatlich kuendbar (nach 24 Monaten).' },
-  { id: 'hedge_fund', name: 'Hedge Fonds', category: 'Sales & Ads', type: 'producer', unlock: 'tech:linkedin_networking', cost: { scrap: 15000000, energy: 1000000 }, growth: 1.22, rate: 100000, outputs: { energy: 1 }, desc: 'Kauft Tech-Aktien. Irgendwie verdient man dabei immer Geld.' },
-  { id: 'b2b_licenses', name: 'B2B Lizenzen', category: 'Sales & Ads', type: 'producer', unlock: 'tech:kubernetes_orch', cost: { scrap: 200000000, energy: 8000000 }, growth: 1.23, rate: 600000, outputs: { energy: 1 }, desc: 'Unternehmen zahlen jeden Preis fuer \"Enterprise Ready\".' },
-  { id: 'data_mining', name: 'Data Mining', category: 'Sales & Ads', type: 'producer', unlock: 'tech:big_data_analytics', cost: { scrap: 50000000000, energy: 9000000000 }, growth: 1.25, rate: 82000000, outputs: { energy: 1 }, desc: 'Wir verkaufen eure Daten. Offiziell natuerlich anonymisiert.' },
-  { id: 'crypto_scam', name: 'Crypto Scam', category: 'Sales & Ads', type: 'producer', unlock: 'tech:machine_learning', cost: { scrap: 2e13, energy: 2.5e12 }, growth: 1.26, rate: 2.25e10, outputs: { energy: 1 }, desc: 'Ein neuer Token. To the moon!' },
-  { id: 'gov_contracts', name: 'Gov Contracts', category: 'Sales & Ads', type: 'producer', unlock: 'tech:generative_ai', cost: { scrap: 7e16, energy: 1e16 }, growth: 1.28, rate: 6.4e13, outputs: { energy: 1 }, desc: 'Regierungsauftraege. Unendlich Budget, null Deadline.' },
-  { id: 'tech_monopoly', name: 'Tech Monopol', category: 'Sales & Ads', type: 'producer', unlock: 'tech:agi_completion', cost: { scrap: 4e20, energy: 5e19 }, growth: 1.28, rate: 2.25e17, outputs: { energy: 1 }, desc: 'Du besitzt das Internet. Alle zahlen Miete.' },
+  // ───────────────────────── Sales & Ads (Revenue) ─────────────────────────
+  { id: 'google_ads', name: 'Google Ads', category: 'Sales & Ads', type: 'producer', unlock: 'start',
+    cost: { scrap: 25 }, growth: 1.15, rate: 0.15, outputs: { energy: 1 },
+    desc: 'Bitte klick auf die Banner.' },
+  { id: 'freemium_model', name: 'Freemium Modell', category: 'Sales & Ads', type: 'producer', unlock: 'tech:javascript_core',
+    cost: { scrap: 220 }, growth: 1.15, rate: 0.7, outputs: { energy: 1 },
+    desc: 'Lockt sie an, zockt sie ab.' },
+  { id: 'viral_app', name: 'Viral App', category: 'Sales & Ads', type: 'producer', unlock: 'tech:react_framework',
+    cost: { scrap: 2400, energy: 700 }, growth: 1.15, rate: 4.5, outputs: { energy: 1 },
+    desc: 'Eine Million Downloads, null Gewinn. Erzählt aber gern davon.' },
+  { id: 'subscription_trap', name: 'Abo-Falle', category: 'Sales & Ads', type: 'producer', unlock: 'tech:seo_optimization',
+    cost: { scrap: 26000, energy: 9000 }, growth: 1.15, rate: 28, outputs: { energy: 1 },
+    desc: 'Monatlich kündbar (nach 24 Monaten).' },
+  { id: 'hedge_fund', name: 'Hedge Fonds', category: 'Sales & Ads', type: 'producer', unlock: 'tech:serverless_arch',
+    cost: { scrap: 2.8e5, energy: 1e5 }, growth: 1.15, rate: 170, outputs: { energy: 1 },
+    desc: 'Kauft Tech-Aktien. Irgendwie verdient man dabei immer Geld.' },
+  { id: 'b2b_licenses', name: 'B2B Lizenzen', category: 'Sales & Ads', type: 'producer', unlock: 'tech:graphql',
+    cost: { scrap: 3.3e6, energy: 1.2e6 }, growth: 1.15, rate: 1000, outputs: { energy: 1 },
+    desc: 'Unternehmen zahlen jeden Preis für "Enterprise Ready".' },
+  { id: 'data_mining', name: 'Data Mining', category: 'Sales & Ads', type: 'producer', unlock: 'tech:big_data_analytics',
+    cost: { scrap: 4e7, energy: 1.5e7 }, growth: 1.15, rate: 6000, outputs: { energy: 1 },
+    desc: 'Wir verkaufen eure Daten. Offiziell natürlich anonymisiert.' },
+  { id: 'crypto_scam', name: 'Crypto Token', category: 'Sales & Ads', type: 'producer', unlock: 'tech:time_tracking',
+    cost: { scrap: 5e8, energy: 2e8 }, growth: 1.15, rate: 36000, outputs: { energy: 1 },
+    desc: 'Ein neuer Token. To the moon!' },
+  { id: 'gov_contracts', name: 'Gov Contracts', category: 'Sales & Ads', type: 'producer', unlock: 'tech:generative_ai',
+    cost: { scrap: 6.5e9, energy: 2.5e9 }, growth: 1.15, rate: 220000, outputs: { energy: 1 },
+    desc: 'Regierungsaufträge. Unendlich Budget, null Deadline.' },
+  { id: 'tech_monopoly', name: 'Tech Monopol', category: 'Sales & Ads', type: 'producer', unlock: 'tech:agi_completion',
+    cost: { scrap: 9e10, energy: 3.5e10 }, growth: 1.15, rate: 1.4e6, outputs: { energy: 1 },
+    desc: 'Du besitzt das Internet. Alle zahlen Miete.' },
 
-  // Converter: Alloy (Bug-Produzenten) → dann Components (Bug-Konsumenten), aufsteigend nach Kosten
-  { id: 'qa_tester', name: 'QA Tester', category: 'QA & DevOps', type: 'converter', unlock: 'tech:typescript_static', cost: { scrap: 350, energy: 90 }, growth: 1.20, rate: 0.45, inputs: { scrap: 4, energy: 1.5 }, outputs: { alloy: 1 }, desc: 'Findet Bugs in deinem Code. Zerstoert dein Selbstwertgefuehl.' },
-  { id: 'npm_install', name: 'NPM Install', category: 'QA & DevOps', type: 'converter', unlock: 'tech:docker_containers', cost: { scrap: 1200, energy: 350, alloy: 30 }, growth: 1.20, rate: 0.35, inputs: { alloy: 2, energy: 1.2 }, outputs: { components: 1 }, desc: 'Loest Bugs durch Hinzufuegen von 10.000 Dependencies.' },
-  { id: 'devops_engineer', name: 'DevOps Engineer', category: 'QA & DevOps', type: 'converter', unlock: 'tech:cicd_pipelines', cost: { scrap: 4000000, energy: 800000, alloy: 50000 }, growth: 1.22, rate: 15000, inputs: { scrap: 4, energy: 2 }, outputs: { alloy: 1 }, desc: 'Renamed from SysAdmin. Crasht Production um 3 Uhr morgens und weiss warum.' },
-  { id: 'package_manager', name: 'Package Manager', category: 'QA & DevOps', type: 'converter', unlock: 'tech:cicd_pipelines', cost: { scrap: 2000000, energy: 400000, alloy: 80000 }, growth: 1.22, rate: 5000, inputs: { alloy: 2.5, energy: 1.5 }, outputs: { components: 1 }, desc: 'Buendelt Dependencies bis node_modules groesser ist als das Universum.' },
-  { id: 'auto_testing', name: 'Automated Testing', category: 'QA & DevOps', type: 'converter', unlock: 'tech:big_data_analytics', cost: { scrap: 35000000000, energy: 9000000000 }, growth: 1.24, rate: 8000000, inputs: { scrap: 5, energy: 2 }, outputs: { alloy: 1 }, desc: 'Produziert rote CI/CD Pipelines am Fliessband.' },
-  { id: 'microservices_conv', name: 'Microservices', category: 'QA & DevOps', type: 'converter', unlock: 'tech:machine_learning', cost: { scrap: 100000000000, energy: 25000000000, alloy: 2000000000 }, growth: 1.24, rate: 5000000, inputs: { alloy: 3, energy: 2 }, outputs: { components: 1 }, desc: 'Verteilt Bugs auf hunderte Docker Container.' },
-  { id: 'chaos_monkey', name: 'Chaos Monkey', category: 'QA & DevOps', type: 'converter', unlock: 'tech:generative_ai', cost: { scrap: 1.5e16, energy: 4e15 }, growth: 1.26, rate: 1.5e12, inputs: { scrap: 5, energy: 2 }, outputs: { alloy: 1 }, desc: 'Schaltet zufaellig Server ab, um die Resilienz te testen. Hauptsaechlich Bugs.' },
+  // ───────────────────────── QA & DevOps (Bugs → Module) ─────────────────────────
+  { id: 'qa_tester', name: 'QA Tester', category: 'QA & DevOps', type: 'converter', unlock: 'tech:backend_node',
+    cost: { scrap: 300, energy: 100 }, growth: 1.15, rate: 0.5, inputs: { scrap: 2 }, outputs: { alloy: 1 },
+    desc: 'Findet Bugs in deinem Code. Zerstört dein Selbstwertgefühl.' },
+  { id: 'npm_install', name: 'NPM Install', category: 'QA & DevOps', type: 'converter', unlock: 'tech:docker_containers',
+    cost: { scrap: 3000, energy: 1000, alloy: 40 }, growth: 1.15, rate: 0.25, inputs: { alloy: 2, energy: 2 }, outputs: { components: 1 },
+    desc: 'Löst Bugs durch Hinzufügen von 10.000 Dependencies.' },
+  { id: 'devops_engineer', name: 'DevOps Engineer', category: 'QA & DevOps', type: 'converter', unlock: 'tech:cicd_pipelines',
+    cost: { scrap: 90000, energy: 35000 }, growth: 1.15, rate: 40, inputs: { scrap: 1.5 }, outputs: { alloy: 1 },
+    desc: 'Crasht Production um 3 Uhr morgens und weiß warum.' },
+  { id: 'package_manager', name: 'Package Manager', category: 'QA & DevOps', type: 'converter', unlock: 'tech:cicd_pipelines',
+    cost: { scrap: 140000, energy: 55000, alloy: 3000 }, growth: 1.15, rate: 20, inputs: { alloy: 1.5, energy: 0.8 }, outputs: { components: 1 },
+    desc: 'Bündelt Dependencies, bis node_modules größer ist als das Universum.' },
+  { id: 'auto_testing', name: 'Automated Testing', category: 'QA & DevOps', type: 'converter', unlock: 'tech:big_data_analytics',
+    cost: { scrap: 6e7, energy: 2.5e7 }, growth: 1.15, rate: 5000, inputs: { scrap: 1.2 }, outputs: { alloy: 1 },
+    desc: 'Produziert rote CI/CD-Pipelines am Fließband.' },
+  { id: 'microservices_conv', name: 'Microservices', category: 'QA & DevOps', type: 'converter', unlock: 'tech:machine_learning',
+    cost: { scrap: 4e8, energy: 1.6e8, alloy: 2e6 }, growth: 1.15, rate: 3000, inputs: { alloy: 1.2, energy: 0.6 }, outputs: { components: 1 },
+    desc: 'Verteilt Bugs auf hunderte Docker-Container.' },
+  { id: 'chaos_monkey', name: 'Chaos Monkey', category: 'QA & DevOps', type: 'converter', unlock: 'tech:generative_ai',
+    cost: { scrap: 8e9, energy: 3e9 }, growth: 1.15, rate: 300000, inputs: { scrap: 1 }, outputs: { alloy: 1 },
+    desc: 'Schaltet zufällig Server ab, um die Resilienz zu testen. Findet hauptsächlich Bugs.' },
 
-  // Converter: Data
-  { id: 'seo_expert', name: 'SEO Experte', category: 'Marketing & R&D', type: 'converter', unlock: 'start', cost: { scrap: 150, energy: 50 }, growth: 1.20, rate: 0.3, inputs: { energy: 1.2 }, outputs: { research: 1, data: 0.35 }, desc: 'Kauft Keywords und generiert erste Nutzer-Ideen.' },
-  { id: 'growth_hacker', name: 'Growth Hacker', category: 'Marketing & R&D', type: 'converter', unlock: 'tech:react_framework', cost: { scrap: 4500, energy: 1600, components: 40 }, growth: 1.22, rate: 0.3, inputs: { components: 1.5, energy: 1.4 }, outputs: { data: 1 }, desc: 'Spammt Foren voll fuer aktive Nutzerzahlen.' },
-  { id: 'viral_campaign', name: 'Viral Campaign', category: 'Marketing & R&D', type: 'converter', unlock: 'tech:autogpt_agents', cost: { scrap: 400000000000, energy: 120000000000, components: 5000000000 }, growth: 1.25, rate: 3000000, inputs: { components: 3, energy: 2 }, outputs: { data: 1 }, desc: 'Millionen neuer User durch ein Meme auf TikTok.' },
+  // ───────────────────────── Marketing & R&D (Ideas + Users) ─────────────────────────
+  { id: 'seo_expert', name: 'SEO Experte', category: 'Marketing & R&D', type: 'converter', unlock: 'start',
+    cost: { scrap: 45, energy: 8 }, growth: 1.15, rate: 0.25, inputs: { energy: 0.5 }, outputs: { research: 1, data: 0.3 },
+    desc: 'Kauft Keywords und generiert erste Nutzer und Ideen.' },
+  { id: 'growth_hacker', name: 'Growth Hacker', category: 'Marketing & R&D', type: 'converter', unlock: 'tech:react_framework',
+    cost: { scrap: 5000, energy: 1800, components: 25 }, growth: 1.15, rate: 3, inputs: { components: 0.4, energy: 0.6 }, outputs: { data: 1 },
+    desc: 'Spammt Foren voll für aktive Nutzerzahlen.' },
+  { id: 'brainstorming_lab', name: 'Brainstorming', category: 'Marketing & R&D', type: 'converter', unlock: 'tech:agile_scrum',
+    cost: { scrap: 9000, energy: 3500, data: 100 }, growth: 1.15, rate: 3, inputs: { data: 0.8, energy: 1.2 }, outputs: { research: 1 },
+    desc: 'User-Feedback wird zu neuen Ideen. Post-Its inklusive.' },
+  { id: 'agile_workshop', name: 'Agile Workshop', category: 'Marketing & R&D', type: 'converter', unlock: 'tech:linkedin_networking',
+    cost: { scrap: 8e6, energy: 3e6, data: 2e5 }, growth: 1.15, rate: 150, inputs: { data: 0.6, energy: 0.5 }, outputs: { research: 1 },
+    desc: 'Dutzende Post-Its generieren massiv Ideen.' },
+  { id: 'viral_campaign', name: 'Viral Campaign', category: 'Marketing & R&D', type: 'converter', unlock: 'tech:autogpt_agents',
+    cost: { scrap: 2e9, energy: 8e8, components: 5e6 }, growth: 1.15, rate: 40000, inputs: { components: 0.3, energy: 0.4 }, outputs: { data: 1 },
+    desc: 'Millionen neuer User durch ein Meme auf TikTok.' },
 
-  // Converter: Research
-  { id: 'brainstorming_lab', name: 'Brainstorming', category: 'Marketing & R&D', type: 'converter', unlock: 'tech:agile_scrum', cost: { scrap: 9000, energy: 3000, data: 120 }, growth: 1.20, rate: 0.22, inputs: { data: 2, energy: 1.5 }, outputs: { research: 1 }, desc: 'User-Feedback wird in neue Ideen umgesetzt.' },
-  { id: 'agile_workshop', name: 'Agile Workshop', category: 'Marketing & R&D', type: 'converter', unlock: 'tech:web3_blockchain', cost: { scrap: 1500000000000, energy: 450000000000, data: 30000000000 }, growth: 1.24, rate: 2000000, inputs: { data: 3, energy: 2 }, outputs: { research: 1 }, desc: 'Dutzende Post-Its generieren massiv Ideen.' },
+  // ───────────────────────── Social Media (Hype + Legacy) ─────────────────────────
+  { id: 'tech_blogger', name: 'Tech Blogger', category: 'Social Media', type: 'converter', unlock: 'tech:seo_optimization',
+    cost: { scrap: 20000, energy: 8000, research: 300 }, growth: 1.15, rate: 1, inputs: { research: 0.5, energy: 2 }, outputs: { influence: 1 },
+    desc: 'Schreibt Medium-Artikel über deine Ideen und generiert Hype.' },
+  { id: 'community_mgr', name: 'Community Manager', category: 'Social Media', type: 'converter', unlock: 'tech:remote_work_policy',
+    cost: { scrap: 250000, energy: 100000 }, growth: 1.15, rate: 12, inputs: { energy: 1.5 }, outputs: { influence: 1 },
+    desc: 'Moderiert Discord und beantwortet täglich dieselben 5 Fragen.' },
+  { id: 'keynote_speaker', name: 'Keynote Speaker', category: 'Social Media', type: 'converter', unlock: 'tech:venture_capital',
+    cost: { scrap: 1.2e8, energy: 5e7, research: 3e5 }, growth: 1.15, rate: 600, inputs: { research: 0.3, energy: 0.8 }, outputs: { influence: 1 },
+    desc: 'Präsentiert Vaporware auf großen Tech-Konferenzen.' },
+  { id: 'code_archeologist', name: 'Code-Archäologe', category: 'Social Media', type: 'converter', unlock: 'tech:stackoverflow_access',
+    cost: { scrap: 45000, energy: 18000, data: 500 }, growth: 1.15, rate: 0.05, inputs: { data: 3, energy: 4 }, outputs: { relics: 1 },
+    desc: 'Gräbt in SVN-Repositories nach lauffähigem Legacy Code.' },
+  { id: 'stackoverflow_api', name: 'Stack Overflow API', category: 'Social Media', type: 'converter', unlock: 'tech:dark_web_scraping',
+    cost: { scrap: 5e8, energy: 2e8, data: 5e6, research: 2e6 }, growth: 1.15, rate: 40, inputs: { data: 2, energy: 3 }, outputs: { relics: 1 },
+    desc: 'Kopiert Codefragmente aus 2011, die magisch alles fixen.' },
 
-  // Converter: Influence
-  { id: 'tech_blogger', name: 'Tech Blogger', category: 'Social Media', type: 'converter', unlock: 'tech:seo_optimization', cost: { scrap: 14000, energy: 5500, research: 350 }, growth: 1.20, rate: 0.16, inputs: { research: 1.5, energy: 1.5 }, outputs: { influence: 1 }, desc: 'Schreibt Medium-Artikel ueber neue Ideen und generiert Hype.' },
-  { id: 'community_mgr', name: 'Community Manager', category: 'Social Media', type: 'converter', unlock: 'tech:remote_work_policy', cost: { scrap: 8000000, energy: 3000000 }, growth: 1.22, rate: 1500, inputs: { energy: 1.5 }, outputs: { influence: 1 }, desc: 'Moderiert Discord und beantwortet taeglich dieselben 5 Fragen.' },
-  { id: 'keynote_speaker', name: 'Keynote Speaker', category: 'Social Media', type: 'converter', unlock: 'tech:venture_capital', cost: { scrap: 6e12, energy: 1.5e12, research: 80000000000 }, growth: 1.25, rate: 1200000, inputs: { research: 2, energy: 2 }, outputs: { influence: 1 }, desc: 'Praesentiert Vaporware auf grossen Tech-Konferenzen.' },
-
-  // Converter: Relics
-  { id: 'code_archeologist', name: 'Archeologist', category: 'Social Media', type: 'converter', unlock: 'tech:stackoverflow_access', cost: { scrap: 24000, energy: 9000, data: 700, research: 250 }, growth: 1.20, rate: 0.08, inputs: { data: 4, energy: 5 }, outputs: { relics: 1 }, desc: 'Graebt in SVN-Repositories nach lauffaehigem Legacy Code.' },
-  { id: 'stackoverflow_api', name: 'Stack Overflow API', category: 'Social Media', type: 'converter', unlock: 'tech:dark_web_scraping', cost: { scrap: 2.5e13, energy: 6e12, data: 1.5e11, research: 6e10 }, growth: 1.25, rate: 300000, inputs: { data: 6, energy: 8 }, outputs: { relics: 1 }, desc: 'Kopiert Codefragmente aus 2011, die magisch alles fixen.' },
-
-  // Modifiers
-  { id: 'freelance_portal', name: 'Freelance Portal', category: 'Management', type: 'modifier', unlock: 'tech:freelance_platform', cost: { scrap: 25000, energy: 9000, alloy: 1500 }, growth: 1.25, rate: 0, outputs: {}, desc: 'Mehr Auftraege, mehr Freelancer-Slots.' },
-  { id: 'scrum_master', name: 'Scrum Master', category: 'Management', type: 'modifier', unlock: 'tech:microservices_arch', cost: { scrap: 65000, energy: 30000, data: 6000, relics: 50 }, growth: 1.25, rate: 0, outputs: {}, desc: 'Blockiert das Team mit Dailys, erhoeht aber langfristig den Output.' },
-  { id: 'hr_department', name: 'HR Department', category: 'Management', type: 'modifier', unlock: 'tech:cicd_pipelines', cost: { scrap: 70000, energy: 35000, alloy: 6000, data: 8000 }, growth: 1.28, rate: 0, outputs: {}, desc: 'Erhoeht die Effizienz aller Bueros durch Obstkoerbe.' },
-  { id: 'vpn_gateway', name: 'VPN Gateway', category: 'Management', type: 'modifier', unlock: 'tech:vpn_networking', cost: { scrap: 100000, energy: 55000, research: 10000, relics: 120 }, growth: 1.28, rate: 0, outputs: {}, desc: 'Home-Office-Infrastruktur fuer das ganze Imperium.' },
-  { id: 'legal_team', name: 'Legal Team', category: 'C-Level', type: 'modifier', unlock: 'tech:remote_work_policy', cost: { scrap: 90000, energy: 50000, alloy: 8000 }, growth: 1.30, rate: 0, outputs: {}, desc: 'Verklagt Mitbewerber und schuetzt vor Burnout-Klagen.' }
+  // ───────────────────────── Management (Modifier) ─────────────────────────
+  { id: 'freelance_portal', name: 'Freelance Portal', category: 'Management', type: 'modifier', unlock: 'tech:freelance_platform',
+    cost: { scrap: 30000, energy: 6000 }, growth: 1.6, rate: 0, outputs: {},
+    desc: '+18% Auftrags-Power, +2% Auftrags-Belohnung. Jedes 4. Portal: +1 Auftrags-Slot.' },
+  { id: 'hr_department', name: 'HR Department', category: 'Management', type: 'modifier', unlock: 'tech:cicd_pipelines',
+    cost: { scrap: 180000, energy: 40000, alloy: 4000 }, growth: 1.6, rate: 0, outputs: {},
+    desc: '+2% Standort-Output. Jedes 2. HR: +1 Standort-Limit. Obstkörbe inklusive.' },
+  { id: 'scrum_master', name: 'Scrum Master', category: 'Management', type: 'modifier', unlock: 'tech:microservices_arch',
+    cost: { scrap: 2e6, energy: 4e5, data: 20000 }, growth: 1.6, rate: 0, outputs: {},
+    desc: '+3% Gesamtproduktion, +4% Ideas. Blockiert das Team mit Dailys, zahlt sich aber aus.' },
+  { id: 'vpn_gateway', name: 'VPN Gateway', category: 'Management', type: 'modifier', unlock: 'tech:vpn_networking',
+    cost: { scrap: 1.5e6, energy: 3e5, research: 30000 }, growth: 1.6, rate: 0, outputs: {},
+    desc: '+1% Legacy-Fundchance. Jedes 8. Gateway: +1 Auftrags-Slot.' },
+  { id: 'legal_team', name: 'Legal Team', category: 'Management', type: 'modifier', unlock: 'tech:remote_work_policy',
+    cost: { scrap: 600000, energy: 120000, alloy: 8000 }, growth: 1.6, rate: 0, outputs: {},
+    desc: '+1% Event-Resistenz, +1,5% Standort-Output. Verklagt Mitbewerber.' }
 ];
 
 export const BUILD_ORDER = BUILDINGS.map((b) => b.id);
+
+// Meilensteine: bei diesen Stückzahlen verdoppelt sich der Output des Gebäudes.
+export const MILESTONE_STEPS = [10, 25, 50, 100, 200, 300, 400, 500];
+
+export function milestoneMult(count) {
+  let mult = 1;
+  for (const step of MILESTONE_STEPS) {
+    if (count >= step) mult *= 2; else break;
+  }
+  return mult;
+}
+
+export function nextMilestone(count) {
+  return MILESTONE_STEPS.find((step) => count < step) || null;
+}

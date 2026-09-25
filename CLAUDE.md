@@ -21,39 +21,56 @@ cd backend && npm run dev
 cd backend && npm start
 ```
 
-No test or lint scripts are configured.
+No test or lint scripts are configured. The engine runs headless in Node (see "Balancing" below).
 
 ## Architecture
 
-**Astraforge: Das stille Archiv** is a browser-based idle/incremental game. The German UI is intentional.
+**CodeTycoon** is a browser-based idle/incremental game with a startup/developer theme. The German UI is intentional (there is no i18n layer anymore).
 
 ### Frontend (SolidJS + Vite)
 
 - `src/index.jsx` — mounts the app
-- `src/components/App.jsx` — root UI component (~500 lines); owns the game loop timer, autosave, offline catchup on load, and the modal system
-- `src/components/renderers.js` — DOM rendering functions for each UI tab (Buildings, Research, Market, etc.)
-- `src/store/gameState.js` — single Solid.js `createStore` holding all game state (resources, buildings, techs, projects, prestige, etc.)
-- `src/store/bonuses.js` — derived bonus calculations over game state
-- `src/engine/` — pure game logic, no UI imports:
-  - `loop.js` — orchestrates the tick
-  - `tick.js` — per-frame resource production, event timers, expedition completion
-  - `actions.js` — all player-triggered mutations (buy building, research tech, prestige reset, etc.)
-  - `automation.js` — auto-build and auto-research logic
-  - `events.js` / `cyberEvents.js` — random anomaly/cyber event system
-  - `market.js` — dynamic trading mechanics
-  - `themeEngine.js` — theme/visual state
-- `src/data/` — static game content definitions (buildings, techs, projects, artifacts, chips, effects, misc constants)
-- `src/data/i18n.js` — German UI strings
-- `src/lib/` — utilities: `api-client.js` (HTTP to backend), `format.js` (number display), `icons.js`, `sanitize.js`
+- `src/components/App.jsx` — app shell (sidebar/bottom-nav, resource topbar), game loop timer, autosave, offline catch-up, modal/toast/tooltip system, chat widget, and the central `data-action` click dispatcher
+- `src/components/renderers.js` — HTML string renderers for navigation, topbar and every tab (`renderTabContent()`); tabs are: `overview` (Büro), `buildings` (Team), `research` (Tech), `projects` (Releases), `expansion` (Freelance-Aufträge + Standorte + Doktrin), `market` (Börse), `prestige`, `codex`, `account`, `admin`
+- `src/store/gameState.js` — single Solid.js `createStore` with all game state, save/load/normalize/migration (`VERSION` 5), cost helpers (`calcBuildingCost`, `maxAffordable`)
+- `src/store/bonuses.js` — `computeBonuses(s)` and the production model `simulateProduction(dt, s, b)`; both take an optional state object so they run headless
+- `src/engine/` — pure game logic:
+  - `tick.js` — one simulation step (`processTick`): effects expiry → production → missions → events → automation → achievements/milestones/quests
+  - `actions.js` — all player-triggered mutations (buy, research, prestige, colonies, missions, protocols, click)
+  - `automation.js` — auto-hire / auto-learn / auto-freelance / auto-deploy
+  - `quests.js` — sequential quest system (`currentQuest`, `questProgress`, `checkQuests`)
+  - `events.js` — missions completion, random events, achievements, prestige milestones, bug anomaly
+  - `cyberEvents.js` — interactive pop-up events
+  - `decisions.js` — choice events (`data/decisions.js`), rendered in the same top-right overlay as cyber events
+  - `stocks.js` — server-driven stock market client; held shares give a per-resource production bonus (`dividendBonus`, +0.01%/share, cap +50%) applied in `computeBonuses`
+  - `themeEngine.js` — accent theme by progress (early/mid/late)
+- `src/data/` — static content: `buildings.js` (42 buildings, categories, `milestoneMult`), `techs.js` (39 techs in 5 tiers), `projects.js`, `artifacts.js`, `chips.js`, `quests.js` (32 quests), `effects.js` (bonus functions), `events.js` (random event pool), `decisions.js` (choice events), `stocks.js` (stock list + dividend constants), `misc.js` (resources, `zeroResources()`, worlds, foci, doctrines, ops modes, protocols, missions, achievements, chronicle upgrades, prestige milestones, `COLONY_MAX_LEVEL`)
+- `src/lib/` — `api-client.js` (HTTP to backend, node-safe), `format.js`, `icons.js` (SVG sprite lookup; sprite lives in `index.html`), `sanitize.js`, `toast.js`, `settings.js` (per-device settings in localStorage, not part of the save)
+- `src/index.css` — the design system (CSS variables, layout, components). No other stylesheet.
+
+### Economy model (important when balancing)
+
+- Producers add output every tick. Converters consume **real stock** (plus what was produced in the same step) and run proportionally when input is short (`utilization` < 1 → shown as "gedrosselt").
+- Converter inputs are scaled by `converterInputMult × allMult`; outputs by `resourceMult(out)`. This keeps `allMult` from compounding along converter chains.
+- Building milestones: output ×2 at 10/25/50/100/200/300/400/500 owned (`MILESTONE_STEPS`).
+- Cost growth 1.15 per purchase (modifiers 1.6), soft cap ×1.03 per level above 100. Modifier effects cap at 20 units (`MODIFIER_CAP`), colonies at 8 (`MAX_COLONIES`), team synergy at +200%.
+- Prestige XP = `6 · ∛(runScrap / 1e7) · structBonus · prestigeGainMult` (`prestigeGainRaw` in actions.js).
+- Rates cache: `state.cache.rates[res]` = net/s, plus `__produced`, `__consumed`, `__utilization`, `__starved`. Read it through `currentRates()` / `currentBonuses()` (bonuses.js), which fall back to a fresh computation when the cache is empty; never read `state.cache.*` directly.
+- Automation runs every tick (auto-hire buys at most one unit per building per call); the threshold checks (achievements, milestones, quests via `runProgressChecks()`) run once per second inside `processTick`. With `opts.offline` the checks are skipped and the caller runs `runProgressChecks(true)` once afterwards.
+
+### Balancing
+
+The engine imports cleanly in Node (`localStorage` must be stubbed). A greedy-bot simulation lives outside the repo (see git history of the rework commit for the approach): import `store/gameState.js`, `engine/tick.js`, `engine/actions.js`, mock `Date.now`, call `processTick(1, { silent: true, auto: true, offline: true })` in a loop. Target pacing for an active player: first tech < 2 min, tier 2 by ~20 min, first prestige worth taking after ~1.5–2 h, tiers 4–5 across several runs.
 
 ### Backend (Express + SQLite)
 
-- `backend/server.js` — Express app; serves the production `dist/` as an SPA (catch-all to `index.html`), mounts API routes
-- `backend/db.js` — SQLite3 init; creates `users` table with `username`, `password_hash`, `game_save` (JSON blob), `prestige_score`, `total_scrap`
+- `backend/server.js` — Express app; serves `dist/` as SPA, mounts API routes
+- `backend/db.js` — SQLite3 init (`users` table: `username`, `password_hash`, `game_save` JSON blob, `prestige_score`, `total_scrap`, flags)
 - `backend/routes/auth.js` — `POST /api/auth/register`, `POST /api/auth/login`; JWT (7-day expiry)
-- `backend/routes/game.js` — `POST /api/game/save`, `GET /api/game/load`, `GET /api/game/leaderboard`, `GET /api/game/profile`
+- `backend/routes/game.js` — save/load/leaderboard/profile + admin endpoints; save validation reads `resources`, `stats.lifetime`, `stats.prestigeCount`, `stats.total.scrap`, `stats.lastSave` — keep those shapes stable
+- `backend/routes/chat.js`, `backend/routes/stocks.js`, `backend/lib/stockMarket.js` — global chat and shared stock market
 
-Backend runs on port **3005**. Frontend dev server runs on port **5173** (configured in `vite.config.js` as 3000, but `npm run dev` passes `--port 5173`).
+Backend runs on port **3005**. Frontend dev server runs on port **5173** (`npm run dev` passes `--port 5173`).
 
 ### Environment
 
@@ -65,16 +82,13 @@ VITE_API_TIMEOUT_MS=10000
 
 ### Docker
 
-The `Dockerfile` does a multi-stage build: builds the frontend, installs backend prod deps, then runs `node backend/server.js` (port 3005). The backend serves the compiled `dist/` statically in production.
+Multi-stage `Dockerfile`: builds the frontend, installs backend prod deps, runs `node backend/server.js` (port 3005) which serves `dist/` statically.
 
-### Game Systems
+### Conventions
 
-- **Resources**: Scrap, Energy, Alloy, Components, Data, Research, Influence, Relics
-- **Prestige**: full reset with carry-over bonuses, tracked in Chronicles
-- **Colonies & Expeditions**: time-gated missions
-- **Projects**: long-duration mega-constructs
-- **Market**: rate-varying trades
-- **Chips/Mainframe**: equippable bonus items
-- **Cloud Save**: JWT-authenticated save/load via backend API
-- **PWA**: manifest + service worker assets in `public/`
-- **Offline Progression**: simulated in `App.jsx` on load based on elapsed time
+- All UI is rendered as HTML strings via template literals; every interactive element uses `data-action` (+ `data-id`, etc.) and is handled in `App.jsx → handleAction`. Escape user/content strings with `escapeHtml`.
+- Tooltips: `data-tt="<html>"` via the `tt()` helper in renderers.js (attribute-escaped, read back with `el.dataset.tt`).
+- Modals: `showModal(title, html, buttons)` resolves with the clicked button's `action`; use `confirmModal()` for yes/no and `showError()` for error dialogs in App.jsx.
+- Buy amounts and tab shortcut keys derive from `BUY_AMOUNTS` (gameState.js) and `TABS` (renderers.js); don't hardcode them elsewhere.
+- Live numbers in the topbar are patched at 10 Hz via `[data-res-val]` / `[data-res-rate]`; everything else re-renders once per second.
+- Keep save-format changes backward compatible in `normalizeState()`; bump `VERSION` and migrate in `migrateState()`.

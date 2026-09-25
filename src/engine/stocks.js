@@ -1,86 +1,13 @@
 // stocks.js – Ressourcen-Börse (Kurse kommen vom Backend — alle Spieler sehen denselben Markt)
 import { state, setState } from '../store/gameState.js';
-import { fmt } from '../lib/format.js';
 import { AstraforgeAPI } from '../lib/api-client.js';
+
+import { STOCKS, DIVIDEND_PER_SHARE, MAX_DIVIDEND_BONUS, dividendBonusForShares } from '../data/stocks.js';
+export { STOCKS, DIVIDEND_PER_SHARE, MAX_DIVIDEND_BONUS };
 
 export const BROKER_FEE = 0.05;
 export const PRICE_UPDATE_INTERVAL = 5 * 60 * 1000; // Server tickt auch alle 5 Minuten
-const MAX_HISTORY = 24;
 
-export const STOCKS = [
-  {
-    id: 'stk_scrap',
-    name: 'StackOverflow GmbH',
-    ticker: 'SOF',
-    resource: 'scrap',
-    basePrice: 50,
-    dividendRate: 0.10,
-    volatility: 0.20,
-  },
-  {
-    id: 'stk_energy',
-    name: 'Venture Capital AG',
-    ticker: 'VCA',
-    resource: 'energy',
-    basePrice: 100,
-    dividendRate: 0.04,
-    volatility: 0.15,
-  },
-  {
-    id: 'stk_alloy',
-    name: 'Bug Tracker Corp.',
-    ticker: 'BTC',
-    resource: 'alloy',
-    basePrice: 80,
-    dividendRate: 0.07,
-    volatility: 0.26,
-  },
-  {
-    id: 'stk_components',
-    name: 'npm Registry ETF',
-    ticker: 'NPM',
-    resource: 'components',
-    basePrice: 160,
-    dividendRate: 0.03,
-    volatility: 0.22,
-  },
-  {
-    id: 'stk_data',
-    name: 'DAU Analytics GmbH',
-    ticker: 'DAU',
-    resource: 'data',
-    basePrice: 220,
-    dividendRate: 0.025,
-    volatility: 0.28,
-  },
-  {
-    id: 'stk_research',
-    name: 'Innovation Labs SE',
-    ticker: 'INN',
-    resource: 'research',
-    basePrice: 380,
-    dividendRate: 0.012,
-    volatility: 0.32,
-  },
-  {
-    id: 'stk_influence',
-    name: 'Social Media Fonds',
-    ticker: 'SMF',
-    resource: 'influence',
-    basePrice: 200,
-    dividendRate: 0.010,
-    volatility: 0.38,
-  },
-  {
-    id: 'stk_relics',
-    name: 'COBOL Heritage AG',
-    ticker: 'COB',
-    resource: 'relics',
-    basePrice: 900,
-    dividendRate: 0.002,
-    volatility: 0.45,
-  },
-];
 
 // Fetch current prices from the backend and update local state.
 // Fire-and-forget — if the server is unreachable, last known prices stay.
@@ -110,15 +37,15 @@ export async function fetchServerStockPrices() {
   }
 }
 
-export function tickStockDividends(dt) {
-  const stocks = state.stocks || {};
-  STOCKS.forEach(s => {
-    const owned = stocks[s.id] || 0;
-    if (owned > 0) {
-      const gain = owned * s.dividendRate * dt;
-      setState('resources', s.resource, (state.resources[s.resource] || 0) + gain);
-    }
-  });
+// Produktionsbonus (0..MAX_DIVIDEND_BONUS) einer Aktie aus dem gehaltenen Bestand.
+export function dividendBonus(stockId, s = state) {
+  return dividendBonusForShares((s.stocks || {})[stockId] || 0);
+}
+
+// Aktien bis zum Cap: wie viele Aktien fehlen noch bis +50%?
+export function sharesToCap(stockId, s = state) {
+  const owned = (s.stocks || {})[stockId] || 0;
+  return Math.max(0, Math.ceil(MAX_DIVIDEND_BONUS / DIVIDEND_PER_SHARE) - owned);
 }
 
 export function getStockPrice(stockId) {
@@ -165,12 +92,12 @@ export function portfolioValue() {
   return total;
 }
 
-export function totalDividendRate() {
-  const stocks = state.stocks || {};
+// Aktive Dividenden-Boni je Ressource (nur > 0)
+export function totalDividendBonus() {
   const byResource = {};
-  STOCKS.forEach(s => {
-    const owned = stocks[s.id] || 0;
-    if (owned > 0) byResource[s.resource] = (byResource[s.resource] || 0) + owned * s.dividendRate;
+  STOCKS.forEach(st => {
+    const bonus = dividendBonus(st.id);
+    if (bonus > 0) byResource[st.resource] = bonus;
   });
   return byResource;
 }

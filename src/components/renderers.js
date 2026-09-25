@@ -1,2124 +1,1067 @@
-import t from '../data/i18n.js';
+// renderers.js – HTML-Renderer für Navigation, Ressourcenleiste und alle Tabs.
 import {
-  state,
-  canAfford,
-  buildingCount,
-  calcNextBuildingCost,
-  isBuildingUnlocked,
-  unlockReason,
-  isTechUnlocked,
-  hasTech,
-  hasProject,
-  hasArtifact,
-  totalBuildings,
-  techCount,
-  projectCount,
-  artifactCount,
-  colonyCount,
-  isProjectRequirementMet,
-  projectRequirementLabel,
-  getTech
+  state, canAfford, buildingCount, calcNextBuildingCost, calcBuildingCost, maxAffordable, isBuildingUnlocked, unlockReason,
+  isTechUnlocked, hasTech, hasProject, hasArtifact, totalBuildings, techCount, projectCount, artifactCount, colonyCount,
+  isProjectRequirementMet, isProjectUnlocked, projectRequirementLabel, getTech, getBuilding, BUY_AMOUNTS
 } from '../store/gameState.js';
-import { computeBonuses, estimateRatesSnapshot } from '../store/bonuses.js';
+import { currentBonuses as bonuses, currentRates as rates, buildingOutputPerSecond, buildingInputPerSecond, clickValue, colonyBaseBonus, MODIFIER_CAP, STARVED_UTILIZATION, chronicleCostFor } from '../store/bonuses.js';
 import {
-  nextResearchCost,
-  nextProjectCost,
-  chronicleCost,
-  colonyFoundCost,
-  canFoundColony,
-  colonyUpgradeCost,
-  prestigeGain
+  nextResearchCost, nextProjectCost, chronicleCost, colonyFoundCost, canFoundColony, colonyUpgradeCost, COLONY_MAX_LEVEL,
+  prestigeGain, prestigeGainRaw, scrapForNextXp, runScrap, missionPowerReq, prestigeStructBonus, PRESTIGE_XP_BASE
 } from '../engine/actions.js';
-import { BUILDINGS } from '../data/buildings.js';
-import { TECHS } from '../data/techs.js';
+import { currentQuest, questProgress } from '../engine/quests.js';
+import { missionSuccessChance, getDynamicMissionRewards } from '../engine/events.js';
+import { currentDecisionDef } from '../engine/decisions.js';
+import { getSetting } from '../lib/settings.js';
+import { BUILDINGS, CATEGORIES, milestoneMult, nextMilestone } from '../data/buildings.js';
+import { TECHS, TECH_TIERS } from '../data/techs.js';
 import { PROJECTS } from '../data/projects.js';
 import { ARTIFACTS } from '../data/artifacts.js';
+import { QUESTS } from '../data/quests.js';
 import {
-  RESOURCES,
-  RESOURCE_LABELS,
-  MISSIONS,
-  WORLDS,
-  FOCI,
-  DOCTRINES,
-  OPERATIONS_MODES,
-  PROTOCOLS,
-  ACHIEVEMENTS,
-  CHRONICLE_UPGRADES,
-  PRESTIGE_MILESTONES
+  RESOURCES, RESOURCE_LABELS, RESOURCE_LORE, MISSIONS, WORLDS, FOCI, DOCTRINES, OPERATIONS_MODES, PROTOCOLS,
+  ACHIEVEMENTS, CHRONICLE_UPGRADES, PRESTIGE_MILESTONES
 } from '../data/misc.js';
+import { CHIPS, getChip } from '../data/chips.js';
+import { STOCKS, BROKER_FEE, getStockPrice, getOwnedShares, portfolioValue, totalDividendBonus, dividendBonus, sharesToCap, timeUntilNextPriceUpdate, DIVIDEND_PER_SHARE, MAX_DIVIDEND_BONUS } from '../engine/stocks.js';
 import { AstraforgeAPI } from '../lib/api-client.js';
-import { fmt, fmtSec } from '../lib/format.js';
-import { getIcon, resIcon } from '../lib/icons.js';
+import { fmt, fmtSec, fmtRate, clamp } from '../lib/format.js';
+import { getIcon, resIcon, CATEGORY_ICONS } from '../lib/icons.js';
 import { escapeHtml } from '../lib/sanitize.js';
-import { CHIPS } from '../data/chips.js';
-import { STOCKS, BROKER_FEE, getStockPrice, getOwnedShares, portfolioValue, totalDividendRate, timeUntilNextPriceUpdate } from '../engine/stocks.js';
-import { getDynamicMissionRewards } from '../engine/events.js';
 
-function applyI18n(arr, prefix) {
-  arr.forEach(item => {
-    item._nameKey = prefix + item.id + '.name';
-    item._descKey = prefix + item.id + '.desc';
-    if (!item.__i18n_applied) {
-      const origName = item.name;
-      const origDesc = item.desc;
-      Object.defineProperty(item, 'name', { get() { return t(this._nameKey, origName); } });
-      Object.defineProperty(item, 'desc', { get() { return t(this._descKey, origDesc); } });
-      item.__i18n_applied = true;
-    }
-  });
-}
-applyI18n(BUILDINGS, 'bld.');
-applyI18n(TECHS, 'tech.');
-applyI18n(PROJECTS, 'proj.');
-applyI18n(ARTIFACTS, 'art.');
-applyI18n(OPERATIONS_MODES, 'ops.');
-applyI18n(PROTOCOLS, 'proto.');
-applyI18n(MISSIONS, 'miss.');
-applyI18n(ACHIEVEMENTS, 'ach.');
+export const ADMIN_USERNAME = 'Dominik';
 
-const ADMIN_USERNAME = 'Dominik';
+export const TABS = [
+  { id: 'overview', label: 'Büro', icon: 'home', key: 'O', blurb: 'Klicken, Aufgaben, Überblick.' },
+  { id: 'buildings', label: 'Team', icon: 'team', key: 'B', blurb: 'Mitarbeiter einstellen.' },
+  { id: 'research', label: 'Tech', icon: 'tech', key: 'R', blurb: 'Technologien lernen.' },
+  { id: 'projects', label: 'Releases', icon: 'rocket', key: 'P', blurb: 'Produkte launchen, Funde.' },
+  { id: 'expansion', label: 'Expansion', icon: 'globe', key: 'E', blurb: 'Freelance-Aufträge und Standorte.' },
+  { id: 'market', label: 'Börse', icon: 'market', key: 'M', blurb: 'Aktien handeln.' },
+  { id: 'prestige', label: 'Prestige', icon: 'prestige', key: 'S', blurb: 'Hard Refactor, XP, Chips.' },
+  { id: 'codex', label: 'Codex', icon: 'codex', key: 'C', blurb: 'Errungenschaften und Hilfe.' },
+  { id: 'account', label: 'Account', icon: 'account', key: 'A', blurb: 'Cloud-Save, Leaderboard.' }
+];
+export const VALID_TABS = new Set([...TABS.map(t => t.id), 'admin']);
 
-function getTabs() {
-  const tabs = [
-    { id: 'overview', get label() { return t('tab.overview'); }, icon: 'scrap', get blurb() { return t('tab.overview.blurb'); } },
-    { id: 'buildings', get label() { return t('tab.buildings'); }, icon: 'components', get blurb() { return t('tab.buildings.blurb'); } },
-    { id: 'research', get label() { return t('tab.research'); }, icon: 'research', get blurb() { return t('tab.research.blurb'); } },
-    { id: 'colonies', get label() { return t('tab.colonies'); }, icon: 'influence', get blurb() { return t('tab.colonies.blurb'); } },
-    { id: 'expeditions', get label() { return t('tab.expeditions'); }, icon: 'time', get blurb() { return t('tab.expeditions.blurb'); } },
-    { id: 'projects', get label() { return t('tab.projects'); }, icon: 'alloy', get blurb() { return t('tab.projects.blurb'); } },
-    { id: 'market', get label() { return '// Börse'; }, icon: 'relics', get blurb() { return 'Ressourcen-Aktien kaufen & verkaufen.'; } },
-    { id: 'prestige', get label() { return t('tab.prestige'); }, icon: 'time', get blurb() { return t('tab.prestige.blurb'); } },
-    { id: 'account', get label() { return t('tab.account'); }, icon: 'lock', get blurb() { return t('tab.account.blurb'); } },
-    { id: 'codex', get label() { return t('tab.codex'); }, icon: 'check', get blurb() { return t('tab.codex.blurb'); } }
-  ];
-  if (AstraforgeAPI.username === ADMIN_USERNAME) {
-    tabs.push({ id: 'admin', label: '// Admin', icon: 'lock', blurb: 'Moderations-Panel.' });
-  }
-  return tabs;
-}
-
-// Admin panel data — set from App.jsx after API fetch
+// ── Admin-Daten (werden von App.jsx gesetzt) ──
 let adminUsers = [];
 export function setAdminUsers(rows) { adminUsers = rows || []; }
-
 let adminSelectedUser = null;
 export function setAdminSelectedUser(user) { adminSelectedUser = user || null; }
-export function getAdminSelectedUser() { return adminSelectedUser; }
 
-export function collectAdminSaveEdits() {
-  if (!adminSelectedUser) return null;
-  let save = {};
-  try { save = JSON.parse(adminSelectedUser.game_save || '{}'); } catch(e) {}
-
-  const RESOURCE_NAMES = ['scrap', 'energy', 'alloy', 'components', 'data', 'research', 'influence', 'relics'];
-  save.resources = save.resources || {};
-  for (const r of RESOURCE_NAMES) {
-    const el = document.getElementById(`admin-ed-res-${r}`);
-    if (el) save.resources[r] = Number(el.value) || 0;
-  }
-
-  save.buildings = save.buildings || {};
-  for (const b of BUILDINGS) {
-    const el = document.getElementById(`admin-ed-bld-${b.id}`);
-    if (el) save.buildings[b.id] = Math.max(0, Math.floor(Number(el.value) || 0));
-  }
-
-  save.stats = save.stats || {};
-  for (const f of ['lifetime', 'prestigeCount', 'projectsBuilt', 'expeditionsDone', 'manualClicks', 'fleetXP', 'fleetLevel']) {
-    const el = document.getElementById(`admin-ed-stat-${f}`);
-    if (el) save.stats[f] = Number(el.value) || 0;
-  }
-
-  save.techs = TECHS.filter(t => document.getElementById(`admin-ed-tech-${t.id}`)?.checked).map(t => t.id);
-  save.projects = PROJECTS.filter(p => document.getElementById(`admin-ed-proj-${p.id}`)?.checked).map(p => p.id);
-  save.artifacts = ARTIFACTS.filter(a => document.getElementById(`admin-ed-art-${a.id}`)?.checked).map(a => a.id);
-
-  const chronicle = document.getElementById('admin-ed-chronicle');
-  if (chronicle) save.chronicle = Math.max(0, Math.floor(Number(chronicle.value) || 0));
-  const mfSlots = document.getElementById('admin-ed-mainframeSlots');
-  if (mfSlots) save.mainframeSlots = Math.max(1, Math.floor(Number(mfSlots.value) || 3));
-
-  // Bump lastSave so cloud-load sees this as newer than the running session
-  if (save.stats) save.stats.lastSave = Date.now();
-
-  return JSON.stringify(save);
+// ── "Neu"-Markierungen (pro Sitzung): was seit dem letzten Tab-Besuch freigeschaltet wurde ──
+const seenBuildings = new Set();
+const seenTechs = new Set();
+let seenInitialized = false;
+function initSeen() {
+  if (seenInitialized) return;
+  seenInitialized = true;
+  BUILDINGS.filter(isBuildingUnlocked).forEach(b => seenBuildings.add(b.id));
+  TECHS.filter(t => isTechUnlocked(t) || hasTech(t.id)).forEach(t => seenTechs.add(t.id));
 }
+function newBuildings() { initSeen(); return BUILDINGS.filter(b => isBuildingUnlocked(b) && !seenBuildings.has(b.id)); }
+function newTechs() { initSeen(); return TECHS.filter(t => !hasTech(t.id) && isTechUnlocked(t) && !seenTechs.has(t.id)); }
+
+// ── Helfer ──
+// Tooltip-Payload als HTML-Attribut; App.jsx liest el.dataset.tt (Browser dekodiert die Entities).
+const escapeAttr = s => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+const buyAmountLabel = v => (v === 'max' ? 'Max' : `×${v}`);
 
 function tt(title, body, options = {}) {
-  const chunks = [`<h4>${options.icon || getIcon('help')} ${escapeHtml(title)}</h4>`, `<p>${escapeHtml(body)}</p>`];
+  const chunks = [`<h4>${options.icon || ''}${escapeHtml(title)}</h4>`];
   if (options.meta) chunks.push(`<div class="tt-meta">${escapeHtml(options.meta)}</div>`);
+  if (body) chunks.push(`<p>${escapeHtml(body)}</p>`);
   if (options.sectionTitle && options.sectionBody) {
-    chunks.push(
-      `<div class="tt-section"><div class="tt-section-title">${escapeHtml(options.sectionTitle)}</div>${options.sectionBody}</div>`
-    );
+    chunks.push(`<div class="tt-section"><div class="tt-section-title">${escapeHtml(options.sectionTitle)}</div>${options.sectionBody}</div>`);
   }
-  if (options.requirement) {
-    chunks.push(`<div class="tt-req">${getIcon('lock')} ${escapeHtml(options.requirement)}</div>`);
-  }
-  return `data-tt="${encodeURIComponent(chunks.join(''))}"`;
+  if (options.requirement) chunks.push(`<div class="tt-req">${getIcon('lock')} ${escapeHtml(options.requirement)}</div>`);
+  return `data-tt="${escapeAttr(chunks.join(''))}"`;
 }
 
 function ttCosts(cost) {
+  return `<div class="tt-costs">${Object.entries(cost).map(([res, amt]) => `<div><span>${resIcon(res)} ${escapeHtml(RESOURCE_LABELS[res] || res)}</span><span>${fmt(amt)}</span></div>`).join('')}</div>`;
+}
+
+function costChips(cost) {
+  return `<div class="cost-row">${Object.entries(cost).map(([res, amt]) => {
+    const ok = (state.resources[res] || 0) >= amt;
+    return `<span class="cost ${ok ? 'ok' : 'no'}" ${tt(RESOURCE_LABELS[res] || res, `Vorrat: ${fmt(state.resources[res] || 0)}`)}>${resIcon(res)}${fmt(amt)}</span>`;
+  }).join('')}</div>`;
+}
+
+function rewardChips(rewards) {
+  return `<div class="cost-row">${Object.entries(rewards).filter(([, v]) => v > 0).map(([res, amt]) => `<span class="cost ok">${resIcon(res)}+${fmt(amt)}</span>`).join('')}</div>`;
+}
+
+// Sekunden bis Kosten leistbar sind (Infinity wenn eine Rate ≤ 0)
+function etaSeconds(cost) {
+  const r = rates();
+  let eta = 0;
+  for (const [res, amt] of Object.entries(cost)) {
+    const missing = amt - (state.resources[res] || 0);
+    if (missing <= 0) continue;
+    const rate = Number(r[res] || 0);
+    if (rate <= 0) return Infinity;
+    eta = Math.max(eta, missing / rate);
+  }
+  return eta;
+}
+
+function etaLabel(cost) {
+  const eta = etaSeconds(cost);
+  if (eta <= 0) return '';
+  if (!Number.isFinite(eta)) {
+    const onlyScrap = Object.keys(cost).every(res => res === 'scrap' || (state.resources[res] || 0) >= cost[res]);
+    return onlyScrap ? '<span class="b-eta">→ Code schreiben</span>' : '<span class="b-eta bad">kein Zufluss</span>';
+  }
+  if (eta > 86400 * 3) return '<span class="b-eta">&gt; 3 Tage</span>';
+  return `<span class="b-eta">in ${fmtSec(Math.ceil(eta))}</span>`;
+}
+
+function kpi(label, value, sub = '', extra = '') {
+  return `<div class="kpi" ${extra}><div class="kpi-label">${escapeHtml(label)}</div><div class="kpi-value">${value}</div>${sub ? `<div class="kpi-sub">${sub}</div>` : ''}</div>`;
+}
+
+function statRow(label, value, attrs = '') {
+  return `<div ${attrs}><span>${escapeHtml(label)}</span><strong>${value}</strong></div>`;
+}
+
+function progress(cur, max, cls = '') {
+  const pct = clamp(max > 0 ? (cur / max) * 100 : 0, 0, 100);
+  return `<div class="progress ${cls}"><span style="width:${pct.toFixed(1)}%"></span></div>`;
+}
+
+function emptyState(icon, title, text) {
+  return `<div class="empty">${getIcon(icon)}<strong>${escapeHtml(title)}</strong><span>${escapeHtml(text)}</span></div>`;
+}
+
+function visibleResources() {
+  return RESOURCES.filter(res => res === 'scrap' || res === 'energy' || (state.stats.max[res] || 0) > 0 || (state.resources[res] || 0) > 0);
+}
+
+// ── "Beste Investition": Output-Wert pro Kosten (nur Producer/Konverter) ──
+const RES_VALUE = { scrap: 1, energy: 3, alloy: 6, components: 20, data: 6, research: 8, influence: 25, relics: 2000 };
+function bestInvestmentId(b) {
+  let best = null, bestScore = 0;
+  for (const def of BUILDINGS) {
+    if (def.type === 'modifier' || !isBuildingUnlocked(def)) continue;
+    const cost = calcNextBuildingCost(def);
+    const costValue = Object.entries(cost).reduce((a, [r, v]) => a + v * (RES_VALUE[r] || 1), 0);
+    if (costValue <= 0) continue;
+    const owned = buildingCount(def.id);
+    const out = buildingOutputPerSecond(def, state, b);
+    const inp = buildingInputPerSecond(def, state, b);
+    let value = Object.entries(out).reduce((a, [r, v]) => a + v * (RES_VALUE[r] || 1), 0)
+      - Object.entries(inp).reduce((a, [r, v]) => a + v * (RES_VALUE[r] || 1), 0) * 0.5;
+    const stepUp = milestoneMult(owned + 1) / milestoneMult(Math.max(owned, 1));
+    value *= stepUp;
+    if (value <= 0) continue;
+    const score = value / costValue;
+    if (score > bestScore) { bestScore = score; best = def.id; }
+  }
+  return best;
+}
+
+// ── Navigation ──
+export function navBadges() {
+  const b = bonuses();
+  const badges = {};
+  const affordableTechs = TECHS.filter(t => !hasTech(t.id) && isTechUnlocked(t) && state.resources.research >= nextResearchCost(t, b)).length;
+  if (affordableTechs) badges.research = affordableTechs;
+  const affordableProjects = PROJECTS.filter(p => !hasProject(p.id) && isProjectUnlocked(p) && canAfford(nextProjectCost(p, b))).length;
+  if (affordableProjects) badges.projects = affordableProjects;
+  const affordableChronicle = CHRONICLE_UPGRADES.filter(u => state.chronicle >= chronicleCost(u.id) && !(u.max && (state.chronicleUpgrades[u.id] || 0) >= u.max)).length;
+  if (affordableChronicle) badges.prestige = affordableChronicle;
+  const freeSlot = hasTech('freelance_platform') && b.availableExpeditionSlots > 0 && MISSIONS.some(m => b.availableExpeditionPower >= missionPowerReq(m));
+  if (freeSlot || canFoundColony()) badges.expansion = 'dot';
+  const fresh = newBuildings().length;
+  if (fresh && state.selectedTab !== 'buildings') badges.buildings = fresh;
+  return badges;
+}
+
+export function renderNav(mobile = false, badges = navBadges()) {
+  const tabs = [...TABS];
+  if (AstraforgeAPI.username === ADMIN_USERNAME) tabs.push({ id: 'admin', label: 'Admin', icon: 'shield', blurb: 'Moderation.' });
+  return tabs.map(tab => {
+    const badge = badges[tab.id];
+    const badgeHtml = badge === 'dot' ? '<span class="nav-badge dot"></span>' : badge ? `<span class="nav-badge">${badge > 9 ? '9+' : badge}</span>` : (tab.key && !mobile ? `<span class="nav-key">${tab.key}</span>` : '');
+    return `<button class="nav-item ${state.selectedTab === tab.id ? 'active' : ''}" data-action="tab" data-tab="${tab.id}" ${tt(tab.label, tab.blurb, { meta: tab.key ? `Taste ${tab.key}` : '' })}>${getIcon(tab.icon)}<span>${escapeHtml(tab.label)}</span>${badgeHtml}</button>`;
+  }).join('');
+}
+
+export function renderSidebarFoot() {
+  const b = bonuses();
+  const loggedIn = AstraforgeAPI.isLoggedIn();
+  const flag = AstraforgeAPI.flagged ? `<div class="status-line bad">${getIcon('warning')} Account geflaggt</div>` : '';
   return `
-    <div class="tt-costs">
-      ${Object.entries(cost).map(([res, amt]) => `
-        <div>
-          <span class="tt-res">${resIcon(res)} ${escapeHtml(RESOURCE_LABELS[res] || res)}</span>
-          <span class="tt-val">${fmt(amt)}</span>
-        </div>
-      `).join('')}
-    </div>
+    <div class="status-line"><span class="status-dot ${loggedIn ? '' : 'off'}"></span>${loggedIn ? `Cloud: ${escapeHtml(AstraforgeAPI.username || '')}` : 'Lokaler Spielstand'}</div>
+    <div class="status-line">${getIcon('time')} Autosave ${new Date(state.stats.lastSave).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+    <div class="status-line">Offline-Limit ${fmt(b.offlineCapHours)}h · ${Math.round((b.offlineEfficiency || 0) * 100)}%</div>
+    ${flag}
   `;
 }
 
-function classNames(...values) {
-  return values.filter(Boolean).join(' ');
+// ── Ressourcenleiste ──
+export function renderTopbar() {
+  const r = rates();
+  const b = bonuses();
+  const pills = visibleResources().map(res => {
+    const rate = Number(r[res] || 0);
+    const cons = Number(r.__consumed?.[res] || 0);
+    const prod = Number(r.__produced?.[res] || 0);
+    const rateCls = rate > 0.0001 ? 'good' : rate < -0.0001 ? 'bad' : '';
+    return `<div class="res-pill" ${tt(RESOURCE_LABELS[res], RESOURCE_LORE[res], {
+      icon: resIcon(res) + ' ',
+      sectionTitle: 'Fluss pro Sekunde',
+      sectionBody: `<div class="tt-costs"><div><span>Produktion</span><span>+${fmt(prod)}</span></div><div><span>Verbrauch</span><span>−${fmt(cons)}</span></div><div><span>Netto</span><span>${fmtRate(rate)}</span></div></div>`
+    })}>
+      ${resIcon(res)}<span class="res-val" data-res-val="${res}">${fmt(state.resources[res] || 0)}</span><span class="res-rate ${rateCls}" data-res-rate="${res}">${fmtRate(rate)}</span>
+    </div>`;
+  }).join('');
+  const click = clickValue(b, r);
+  return `${pills}<div class="topbar-spacer"></div><button class="topbar-click" data-action="manual-click" ${tt('Code schreiben', `+${fmt(click)} Code pro Klick. Leertaste funktioniert überall.`, { icon: getIcon('keyboard') + ' ' })}>${getIcon('keyboard')} +${fmt(click)}</button>`;
 }
 
-function button(label, attrs = '', disabled = false, extraClass = '') {
-  return `<button class="${escapeHtml(classNames(extraClass))}" ${attrs}${disabled ? ' disabled' : ''}>${label}</button>`;
+// ═══════════════════════════ BÜRO ═══════════════════════════
+function renderQuestCard() {
+  const quest = currentQuest();
+  if (!quest) {
+    return `<section class="panel"><div class="panel-head"><div><div class="eyebrow">Aufgaben</div><h3>${getIcon('trophy')} Alle Aufgaben erledigt</h3></div></div><p class="muted">Du hast alle ${QUESTS.length} Aufgaben abgeschlossen. Jetzt zählt nur noch das Leaderboard.</p></section>`;
+  }
+  const [cur, target] = questProgress(quest);
+  const idx = state.questIndex;
+  const rewards = quest.reward ? rewardChips(quest.reward) : '<span class="muted small">Keine Belohnung – nur Ruhm.</span>';
+  const goto = quest.tab && quest.tab !== state.selectedTab ? `<button class="btn sm" data-action="tab" data-tab="${quest.tab}">Zum Tab ${escapeHtml(TABS.find(t => t.id === quest.tab)?.label || '')} →</button>` : '';
+  return `
+    <section class="panel quest">
+      <div class="panel-head" style="margin-bottom:0">
+        <div><div class="eyebrow">Aufgabe ${idx + 1} von ${QUESTS.length}</div>
+          <div class="quest-title"><span class="quest-num">${idx + 1}</span>${escapeHtml(quest.title)}</div>
+        </div>
+        <span class="badge accent">${escapeHtml(TABS.find(t => t.id === quest.tab)?.label || 'Büro')}</span>
+      </div>
+      <p class="muted">${escapeHtml(quest.desc)}</p>
+      <div class="quest-progress">${progress(cur, target, cur >= target ? 'good' : '')}<span class="num">${fmt(Math.min(cur, target))} / ${fmt(target)}</span></div>
+      <div class="quest-foot"><div class="row"><span class="muted small">Belohnung:</span>${rewards}</div>${goto}</div>
+    </section>`;
 }
 
-function statRow(label, value, tooltip) {
-  return `<div ${tooltip || ''}><span>${escapeHtml(label)}</span><strong>${value}</strong></div>`;
+function renderActiveEffects() {
+  const b = bonuses();
+  const now = Date.now();
+  const fx = [];
+  if (state.event) {
+    const left = Math.max(0, (state.eventEnds - now) / 1000);
+    const bad = Object.values(state.event.effects || {}).some(v => v < 1 && v > 0 && v !== 0);
+    fx.push(`<span class="fx ${bad ? 'bad' : 'good'}" ${tt(state.event.name, state.event.desc || 'Zufallsereignis', { meta: 'Ereignis' })}>${getIcon('zap')} ${escapeHtml(state.event.name)} <span class="fx-t">${fmtSec(left)}</span></span>`);
+  }
+  const proto = PROTOCOLS.find(p => p.id === state.activeProtocol && state.activeProtocolEndsAt > now);
+  if (proto) fx.push(`<span class="fx good">${getIcon('star')} ${escapeHtml(proto.name)} <span class="fx-t">${fmtSec((state.activeProtocolEndsAt - now) / 1000)}</span></span>`);
+  const mode = OPERATIONS_MODES.find(m => m.id === state.operationsMode);
+  if (mode && mode.id !== 'balanced') fx.push(`<span class="fx">${getIcon('settings')} ${escapeHtml(mode.name)}</span>`);
+  if (state.doctrine) fx.push(`<span class="fx">${getIcon('flag')} ${escapeHtml(DOCTRINES.find(d => d.id === state.doctrine)?.name || '')}</span>`);
+  (state.equippedChips || []).forEach(id => { const c = getChip(id); if (c) fx.push(`<span class="fx">${getIcon('chip')} ${escapeHtml(c.name)}</span>`); });
+  const synergy = b.teamSynergy || 1;
+  fx.push(`<span class="fx" ${tt('Team-Synergie', 'Jeder Mitarbeiter gibt +0,2% auf die Gesamtproduktion (max +200%).')}>${getIcon('team')} Synergie <span class="fx-t">×${fmt(synergy)}</span></span>`);
+  fx.push(`<span class="fx" ${tt('Gesamtmultiplikator', 'Alle Boni zusammen (Techs, Releases, Standorte, Chronicle, Ereignisse).')}>${getIcon('star')} Gesamt <span class="fx-t">×${fmt(b.allMult)}</span></span>`);
+  return `<div class="fx-list">${fx.join('')}</div>`;
 }
 
-function costMarkup(cost) {
-  return Object.entries(cost).map(([res, amt]) => {
-    const hasEnough = Number(state.resources[res] || 0) >= amt;
-    return `<span class="${hasEnough ? 'good' : 'bad'}">${resIcon(res)} ${fmt(amt)}</span>`;
+function renderProtocols() {
+  const now = Date.now();
+  const active = PROTOCOLS.find(p => p.id === state.activeProtocol && state.activeProtocolEndsAt > now);
+  return PROTOCOLS.map(protocol => {
+    const missing = (protocol.prereq || []).filter(id => !hasTech(id));
+    const locked = missing.length > 0;
+    const cooldownUntil = Number(state.protocolCooldowns?.[protocol.id] || 0);
+    const cooldownLeft = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
+    const running = active?.id === protocol.id;
+    const affordable = canAfford(protocol.cost || {});
+    const disabled = locked || running || !!active || cooldownLeft > 0 || !affordable;
+    const status = running ? `<span class="badge accent">${fmtSec((state.activeProtocolEndsAt - now) / 1000)}</span>`
+      : cooldownLeft > 0 ? `<span class="badge">Cooldown ${fmtSec(cooldownLeft)}</span>`
+      : locked ? `<span class="badge">${getIcon('lock')} ${escapeHtml(missing.map(id => getTech(id)?.name || id).join(', '))}</span>`
+      : `<span class="badge mono">${protocol.duration}s · CD ${fmtSec(protocol.cooldown)}</span>`;
+    return `<div class="proto ${running ? 'running' : ''}" ${tt(protocol.name, protocol.desc, { meta: `Dauer ${protocol.duration}s · Cooldown ${fmtSec(protocol.cooldown)}`, sectionTitle: 'Kosten', sectionBody: ttCosts(protocol.cost || {}) })}>
+      <div class="proto-head"><strong>${escapeHtml(protocol.name)}</strong>${status}</div>
+      <div class="muted small">${escapeHtml(protocol.desc)}</div>
+      <div class="row-between">${locked ? '' : costChips(protocol.cost || {})}<button class="btn sm ${!disabled ? 'primary' : ''}" data-action="activate-protocol" data-id="${protocol.id}" ${disabled ? 'disabled' : ''}>${running ? 'Läuft' : 'Aktivieren'}</button></div>
+    </div>`;
   }).join('');
 }
 
-function rewardMarkup(rewards) {
-  return Object.entries(rewards).map(([res, amt]) => (
-    `<span>${resIcon(res)} ${fmt(amt)}</span>`
-  )).join('');
-}
-
-function formatEventEffectValue(key, value) {
-  if (typeof value !== 'number') return String(value);
-  if (key.endsWith('Mult') || key.endsWith('CostMult')) return `${value >= 1 ? '+' : ''}${Math.round((value - 1) * 100)}%`;
-  if (key === 'relicChance' || key === 'eventResist' || key === 'expeditionRewardMult') return `${value >= 0 ? '+' : ''}${Math.round(value * 100)}%`;
-  if (key === 'expeditionPower' || key === 'clickPowerMult') return `x${fmt(value)}`;
-  return fmt(value);
-}
-
-function eventEffectRows(event) {
-  const effects = event?.effects || {};
-  const labels = {
-    allMult: t('fx.allMult'),
-    scrapMult: t('fx.scrapMult'),
-    energyMult: t('fx.energyMult'),
-    dataMult: t('fx.dataMult'),
-    researchMult: t('fx.researchMult'),
-    influenceMult: t('fx.influenceMult'),
-    relicMult: t('fx.relicMult'),
-    relicChance: t('fx.relicChance'),
-    eventResist: t('fx.eventResist'),
-    buildingCostMult: t('fx.buildingCostMult'),
-    projectCostMult: t('fx.projectCostMult'),
-    expeditionRewardMult: t('fx.expeditionRewardMult'),
-    expeditionPower: t('fx.expeditionPower'),
-    clickPowerMult: t('fx.clickPowerMult')
-  };
-  const rows = Object.entries(effects).map(([key, value]) => `
-    <div>
-      <span class="tt-res">${escapeHtml(labels[key] || key)}</span>
-      <span class="tt-val">${escapeHtml(formatEventEffectValue(key, value))}</span>
-    </div>
-  `).join('');
-  return rows ? `<div class="tt-costs">${rows}</div>` : `<p>${t('misc.no_modifiers')}</p>`;
-}
-
-function sectorTooltip(event) {
-  if (!event) {
-    return tt(t('sec.situation'), t('misc.no_event'), {
-      icon: getIcon('help'),
-      meta: t('misc.quiet_phase'),
-      sectionTitle: t('sec.status'),
-      sectionBody: `<p>${t('misc.no_modifiers')}</p>`
-    });
-  }
-  return tt(event.name, t('misc.active_event'), {
-    icon: getIcon('help'),
-    meta: t('misc.sector_event'),
-    sectionTitle: t('sec.effects'),
-    sectionBody: eventEffectRows(event)
-  });
-}
-
-function resourceTooltip(res, amount, rate) {
-  return tt(
-    RESOURCE_LABELS[res] || res,
-    `Aktueller Vorrat ${fmt(amount)}. Nettofluss ${rate >= 0 ? '+' : ''}${fmt(rate)}/s.`,
-    {
-      icon: resIcon(res),
-      meta: 'LAGER',
-      sectionTitle: 'Bedeutung',
-      sectionBody: `<p>${escapeHtml(resourceLore(res))}</p>`
-    }
-  );
-}
-
-function resourceLore(res) {
-  return t(`lore.${res}`, 'Resource.');
-}
-
-const TAB_SHORT = {
-  overview: 'Home', buildings: 'Team', research: 'Tech', colonies: 'Büros',
-  expeditions: 'Reisen', projects: 'Releases', market: 'Börse',
-  prestige: 'Prestige', account: 'Config', codex: 'Codex', admin: 'Admin'
-};
-
-const TAB_KEY = {
-  overview: 'O', buildings: 'B', research: 'R', colonies: 'C',
-  expeditions: 'E', projects: 'P', market: 'M', prestige: 'S', account: 'A'
-};
-
-function renderTabsMarkup() {
-  return getTabs().map((tab) => {
-    const key = TAB_KEY[tab.id];
-    const meta = key ? `${t('ui.nav')} · Taste [${key}]` : t('ui.nav');
-    return `
-    <button
-      class="${classNames('tab', state.selectedTab === tab.id && 'active')}"
-      data-action="tab"
-      data-tab="${tab.id}"
-      ${tt(tab.label, tab.blurb, { icon: getIcon(tab.icon), meta })}
-    >
-      <span class="tab-label-full">${escapeHtml(tab.label)}</span>
-      <span class="tab-label-short">${escapeHtml(TAB_SHORT[tab.id] || tab.label)}</span>
-    </button>
-  `;
+function renderFlowTable() {
+  const r = rates();
+  const produced = r.__produced || {};
+  const consumed = r.__consumed || {};
+  const starved = r.__starved || [];
+  const rows = visibleResources().map(res => {
+    const prod = Number(produced[res] || 0), cons = Number(consumed[res] || 0), net = Number(r[res] || 0);
+    return `<div class="flow-row">
+      <div class="r-name">${resIcon(res)} ${escapeHtml(RESOURCE_LABELS[res])}</div>
+      <strong class="good">+${fmt(prod)}</strong>
+      <strong class="${cons > 0 ? 'warn' : 'muted'}">−${fmt(cons)}</strong>
+      <strong class="${net >= 0 ? 'good' : 'bad'}">${fmtRate(net, '')}</strong>
+    </div>`;
   }).join('');
-}
-
-function renderStickyResourcesMarkup() {
-  const rates = state.cache.rates || estimateRatesSnapshot();
-  return RESOURCES
-    .filter((res) => state.stats.max[res] > 0 || res === 'scrap' || res === 'energy')
-    .map((res) => {
-      const rate = rates[res] || 0;
-      const rateStr = rate !== 0 ? ` <span style="font-size:0.75em;opacity:0.65">${rate >= 0 ? '+' : ''}${fmt(rate)}/s</span>` : '';
-      return `
-        <div class="res-item" ${resourceTooltip(res, state.resources[res] || 0, rate)}>
-          ${resIcon(res)} ${fmt(state.resources[res] || 0)}${rateStr}
-        </div>
-      `;
-    })
-    .join('');
-}
-
-function renderResourceGrid(rates) {
-  return RESOURCES
-    .filter((res) => state.stats.max[res] > 0 || res === 'scrap' || res === 'energy')
-    .map((res) => `
-      <article class="resource" ${resourceTooltip(res, state.resources[res] || 0, rates[res] || 0)}>
-        <div class="row">
-          <span>${resIcon(res)} ${escapeHtml(t(`res.${res}`, RESOURCE_LABELS[res] || res))}</span>
-          <strong>${fmt(state.resources[res] || 0)}</strong>
-        </div>
-        <small>${(rates[res] || 0) >= 0 ? '+' : ''}${fmt(rates[res] || 0)}/s</small>
-      </article>
-    `)
-    .join('');
-}
-
-function buildingFlowSummary(building, bonuses, owned = buildingCount(building.id)) {
-  // Milestone matches estimateRatesSnapshot: +15% every 10 buildings of this type
-  const milestone = 1 + Math.floor(owned / 10) * 0.15;
-  const buildingBoost = bonuses.buildingMults?.[building.id] || 1;
-  const converterInputMult = bonuses.converterInputMult || 1;
-  const n = Math.max(1, owned);
-  const outputs = Object.entries(building.outputs || {})
-    .map(([res, amt]) => `${RESOURCE_LABELS[res] || res}: ${fmt(amt * building.rate * milestone * buildingBoost * n)}/s`)
-    .join(' | ');
-  const inputs = Object.entries(building.inputs || {})
-    .map(([res, amt]) => `${RESOURCE_LABELS[res] || res}: ${fmt(amt * building.rate * milestone * buildingBoost * converterInputMult * n)}/s`)
-    .join(' | ');
-  return { outputs, inputs, milestone, buildingBoost };
-}
-
-function formatRequirementList(requirements) {
-  return requirements.map((id) => projectRequirementLabel(id)).join(', ');
-}
-
-function tutorialChecklist() {
-  const nextDataTech = TECHS.find((tech) => !hasTech(tech.id) && isTechUnlocked(tech));
-  const nextProject = PROJECTS.find((project) => !hasProject(project.id) && project.prereq.every((req) => isProjectRequirementMet(req)));
-  const moduleAccess = state.stats.max.components > 0 || buildingCount('npm_install') > 0;
-  const influenceAccess = state.stats.max.influence > 0 || buildingCount('tech_blogger') > 0;
-  const relicAccess = state.stats.max.relics > 0 || buildingCount('code_archeologist') > 0 || hasArtifact('floppy_disk');
-  const isNewPlayer = state.stats.lifetime < 120 && totalBuildings() < 5;
-  const steps = [];
-  if (isNewPlayer) {
-    steps.push({
-      done: false,
-      title: '👋 Wie funktioniert das Spiel?',
-      body: 'Klick auf den großen Button im Dashboard um Code zu generieren. Mit Code stellst du Praktikanten ein (// Team), die automatisch produzieren. Forsche dann neue Technologien (// Sprachen) für Boni.'
-    });
-  }
-  steps.push(
-    {
-      done: state.resources.scrap >= 250 && state.resources.energy >= 120,
-      title: 'Frühspiel stabilisieren',
-      body: 'Halte Code und Revenue positiv. Praktikanten erzeugen Code, Google Ads liefern Revenue — beides ist die Basis für alles Weitere.'
-    },
-    {
-      done: hasTech('backend_node'),
-      title: 'Node.js freischalten',
-      body: 'Node.js öffnet den QA Tester und die erste Bug-Produktion. Bugs werden später zu Modulen umgewandelt.'
-    },
-    {
-      done: moduleAccess,
-      title: 'Module aufbauen',
-      body: 'QA Tester erzeugen Bugs, NPM Install wandelt sie in Module. Module sind Voraussetzung für fortgeschrittene Tech-Pfade.'
-    },
-    {
-      done: state.stats.max.data > 0,
-      title: 'Users erschließen',
-      body: 'SEO Experten liefern erste Users und Ideas. Growth Hacker vertieft den Datenpfad später über Module.'
-    },
-    {
-      done: influenceAccess,
-      title: 'Hype erzeugen',
-      body: 'Tech Blogger wandeln Ideas in Hype — wichtig für Kolonien (// Standorte), Events und spätere Projekte.'
-    },
-    {
-      done: relicAccess,
-      title: 'Legacy Code sichern',
-      body: 'Stack Overflow API und Code Archaeologists geben Zugang zu Relics — seltene Ressource für Prestige-Boni.'
-    },
-    {
-      done: !!nextProject,
-      title: 'Auf Releases hinarbeiten',
-      body: nextProject ? `Nächstes verfügbares Release: ${nextProject.name}. Releases geben permanente Produktionsboni.` : 'Aktuell keine sichtbaren Releases offen — forsche weiter.'
-    },
-    {
-      done: !nextDataTech,
-      title: 'Nächste Forschung',
-      body: nextDataTech ? `${nextDataTech.name} ist dein nächster Tech-Schritt (// Sprachen Tab).` : 'Der Tech-Baum ist für diesen Lauf vollständig offen oder abgeschlossen.'
-    }
-  );
-  return steps;
+  const starvedNote = starved.length
+    ? `<div class="notice warn" style="margin-top:10px">${getIcon('warning')}<div><strong>Konverter laufen gedrosselt:</strong> ${starved.map(id => escapeHtml(getBuilding(id)?.name || id)).join(', ')}. Ihnen fehlt Input – bau mehr Basisproduktion oder senk die Drossel.</div></div>`
+    : '';
+  return `<div class="flow"><div class="flow-row head"><div>Ressource</div><strong>Produktion</strong><strong>Verbrauch</strong><strong>Netto /s</strong></div>${rows}</div>${starvedNote}`;
 }
 
 function renderOverview() {
-  const bonuses = state.cache.bonuses || computeBonuses();
-  const rates = state.cache.rates || estimateRatesSnapshot();
+  const b = bonuses();
+  const r = rates();
+  const click = clickValue(b, r);
   const gain = prestigeGain();
-  const tutorialSteps = tutorialChecklist();
-  const produced = rates.__produced || {};
-  const consumed = rates.__consumed || {};
-  const flowResources = RESOURCES.filter((res) =>
-    state.stats.max[res] > 0
-    || res === 'scrap'
-    || res === 'energy'
-    || (produced[res] || 0) > 0
-    || (consumed[res] || 0) > 0
-  );
-  const totalConsumption = flowResources.reduce((sum, res) => sum + Math.max(0, Number(consumed[res] || 0)), 0);
-  const totalProduction = flowResources.reduce((sum, res) => sum + Math.max(0, Number(produced[res] || 0)), 0);
-  const activeProtocol = PROTOCOLS.find((entry) =>
-    entry.id === state.activeProtocol && Number(state.activeProtocolEndsAt || 0) > Date.now()
-  ) || null;
-  const currentMode = OPERATIONS_MODES.find((entry) => entry.id === state.operationsMode) || OPERATIONS_MODES[0];
-  const activeEventText = state.event
-    ? `${state.event.name} für ${fmtSec(Math.max(0, (state.eventEnds - Date.now()) / 1000))}`
-    : 'Stille Bahn';
+  const isNew = state.stats.lifetime < 90 && totalBuildings() < 3;
+  const anyAuto = b.autoBuild || b.autoResearch || b.autoExpeditions || b.autoProjects;
 
   return `
-    <section class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">${t('overview.eyebrow')}</p>
-        <h2>${t('overview.title')}</h2>
-        <p class="hero-text">${t('overview.subtitle')}</p>
-        ${state.stats.lifetime < 60 ? `<p class="muted" style="margin-top:8px;font-size:0.85rem;">💡 <strong>Neu?</strong> Klick auf <strong>IDE</strong> (unten) um Code zu hacken, dann unter <strong>// Team</strong> Praktikanten einstellen.</p>` : ''}
-      </div>
-      <div class="hero-grid">
-        ${statRow(t('ui.buildings'), fmt(totalBuildings()), tt('Team-Größe', 'Gesamtanzahl aller aktiven Mitarbeiter und Systeme in diesem Run.', { icon: getIcon('alloy') }))}
-        ${statRow(t('ui.research'), fmt(techCount()), tt('Tech Stack', 'Anzahl der bisher erforschten Frameworks und Technologien.', { icon: getIcon('research') }))}
-        ${statRow(t('ui.colonies'), fmt(colonyCount()), tt('Standorte', 'Aktive Büros – erhöhen Produktionslimits und geben Boni.', { icon: getIcon('influence') }))}
-        ${statRow(t('ui.prestige_now'), fmt(gain), tt('XP bei Refactor', gain > 0 ? 'Starte einen Hard Refactor (// git rebase) um diese XP zu sammeln.' : 'Noch zu wenig Fortschritt für einen Refactor — baue weiter aus.', { icon: getIcon('time') }))}
-        ${statRow('Produktion/s', `${fmt(totalProduction)}/s`, tt('Gesamtproduktion', 'Summe aller Ressourcen-Outputs pro Sekunde.', { icon: getIcon('scrap') }))}
-        ${statRow('Verbrauch/s', `${fmt(totalConsumption)}/s`, tt('Gesamtverbrauch', 'Summe aller Ressourcen-Inputs (Konverter) pro Sekunde.', { icon: getIcon('energy') }))}
-      </div>
-    </section>
-
-    <section class="resource-grid">
-      ${renderResourceGrid(rates)}
-    </section>
-
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">PROGRESSION GUIDE</p>
-          <h3>${getIcon('check')} Nächste sinnvolle Schritte</h3>
-          <p class="muted">Zeigt dir wo neue Ressourcen herkommen und was als nächstes zu tun ist. Hover/Tap für Details.</p>
+    <div class="overview-top">
+      <section class="panel accent clicker">
+        <div class="eyebrow" style="justify-self:start">Dein Schreibtisch</div>
+        <button class="click-btn ${isNew ? 'pulse' : ''}" data-action="manual-click" ${tt('Code schreiben', 'Klick oder Leertaste. Jeder Klick gibt Code – später auch einen Anteil deiner Produktion.', { icon: getIcon('keyboard') + ' ' })}>
+          ${getIcon('keyboard', 'click-icon')}
+          <span>Code schreiben</span>
+          <span class="click-sub">+<span data-live="click">${fmt(click)}</span> Code · Leertaste</span>
+        </button>
+        <div class="click-stats">
+          <span>Klicks <strong>${fmt(state.stats.manualClicks || 0)}</strong></span>
+          <span>Klick-Kraft <strong>×${fmt(b.clickPowerMult)}</strong></span>
+          <span>Produktions-Anteil <strong>${Math.round((b.clickRateFraction || 0) * 100)}%</strong></span>
         </div>
-        <span class="muted">${tutorialSteps.filter(s => s.done).length}/${tutorialSteps.length} erledigt</span>
+        ${isNew ? `<div class="notice" style="text-align:left">${getIcon('help')}<div>Klick auf den Button, bis du 15 Code hast. Dann stell im Tab <strong>Team</strong> deinen ersten Praktikanten ein.</div></div>` : ''}
+      </section>
+      <div class="stack">
+        ${renderQuestCard()}
+        <div class="kpis">
+          ${kpi('Code / s', `<span class="res-scrap">${fmt(r.__produced?.scrap || 0)}</span>`, `netto ${fmtRate(r.scrap)}`)}
+          ${kpi('Revenue / s', `<span class="res-energy">${fmt(r.__produced?.energy || 0)}</span>`, `netto ${fmtRate(r.energy)}`)}
+          ${kpi('Team', fmt(totalBuildings()), `${techCount()} Techs · ${projectCount()} Releases`)}
+          ${kpi('XP bei Refactor', gain > 0 ? `+${fmt(gain)}` : '–', gain > 0 ? `Run: ${fmt(runScrap())} Code` : `ab ${fmt(scrapForNextXp())} Code`, tt('Hard Refactor', 'Setzt den Run zurück und gibt XP für permanente Upgrades (Tab Prestige).'))}
+        </div>
       </div>
-      <div class="card-grid">
-        ${tutorialSteps.map((step) => `
-          <article class="item ${step.done ? 'done' : ''}" ${tt(step.title, step.body, {
-            icon: getIcon(step.done ? 'check' : 'help'),
-            meta: step.done ? '✓ ERLEDIGT' : '→ NÄCHSTER SCHRITT'
-          })}>
-            <div class="item-head">
-              <strong>${escapeHtml(step.title)}</strong>
-              <span class="badge">${step.done ? '✓ OK' : 'Offen'}</span>
+    </div>
+
+    <div class="grid-2">
+      <div class="stack" style="gap:14px">
+        <section class="panel">
+          <div class="panel-head"><div><div class="eyebrow">Status</div><h3>${getIcon('zap')} Aktive Effekte</h3></div></div>
+          ${renderActiveEffects()}
+          <div style="margin-top:14px">
+            <div class="eyebrow">Sprint-Modus</div>
+            <div class="toggle-row">${OPERATIONS_MODES.map(mode => `<button class="btn sm ${state.operationsMode === mode.id ? 'primary' : ''}" data-action="set-operations-mode" data-id="${mode.id}" ${tt(mode.name, mode.desc)}>${escapeHtml(mode.name)}</button>`).join('')}</div>
+            <p class="muted small" style="margin-top:6px">${escapeHtml(OPERATIONS_MODES.find(m => m.id === state.operationsMode)?.desc || '')}</p>
+          </div>
+        </section>
+        ${anyAuto || state.converterThrottle !== 1 || BUILDINGS.some(bd => bd.type === 'converter' && buildingCount(bd.id) > 0) ? `
+        <section class="panel">
+          <div class="panel-head"><div><div class="eyebrow">DevOps</div><h3>${getIcon('settings')} Automatisierung & Drossel</h3></div></div>
+          <div class="stack">
+            <div class="toggle-row">
+              ${[['build', 'Auto-Hire', b.autoBuild, 'Kauft Mitarbeiter automatisch (Tech: Auto-Hire Skript).'], ['research', 'Auto-Learn', b.autoResearch, 'Lernt die günstigste Tech automatisch (Tech: Auto-Tutorials).'], ['expeditions', 'Auto-Freelance', b.autoExpeditions, 'Startet Aufträge automatisch (Tech: Auto-Freelance).'], ['projects', 'Auto-Deploy', b.autoProjects, 'Kauft Releases automatisch (Tech: Auto-Deploy).']].map(([key, label, unlocked, desc]) =>
+                `<button class="btn sm ${state.auto[key] && unlocked ? 'good' : ''}" data-action="toggle" data-id="${key}" ${unlocked ? '' : 'disabled'} ${tt(label, desc, { requirement: unlocked ? '' : 'Noch nicht freigeschaltet.' })}>${unlocked ? (state.auto[key] ? getIcon('check') : '') : getIcon('lock')} ${label}</button>`).join('')}
             </div>
-            <p class="muted">${escapeHtml(step.body)}</p>
-          </article>
-        `).join('')}
-      </div>
-    </section>
-
-    <section class="card resource-flow-card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">${t('sec.resource_balance')}</p>
-          <h3>${getIcon('energy')} ${t('sec.running_costs')}</h3>
-          <p class="muted">${t('sec.live_values')}</p>
-        </div>
-      </div>
-      <div class="flow-grid">
-        <div class="flow-row flow-head">
-          <span>${t('sec.resource')}</span>
-          <strong>${t('sec.prod_s')}</strong>
-          <strong>${t('sec.cons_s')}</strong>
-          <strong>${t('sec.net_s')}</strong>
-        </div>
-        ${flowResources.map((res) => {
-          const prod = Number(produced[res] || 0);
-          const cons = Number(consumed[res] || 0);
-          const net = Number(rates[res] || 0);
-          return `
-            <div class="flow-row" ${resourceTooltip(res, state.resources[res] || 0, rates[res] || 0)}>
-              <span>${resIcon(res)} ${escapeHtml(RESOURCE_LABELS[res] || res)}</span>
-              <strong class="good">${fmt(prod)}</strong>
-              <strong class="${cons > 0 ? 'warn' : 'muted'}">${fmt(cons)}</strong>
-              <strong class="${net >= 0 ? 'good' : 'bad'}">${net >= 0 ? '+' : ''}${fmt(net)}</strong>
+            <div class="row-between">
+              <span class="muted small" ${tt('Konverter-Drossel', 'Begrenzt alle Konverter auf einen Anteil ihrer Kapazität – hilfreich, wenn sie zu viel Basisressourcen fressen.')}>Konverter-Drossel</span>
+              <div class="seg">${[0.25, 0.5, 0.75, 1].map(v => `<button class="btn ${state.converterThrottle === v ? 'active' : ''}" data-action="set-converter-throttle" data-value="${v}">${Math.round(v * 100)}%</button>`).join('')}</div>
             </div>
-          `;
-        }).join('')}
+          </div>
+        </section>` : ''}
+        <section class="panel">
+          <div class="panel-head"><div><div class="eyebrow">Wirtschaft</div><h3>${getIcon('market')} Ressourcenfluss</h3></div></div>
+          ${renderFlowTable()}
+        </section>
       </div>
-    </section>
-
-    <section class="overview-main-grid">
-      <article class="card panel-emphasis clicker-section cookie-core">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">${t('sec.core_access')}</p>
-            <h3>${getIcon('scrap')} ${t('sec.core_drive')}</h3>
-            <p class="muted">${t('sec.core_desc')}</p>
-          </div>
-        </div>
-        <div class="code-line mb-4">
-          <span class="muted">const</span> <span class="accent">code</span> = <span class="glow-text">${fmt(state.resources.scrap)}</span><span class="blink-cursor"></span>
-        </div>
-        <div class="core-clicker-wrap">
-          <button
-            class="core-clicker-btn core-clicker-btn-lg active"
-            data-action="manual-click"
-            ${tt(t('sec.core_drive'), t('sec.core_desc'), {
-              icon: getIcon('scrap'),
-              meta: t('misc.action'),
-              sectionTitle: t('sec.status'),
-              sectionBody: `<p>${t('sec.click_power')} x${fmt(bonuses.clickPowerMult || 1)}. Klicks: ${fmt(state.stats.manualClicks || 0)}.</p>`
-            })}
-          >
-            ${getIcon('scrap')}
-          </button>
-          <div class="core-clicker-caption">
-            <strong>${t('sec.harvest_core')}</strong>
-            <span>${t('sec.tap_hold')}</span>
-          </div>
-        </div>
-        <div class="stat-list compact">
-          ${statRow(t('sec.click_power'), `x${fmt(bonuses.clickPowerMult || 1)}`)}
-          ${statRow(t('sec.fleet_window'), `${bonuses.availableExpeditionSlots}/${bonuses.expeditionSlots}`)}
-          ${statRow(t('sec.anomaly'), state.asteroidActive ? t('sec.in_field') : t('sec.waiting'))}
-          ${statRow(t('sec.event'), escapeHtml(activeEventText))}
-        </div>
-      </article>
-
-      <article class="card panel-tone">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">${t('sec.sector_console')}</p>
-            <h3>${getIcon('help')} ${t('sec.situation')}</h3>
-          </div>
-        </div>
-        <div class="dense-list">
-          <div class="dense-row" ${sectorTooltip(state.event)}>
-            <span>Sektor</span>
-            <strong>${escapeHtml(activeEventText)}</strong>
-          </div>
-            <div class="dense-row" ${tt('Cloud-Verbindung', AstraforgeAPI.isLoggedIn() ? `Eingeloggt als ${AstraforgeAPI.username}. Fortschritt wird automatisch synchronisiert.` : 'Nicht eingeloggt. Unter ~/config anmelden für Cloud-Save.', { icon: getIcon('data') })}>
-              <span>${t('sec.archive_net')}</span>
-            <strong>${AstraforgeAPI.isLoggedIn() ? escapeHtml(AstraforgeAPI.username || 'Verbunden') : 'Lokal'}</strong>
-          </div>
-            <div class="dense-row" ${tt(t('sec.offline_limit'), 'Maximale Offline-Produktionszeit.', { icon: getIcon('time') })}>
-              <span>${t('sec.offline_limit')}</span>
-            <strong>${fmt(bonuses.offlineCapHours)}h</strong>
-          </div>
-            <div class="dense-row" ${tt(t('sec.offline_eff'), 'Wie stark Offline-Zeit umgerechnet wird.', { icon: getIcon('time') })}>
-              <span>${t('sec.offline_eff')}</span>
-            <strong>${Math.round((bonuses.offlineEfficiency || 0) * 100)}%</strong>
-          </div>
-            <div class="dense-row" ${tt(t('sec.ops_mode'), 'Globaler Lastmodus.', { icon: getIcon('help') })}>
-              <span>${t('sec.ops_mode')}</span>
-            <strong>${escapeHtml(currentMode?.name || 'Balanciert')}</strong>
-          </div>
-            <div class="dense-row" ${tt(t('sec.protocol'), 'Temporäre Effekte mit Cooldown.', { icon: getIcon('research') })}>
-              <span>${t('sec.protocol')}</span>
-              <strong>${activeProtocol ? escapeHtml(activeProtocol.name) : t('sec.none_active')}</strong>
-          </div>
-        </div>
-        ${!AstraforgeAPI.isLoggedIn()
-          ? `<div class="panel-note">${button(t('sec.archive_net'), `data-action="focus-auth" ${tt(t('sec.archive_net'), 'Zum Netzwerk wechseln.', { icon: getIcon('data'), meta: 'WECHSEL' })}`)}</div>`
-          : ''}
-      </article>
-    </section>
-
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">${t('sec.automation')}</p>
-          <h3>${getIcon('time')} ${t('sec.control_matrix')}</h3>
-          <p class="muted">${t('sec.auto_desc')}</p>
-        </div>
+      <div class="stack" style="gap:14px">
+        <section class="panel">
+          <div class="panel-head"><div><div class="eyebrow">Boosts</div><h3>${getIcon('star')} Protokolle</h3><div class="sub">Temporäre Boosts mit Cooldown. Nur eines gleichzeitig.</div></div></div>
+          <div class="stack">${renderProtocols()}</div>
+        </section>
+        <section class="panel">
+          <div class="panel-head"><div><div class="eyebrow">Git Log</div><h3>${getIcon('codex')} Letzte Ereignisse</h3></div></div>
+          <div class="log">${state.log.map(entry => `<div class="log-item"><span class="t">${new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span><span>${escapeHtml(entry.text)}</span></div>`).join('')}</div>
+        </section>
       </div>
-      <div class="toggle-row">
-        ${button(
-          `${t('sec.auto_build')} ${state.auto.build ? t('ui.on') : t('ui.off')}`,
-          `data-action="toggle" data-id="build" ${tt(t('sec.auto_build'), 'Stellt Mitarbeiter automatisch ein.', {
-            icon: getIcon('components'),
-            requirement: hasTech('auto_build_tech') ? '' : 'Benötigt Auto-Hire Skript.'
-          })}`,
-          !hasTech('auto_build_tech'),
-          state.auto.build ? 'active' : ''
-        )}
-        ${button(
-          `${t('sec.auto_research')} ${state.auto.research ? t('ui.on') : t('ui.off')}`,
-          `data-action="toggle" data-id="research" ${tt(t('sec.auto_research'), 'Lernt Tech-Stacks automatisch.', {
-            icon: getIcon('research'),
-            requirement: hasTech('auto_research_tech') ? '' : 'Benötigt Auto-Tutorials.'
-          })}`,
-          !hasTech('auto_research_tech'),
-          state.auto.research ? 'active' : ''
-        )}
-        ${button(
-          `${t('sec.auto_exp')} ${state.auto.expeditions ? t('ui.on') : t('ui.off')}`,
-          `data-action="toggle" data-id="expeditions" ${tt(t('sec.auto_exp'), 'Nimmt Freelance-Aufträge automatisch an.', {
-            icon: getIcon('time'),
-            requirement: hasTech('auto_expeditions_tech') ? '' : 'Benötigt Auto-Freelance.'
-          })}`,
-          !hasTech('auto_expeditions_tech'),
-          state.auto.expeditions ? 'active' : ''
-        )}
-        ${button(
-          `${t('sec.auto_proj')} ${state.auto.projects ? t('ui.on') : t('ui.off')}`,
-          `data-action="toggle" data-id="projects" ${tt(t('sec.auto_proj'), 'Launched Produkte bei genug Vorräten.', {
-            icon: getIcon('alloy'),
-            requirement: hasTech('auto_projects_tech') ? '' : 'Benötigt Auto-Deploy.'
-          })}`,
-          !hasTech('auto_projects_tech'),
-          state.auto.projects ? 'active' : ''
-        )}
-      </div>
-      <div class="throttle-panel">
-        <span class="muted">${t('sec.conv_throttle')}</span>
-        <div class="toggle-row">
-          ${['0.25', '0.5', '0.75', '1'].map((value) => {
-            const numeric = Number(value);
-            return button(
-              `${Math.round(numeric * 100)}%`,
-              `data-action="set-converter-throttle" data-value="${value}" ${tt('Konverter-Drossel', `Begrenzt Wandler auf ${Math.round(numeric * 100)}% ihrer Nennlast.`, {
-                icon: getIcon('energy'),
-                meta: 'STABILISIERUNG'
-              })}`,
-              false,
-              state.converterThrottle === numeric ? 'active' : ''
-            );
-          }).join('')}
-        </div>
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">${t('sec.tactics')}</p>
-          <h3>${getIcon('help')} ${t('sec.ops')}</h3>
-          <p class="muted">Aktuell: ${escapeHtml(currentMode?.name || 'Balanciert')}.</p>
-        </div>
-      </div>
-      <div class="toggle-row">
-        ${OPERATIONS_MODES.map((mode) => button(
-          mode.name,
-          `data-action="set-operations-mode" data-id="${mode.id}" ${tt(mode.name, mode.desc, {
-            icon: getIcon('help'),
-            meta: mode.id.toUpperCase()
-          })}`,
-          false,
-          state.operationsMode === mode.id ? 'active' : ''
-        )).join('')}
-      </div>
-      <div class="protocol-grid">
-        ${PROTOCOLS.map((protocol, index) => {
-          const missing = (protocol.prereq || []).filter((id) => !hasTech(id));
-          const locked = missing.length > 0;
-          const cooldownUntil = Number(state.protocolCooldowns?.[protocol.id] || 0);
-          const cooldownLeft = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
-          const running = activeProtocol?.id === protocol.id;
-          const anotherRunning = !!activeProtocol && !running;
-          const affordable = canAfford(protocol.cost || {});
-          const disabled = locked || running || anotherRunning || cooldownLeft > 0 || !affordable;
-          const title = locked ? '???' : protocol.name;
-          const description = locked ? 'Versiegeltes Protokoll. Voraussetzungen fehlen.' : protocol.desc;
-          const status = running
-            ? `Aktiv für ${fmtSec(Math.max(0, (state.activeProtocolEndsAt - Date.now()) / 1000))}`
-            : cooldownLeft > 0
-              ? `Cooldown ${fmtSec(cooldownLeft)}`
-              : locked
-                ? 'Versiegelt'
-                : affordable
-                  ? 'Bereit'
-                  : 'Ressourcen fehlen';
-          return `
-            <article class="item ${locked ? 'locked' : ''}" ${tt(title, description, {
-              icon: getIcon('research'),
-              meta: `PROTOKOLL #${index + 1}`,
-              sectionTitle: locked ? 'Status' : 'Kosten',
-              sectionBody: locked ? `<p>Freischaltung benötigt: ${(protocol.prereq || []).map((id) => getTech(id)?.name || id).join(', ')}</p>` : ttCosts(protocol.cost || {}),
-              requirement: locked ? `Benötigt Forschung: ${(protocol.prereq || []).map((id) => getTech(id)?.name || id).join(', ')}` : ''
-            })}>
-              <div class="item-head">
-                <strong>${escapeHtml(title)}</strong>
-                <span class="badge">${escapeHtml(status)}</span>
-              </div>
-              <p class="muted">${escapeHtml(description)}</p>
-              ${locked ? '' : `<div class="cost-row">${costMarkup(protocol.cost || {})}</div>`}
-              ${button(
-                running ? 'Läuft' : (cooldownLeft > 0 ? 'Abklingzeit' : 'Aktivieren'),
-                `data-action="activate-protocol" data-id="${protocol.id}"`,
-                disabled,
-                !disabled ? 'active' : ''
-              )}
-            </article>
-          `;
-        }).join('')}
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">${t('sec.chronicle')}</p>
-          <h3>${getIcon('data')} ${t('sec.last_signals')}</h3>
-        </div>
-        <span class="muted">${fmt(state.log.length)} ${t('sec.entries')}</span>
-      </div>
-      <div class="log-list">
-        ${state.log.map((entry, index) => `
-          <div class="log-item" ${tt('Chronikeintrag', entry.text, {
-            icon: getIcon('data'),
-            meta: index === 0 ? 'NEU' : 'ARCHIV'
-          })}>
-            <span>${new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-            <p>${entry.text}</p>
-          </div>
-        `).join('')}
-      </div>
-    </section>
+    </div>
   `;
+}
+
+// ═══════════════════════════ TEAM ═══════════════════════════
+function buildingRow(def, b, bestId) {
+  const owned = buildingCount(def.id);
+  const unlocked = isBuildingUnlocked(def);
+  const qty = state.buyAmount;
+  const maxN = qty === 'max' && unlocked ? maxAffordable(def) : 0;
+  const amount = qty === 'max' ? Math.max(1, maxN) : qty;
+  const cost = calcBuildingCost(def, owned, amount);
+  const affordable = unlocked && canAfford(cost);
+  const single = calcNextBuildingCost(def);
+  const icon = CATEGORY_ICONS[def.category] || 'components';
+  const utilization = rates().__utilization?.[def.id];
+  const starved = def.type === 'converter' && owned > 0 && utilization !== undefined && utilization < STARVED_UTILIZATION;
+
+  if (!unlocked) {
+    return `<div class="b-row locked" ${tt(def.name, def.desc, { meta: def.category, requirement: unlockReason(def) })}>
+      <div class="b-icon">${getIcon('lock')}</div>
+      <div><div class="b-name">${escapeHtml(def.name)}</div><div class="b-desc">${escapeHtml(def.desc)}</div></div>
+      <div class="b-lock">${getIcon('lock')} ${escapeHtml(unlockReason(def))}</div>
+      <div></div><div></div>
+    </div>`;
+  }
+
+  const out = buildingOutputPerSecond(def, state, b);
+  const inp = buildingInputPerSecond(def, state, b);
+  const ms = milestoneMult(owned);
+  const next = nextMilestone(owned);
+  let flow = '';
+  if (def.type === 'modifier') {
+    flow = `<span class="lbl">Passiver Bonus${owned >= MODIFIER_CAP ? ' (Max-Effekt erreicht)' : ''}</span>`;
+  } else {
+    flow = Object.entries(out).map(([res, v]) => `<span class="out">+${fmt(v * Math.max(1, owned))} ${escapeHtml(RESOURCE_LABELS[res])}/s</span>`).join('')
+      + Object.entries(inp).map(([res, v]) => `<span class="in">−${fmt(v * Math.max(1, owned))} ${escapeHtml(RESOURCE_LABELS[res])}/s</span>`).join('')
+      + `<span class="lbl">${owned ? 'gesamt' : 'pro Stück'}${owned ? ` · ${Object.entries(out).map(([res, v]) => `+${fmt(v)}`).join(' ')} je` : ''}${starved ? ` · <span class="warn">läuft bei ${Math.round(utilization * 100)}%</span>` : ''}</span>`;
+  }
+  const milestone = def.type === 'modifier'
+    ? `<div class="lbl"><span>Wirkt bis ${MODIFIER_CAP} Stück</span><span>${owned}/${MODIFIER_CAP}</span></div>${progress(owned, MODIFIER_CAP)}`
+    : next
+      ? `<div class="lbl"><span>×${ms * 2} bei ${next}</span><span>${owned}/${next}</span></div>${progress(owned, next)}`
+      : `<div class="lbl"><span>Max-Meilenstein</span><span>×${ms}</span></div>${progress(1, 1, 'good')}`;
+  const buyLabel = qty === 'max' ? `Max (${maxN})` : `+${qty}`;
+  const sell = owned > 0 ? `<button class="btn xs ghost" data-action="sell-building" data-id="${def.id}" ${tt('Entlassen', `1× ${def.name} entlassen. 50% der letzten Kosten zurück.`)}>${getIcon('minus')}</button>` : '';
+  const isNew = !seenBuildings.has(def.id);
+  return `<div class="b-row ${affordable ? 'affordable' : ''} ${starved ? 'starved' : ''} ${isNew ? 'new' : ''}" ${tt(def.name, def.desc, {
+    icon: getIcon(icon) + ' ',
+    meta: `${def.category} · ${def.type === 'producer' ? 'Producer' : def.type === 'converter' ? 'Konverter' : 'Modifier'}`,
+    sectionTitle: `Nächstes Stück`,
+    sectionBody: ttCosts(single) + (def.type !== 'modifier' ? `<div class="tt-section"><div class="tt-section-title">Pro Stück</div><div class="tt-costs">${Object.entries(out).map(([res, v]) => `<div><span>${escapeHtml(RESOURCE_LABELS[res])}</span><span>+${fmt(v)}/s</span></div>`).join('')}${Object.entries(inp).map(([res, v]) => `<div><span>${escapeHtml(RESOURCE_LABELS[res])}</span><span>−${fmt(v)}/s</span></div>`).join('')}</div></div>` : '')
+  })}>
+    <div class="b-icon">${getIcon(icon, `res-${def.outputs && Object.keys(def.outputs)[0] || 'components'}`)}</div>
+    <div>
+      <div class="b-name">${escapeHtml(def.name)}<span class="b-count">×${fmt(owned)}</span>${isNew ? '<span class="badge accent">Neu</span>' : ''}${bestId === def.id ? `<span class="badge good" ${tt('Beste Investition', 'Bestes Verhältnis von Output zu Kosten unter allen freigeschalteten Gebäuden (nächster Meilenstein eingerechnet).')}>💡 Tipp</span>` : ''}${ms > 1 ? `<span class="badge accent">×${ms}</span>` : ''}${def.type === 'converter' ? '<span class="badge">Konverter</span>' : ''}</div>
+      <div class="b-desc">${escapeHtml(def.desc)}</div>
+    </div>
+    <div class="b-flow">${flow}</div>
+    <div class="b-milestone">${milestone}</div>
+    <div class="b-actions">
+      ${costChips(cost)}
+      ${!affordable ? etaLabel(cost) : ''}
+      <button class="btn sm ${affordable ? 'affordable' : ''}" data-action="buy-building" data-id="${def.id}" data-qty="${qty}" ${affordable ? '' : 'disabled'}>${buyLabel}</button>
+      ${sell}
+    </div>
+  </div>`;
 }
 
 function renderBuildings() {
-  const bonuses = state.cache.bonuses || computeBonuses();
-  const groups = BUILDINGS.reduce((acc, building) => {
-    const key = building.category || 'Sonstige';
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(building);
-    return acc;
-  }, {});
-  const orderedCategories = ['Dev Team', 'Sales & Ads', 'QA & DevOps', 'Marketing & R&D', 'Social Media', 'Management', 'C-Level'];
-  const categories = [
-    ...orderedCategories.filter((category) => Array.isArray(groups[category]) && groups[category].length > 0),
-    ...Object.keys(groups).filter((category) => !orderedCategories.includes(category))
-  ];
+  const b = bonuses();
+  const qty = state.buyAmount;
+  initSeen();
+  const fresh = newBuildings();
+  // Nach ~4s Anzeige als gesehen markieren
+  if (fresh.length) setTimeout(() => fresh.forEach(d => seenBuildings.add(d.id)), 4000);
+  const bestId = bestInvestmentId(b);
+  const seg = BUY_AMOUNTS.map(v => `<button class="btn ${qty === v ? 'active' : ''}" data-action="set-buy-amount" data-value="${v}">${buyAmountLabel(v)}</button>`).join('');
+  const sections = CATEGORIES.map(cat => {
+    const defs = BUILDINGS.filter(d => d.category === cat.id);
+    const unlocked = defs.filter(isBuildingUnlocked);
+    // Gesperrte Gebäude nur zeigen, wenn ihre Tech gerade erforschbar ist (nächster Schritt)
+    const upcoming = defs.filter(d => !isBuildingUnlocked(d)).filter(d => {
+      const techId = d.unlock.startsWith('tech:') ? d.unlock.split(':')[1] : null;
+      const tech = techId ? getTech(techId) : null;
+      return tech ? isTechUnlocked(tech) : false;
+    });
+    const hiddenCount = defs.length - unlocked.length - upcoming.length;
+    if (!unlocked.length && !upcoming.length) return '';
+    const owned = defs.reduce((a, d) => a + buildingCount(d.id), 0);
+    return `<section class="panel"><details class="cat" data-cat="${escapeHtml(cat.id)}" open>
+      <summary><div class="cat-head"><div><h3>${getIcon(cat.icon)} ${escapeHtml(cat.id)}</h3><div class="sub">${escapeHtml(cat.desc)} ${owned ? `· ${fmt(owned)} eingestellt` : ''}</div></div><span class="row"><span class="muted small">${unlocked.length}/${defs.length} freigeschaltet</span>${getIcon('chevron', 'chev')}</span></div></summary>
+      <div class="rows" style="margin-top:8px">${[...unlocked, ...upcoming].map(d => buildingRow(d, b, bestId)).join('')}${hiddenCount > 0 ? `<div class="muted small" style="padding:4px 12px">+${hiddenCount} weitere durch Forschung.</div>` : ''}</div>
+    </details></section>`;
+  }).join('');
 
   return `
-    <section class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">${t('buildings.eyebrow')}</p>
-        <h2>${t('buildings.title')}</h2>
-        <p class="hero-text">${t('buildings.subtitle')}</p>
-      </div>
-      <div class="hero-grid">
-        ${statRow('Devs (LOC)', fmt(buildingCount('intern') + buildingCount('junior_dev') + buildingCount('mid_dev')))}
-        ${statRow('Revenue (Ads)', fmt(buildingCount('google_ads') + buildingCount('freemium_model') + buildingCount('subscription_trap')))}
-        ${statRow('Gesamtteam', fmt(totalBuildings()))}
-        ${statRow('Gehaltsfaktor', `x${fmt(bonuses.buildingCostMult)}`)}
+    <section class="panel tight">
+      <div class="row-between">
+        <div class="row" style="gap:14px">
+          <div class="kpi" style="padding:6px 10px"><div class="kpi-label">Team</div><div class="kpi-value" style="font-size:0.95rem">${fmt(totalBuildings())}</div></div>
+          <div class="kpi" style="padding:6px 10px" ${tt('Team-Synergie', '+0,2% Gesamtproduktion pro Mitarbeiter, max +200%.')}><div class="kpi-label">Synergie</div><div class="kpi-value" style="font-size:0.95rem">×${fmt(b.teamSynergy)}</div></div>
+          <div class="kpi" style="padding:6px 10px" ${tt('Kostenfaktor', 'Alle Gebäudekosten werden damit multipliziert (Techs, Releases, Chronicle).')}><div class="kpi-label">Kosten</div><div class="kpi-value" style="font-size:0.95rem">×${fmt(b.buildingCostMult)}</div></div>
+        </div>
+        <div class="row"><span class="muted small">Kaufmenge</span><div class="seg">${seg}</div></div>
       </div>
     </section>
-    ${categories.map((category) => {
-      const catBuildings = groups[category];
-      const ownedCount = catBuildings.filter(b => buildingCount(b.id) > 0).length;
-      const anyAffordable = catBuildings.some(b => isBuildingUnlocked(b) && canAfford(calcNextBuildingCost(b)));
-      const isFirst = category === categories[0];
-      const open = ownedCount > 0 || anyAffordable || isFirst;
-      const catIcon = getIcon(category === 'Energie' ? 'energy' : category === 'Wissen' ? 'research' : category === 'Netzwerk' ? 'influence' : 'alloy');
-      return `
-      <section class="card category-section">
-        <details data-cat="${escapeHtml(category)}" ${open ? 'open' : ''}>
-          <summary class="category-summary">
-            <div>
-              <p class="eyebrow">${t('ui.category')}</p>
-              <h3>${catIcon} ${escapeHtml(category)}</h3>
-              <p class="muted">${ownedCount > 0 ? `${ownedCount} / ${catBuildings.length} eingestellt` : `${catBuildings.length} verfügbar`}</p>
-            </div>
-            <span class="category-chevron">▼</span>
-          </summary>
-          <div class="card-grid">
-          ${catBuildings.map((building) => {
-            const owned = buildingCount(building.id);
-            const unlocked = isBuildingUnlocked(building);
-            const cost = calcNextBuildingCost(building);
-            const affordable = unlocked && canAfford(cost);
-            const flow = buildingFlowSummary(building, bonuses, owned);
-            const tooltip = tt(building.name, building.desc, {
-              icon: getIcon(building.category === 'Energie' ? 'energy' : building.category === 'Wissen' ? 'research' : building.category === 'Netzwerk' ? 'influence' : 'alloy'),
-              meta: `${building.category.toUpperCase()} | ${building.type.toUpperCase()}`,
-              sectionTitle: 'Nächste Kosten',
-              sectionBody: `${ttCosts(cost)}<div class="tt-section"><div class="tt-section-title">Pro Sekunde (bei aktuellem Bestand)</div><p>Output: ${escapeHtml(building.type === 'modifier' ? 'Passiver Bonus' : (flow.outputs || t('ui.none')))}<br/>Input: ${escapeHtml(flow.inputs || t('ui.none'))}<br/>Meilenstein: x${fmt(flow.milestone)} | Gebäudebonus: x${fmt(flow.buildingBoost)}</p></div>`,
-              requirement: unlocked ? '' : unlockReason(building)
-            });
-            return `
-              <article class="item ${unlocked ? '' : 'locked'}" ${tooltip}>
-                <div class="item-head">
-                  <strong>${escapeHtml(building.name)}</strong>
-                  <span class="badge">${escapeHtml(building.category)}</span>
-                </div>
-                <p class="muted">${escapeHtml(building.desc)}</p>
-                <div class="stat-list compact">
-                  ${statRow(t('ui.owned'), fmt(owned))}
-                  ${owned > 0 && flow.outputs ? statRow('Output/s', flow.outputs) : (building.type === 'modifier' && owned > 0 ? statRow('Effekt', 'Passiver Bonus') : '')}
-                  ${owned > 0 && flow.inputs ? statRow('Input/s', flow.inputs) : ''}
-                  ${owned === 0 ? statRow('Output/s (×1)', building.type === 'modifier' ? 'Passiver Bonus' : (flow.outputs || t('ui.none'))) : ''}
-                </div>
-                <div class="cost-row">${costMarkup(cost)}</div>
-                <div class="item-footer">
-                  <div class="toggle-row">
-                    ${button('+1', `data-action="buy-building" data-id="${building.id}" data-qty="1" ${tt('Einstellen', `${building.name} einmal einstellen.`, { icon: getIcon('alloy'), sectionTitle: 'Kosten', sectionBody: ttCosts(cost) })}`, !affordable)}
-                    ${button('+10', `data-action="buy-building" data-id="${building.id}" data-qty="10" ${tt('Team +10', `${building.name} im 10er-Pack einstellen. Kauft so viele wie möglich.`, { icon: getIcon('alloy') })}`, !unlocked)}
-                    ${button('+50', `data-action="buy-building" data-id="${building.id}" data-qty="50" ${tt('Team +50', `${building.name} im 50er-Pack einstellen. Kauft so viele wie möglich.`, { icon: getIcon('alloy') })}`, !unlocked, affordable ? 'active' : '')}
-                  </div>
-                  ${!unlocked ? `<small class="bad">${escapeHtml(unlockReason(building))}</small>` : `<small class="muted">${t('sec.step_bonus')}</small>`}
-                </div>
-              </article>
-            `;
-          }).join('')}
-          </div>
-        </details>
-      </section>
-    `;
-    }).join('')}
+    ${sections}
   `;
 }
 
-function getTechUnlocks(techId) {
-  const unlocks = [];
-  TECHS.forEach(t => { if (t.prereq?.includes(techId)) unlocks.push('• Forschung: ' + t.name); });
-  BUILDINGS.forEach(b => { if (b.unlock === 'tech:' + techId) unlocks.push('• Gebäude: ' + b.name); });
-  PROJECTS.forEach(p => { if (p.prereq?.includes(techId)) unlocks.push('• Projekt: ' + p.name); });
-  PROTOCOLS.forEach(p => { if (p.prereq?.includes(techId)) unlocks.push('• Protokoll: ' + p.name); });
-  return unlocks;
+// ═══════════════════════════ TECH ═══════════════════════════
+function techUnlockChips(techId) {
+  const chips = [];
+  BUILDINGS.forEach(bd => { if (bd.unlock === 'tech:' + techId) chips.push(`<span class="badge">${getIcon(CATEGORY_ICONS[bd.category] || 'components')} ${escapeHtml(bd.name)}</span>`); });
+  PROJECTS.forEach(p => { if (p.prereq.includes(techId)) chips.push(`<span class="badge">${getIcon('rocket')} ${escapeHtml(p.name)}</span>`); });
+  PROTOCOLS.forEach(p => { if ((p.prereq || []).includes(techId)) chips.push(`<span class="badge">${getIcon('star')} ${escapeHtml(p.name)}</span>`); });
+  TECHS.forEach(t => { if (t.prereq.includes(techId)) chips.push(`<span class="badge">${getIcon('tech')} ${escapeHtml(t.name)}</span>`); });
+  return chips.join('');
 }
 
 function renderResearch() {
-  const bonuses = state.cache.bonuses || computeBonuses();
-  const visibleTechs = TECHS.filter((tech) => !hasTech(tech.id) && isTechUnlocked(tech));
-  const hiddenTechs = TECHS.filter((tech) => 
-    !hasTech(tech.id) && 
-    !isTechUnlocked(tech) && 
-    !(tech.excludes && tech.excludes.some(id => hasTech(id)))
-  );
-  const hiddenCount = hiddenTechs.length;
-  const completed = TECHS.filter((tech) => hasTech(tech.id));
+  const b = bonuses();
+  const r = rates();
+  initSeen();
+  const freshTechs = newTechs();
+  if (freshTechs.length) setTimeout(() => freshTechs.forEach(t => seenTechs.add(t.id)), 4000);
+  const learned = TECHS.filter(t => hasTech(t.id));
+  const maxLearnedTier = learned.reduce((m, t) => Math.max(m, t.tier), 0);
+  const visibleTierMax = Math.min(5, Math.max(1, maxLearnedTier + 1));
+
+  const tierSections = TECH_TIERS.filter(tier => tier.tier <= visibleTierMax).map(tier => {
+    const techs = TECHS.filter(t => t.tier === tier.tier && !hasTech(t.id) && !(t.excludes || []).some(id => hasTech(id)));
+    if (!techs.length) return '';
+    const rows = techs.sort((a, z) => (isTechUnlocked(z) ? 1 : 0) - (isTechUnlocked(a) ? 1 : 0) || a.cost - z.cost).map(tech => {
+      const available = isTechUnlocked(tech);
+      const cost = nextResearchCost(tech, b);
+      const affordable = available && state.resources.research >= cost;
+      const missing = tech.prereq.filter(id => !hasTech(id)).map(id => getTech(id)?.name || id);
+      const eta = available && !affordable ? etaLabel({ research: cost }) : '';
+      const isNew = available && !seenTechs.has(tech.id);
+      return `<div class="t-row ${available ? '' : 'locked'} ${affordable ? 'affordable' : ''} ${isNew ? 'new' : ''}" ${tt(tech.name, tech.desc, { meta: `Stufe ${tier.tier} · ${tier.name}`, requirement: available ? '' : `Benötigt: ${missing.join(', ')}` })}>
+        <div><div class="t-name">${available ? getIcon('tech', 'res-research') : getIcon('lock')} ${escapeHtml(tech.name)}${isNew ? '<span class="badge accent">Neu</span>' : ''}${tech.excludes ? '<span class="badge warn">Entweder/Oder</span>' : ''}</div>
+          ${!available ? `<div class="t-desc bad">Benötigt: ${escapeHtml(missing.join(', '))}</div>` : ''}
+        </div>
+        <div><div class="t-desc">${escapeHtml(tech.desc)}</div><div class="t-unlocks">${techUnlockChips(tech.id)}</div></div>
+        <div class="t-actions">
+          <span class="cost ${affordable ? 'ok' : 'no'}">${resIcon('research')}${fmt(cost)}</span>
+          ${eta}
+          <button class="btn sm ${affordable ? 'affordable' : ''}" data-action="buy-tech" data-id="${tech.id}" ${affordable ? '' : 'disabled'}>Lernen</button>
+        </div>
+      </div>`;
+    }).join('');
+    return `<section class="panel"><div class="panel-head"><div><div class="eyebrow">Stufe ${tier.tier}</div><h3>${escapeHtml(tier.name)}</h3><div class="sub">${escapeHtml(tier.desc)}</div></div><span class="meta">${TECHS.filter(t => t.tier === tier.tier && hasTech(t.id)).length}/${TECHS.filter(t => t.tier === tier.tier).length} gelernt</span></div><div class="rows">${rows}</div></section>`;
+  }).join('');
 
   return `
-    <section class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">${t('research.eyebrow')}</p>
-        <h2>${t('research.title')}</h2>
-        <p class="hero-text">${t('research.subtitle')}</p>
-      </div>
-      <div class="hero-grid">
-        ${statRow(t('ui.available'), fmt(visibleTechs.length))}
-        ${statRow(t('ui.hidden'), fmt(hiddenCount), tt('Verborgene Forschungen', 'Erscheinen wenn Voraussetzungen erfüllt sind.', { icon: getIcon('lock') }))}
-        ${statRow(t('ui.completed'), fmt(completed.length))}
-        ${statRow(t('ui.cost_factor'), `x${fmt(bonuses.researchCostMult)}`)}
+    <section class="panel tight">
+      <div class="kpis">
+        ${kpi('Ideas', `<span class="res-research">${fmt(state.resources.research)}</span>`, `${fmtRate(r.research)}`)}
+        ${kpi('Gelernt', `${learned.length} / ${TECHS.length}`, 'Technologien')}
+        ${kpi('Kostenfaktor', `×${fmt(b.researchCostMult)}`, 'auf alle Forschungskosten')}
+        ${kpi('Ideas-Quellen', fmt(buildingCount('seo_expert') + buildingCount('brainstorming_lab') + buildingCount('agile_workshop')), 'SEO, Brainstorming, Workshops')}
       </div>
     </section>
-    <section class="card-grid">
-      ${visibleTechs.map((tech) => {
-        const cost = nextResearchCost(tech, bonuses);
-        const affordable = state.resources.research >= cost;
-        const unlocks = getTechUnlocks(tech.id);
-        const unlocksSection = unlocks.length > 0 
-          ? `<div class="tt-section"><div class="tt-section-title">Schaltet frei</div><p>${escapeHtml(unlocks.join('\\n')).replace(/\\n/g, '<br>')}</p></div>` 
-          : '';
-        return `
-          <article class="item" ${tt(tech.name, tech.desc, {
-            icon: getIcon('research'),
-            meta: 'FRAMEWORK',
-            sectionTitle: t('ui.cost'),
-            sectionBody: `<p>${fmt(cost)} ${t('res.research')}</p>${unlocksSection}`
-          })}>
-            <div class="item-head">
-              <strong>${escapeHtml(tech.name)}</strong>
-              <span class="badge">${fmt(cost)}</span>
-            </div>
-            <p class="muted">${escapeHtml(tech.desc)}</p>
-            <div class="dense-list">
-              <div class="dense-row">
-                <span>Status</span>
-                <strong>${affordable ? t('ui.ready') : t('sec.not_enough')}</strong>
-              </div>
-              <div class="dense-row">
-                <span>${t('sec.prereq')}</span>
-                <strong>${tech.prereq.length ? escapeHtml(tech.prereq.map((id) => projectRequirementLabel(id)).join(', ')) : 'Keine'}</strong>
-              </div>
-            </div>
-            <div class="item-footer">
-              ${button(
-                t('sec.research_btn'),
-                `data-action="buy-tech" data-id="${tech.id}" ${tt('Siegel brechen', `${tech.name} sofort erforschen.`, { icon: getIcon('research') })}`,
-                !affordable,
-                affordable ? 'active' : ''
-              )}
-            </div>
-          </article>
-        `;
-      }).join('')}
-      ${hiddenTechs.map((tech, idx) => `
-        <article class="item locked" ${tt('???', 'Dieses Framework ist noch nicht freigeschaltet.', {
-          icon: getIcon('lock'),
-          meta: `GESPERRT #${idx + 1}`,
-          requirement: tech.prereq.length ? `Benötigt: ${formatRequirementList(tech.prereq)}` : 'Noch nicht sichtbar.'
-        })}>
-          <div class="item-head">
-            <strong>???</strong>
-            <span class="badge">GESPERRT</span>
-          </div>
-          <p class="muted">${t('sec.unknown_research')}</p>
-          <div class="dense-list">
-            <div class="dense-row">
-              <span>${t('sec.status')}</span>
-              <strong>${t('ui.sealed')}</strong>
-            </div>
-            <div class="dense-row">
-              <span>Zugang</span>
-              <strong>???</strong>
-            </div>
-          </div>
-          <div class="item-footer">
-            ${button('???', `${tt('???', 'Kein Zugriff. Voraussetzungen fehlen.', { icon: getIcon('lock') })}`, true)}
-          </div>
-        </article>
-      `).join('')}
-      ${!visibleTechs.length && !hiddenTechs.length ? `
-        <div class="card empty-state">
-          <h3>${getIcon('check')} ${t('sec.all_researched')}</h3>
-          <p class="muted">${t('sec.no_open_seals')}</p>
-        </div>
-      ` : ''}
-    </section>
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">GELERNT</p>
-          <h3>${getIcon('check')} Freigeschaltete Frameworks</h3>
-        </div>
-        <span class="muted">${fmt(completed.length)} ${t('ui.active')}</span>
-      </div>
-      <div class="tag-list">
-        ${completed.length
-          ? completed.map((tech) => `<span class="chip" ${tt(tech.name, tech.desc, { icon: getIcon('check'), meta: t('ui.active') })}>${escapeHtml(tech.name)}</span>`).join('')
-          : `<p class="muted">${t('sec.no_open_seals')}</p>`}
-      </div>
-    </section>
+    ${tierSections || `<section class="panel">${emptyState('check', 'Alles gelernt', 'Du hast das Internet durchgespielt.')}</section>`}
+    ${learned.length ? `<section class="panel"><div class="panel-head"><div><div class="eyebrow">Gelernt</div><h3>${getIcon('check')} Dein Tech-Stack</h3></div></div><div class="tag-list">${learned.map(t => `<span class="chip done" ${tt(t.name, t.desc)}>${getIcon('check')} ${escapeHtml(t.name)}</span>`).join('')}</div></section>` : ''}
   `;
 }
 
-function renderColonies() {
-  const bonuses = state.cache.bonuses || computeBonuses();
-  const cost = colonyFoundCost();
-  const unlocked = bonuses.colonyCap > 0;
-
-  return `
-    <section class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">${t('colonies.eyebrow')}</p>
-        <h2>${t('colonies.title')}</h2>
-        <p class="hero-text">${t('colonies.subtitle')}</p>
-      </div>
-      <div class="hero-grid">
-        ${statRow(t('sec.colony_limit'), fmt(bonuses.colonyCap))}
-        ${statRow(t('ui.active'), fmt(state.colonies.length))}
-        ${statRow(t('sec.doctrine'), escapeHtml(state.doctrine))}
-        ${statRow(t('sec.colony_mult'), `x${fmt(bonuses.colonyOutputMult)}`)}
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">${t('sec.founding')}</p>
-          <h3>${getIcon('influence')} ${t('sec.new_outpost')}</h3>
-          <p class="muted">${unlocked ? 'Jede Gründung bindet eine weitere Welt.' : 'Benötigt Kolonial-Charta.'}</p>
-        </div>
-        <div style="display:flex; gap:12px;">
-          ${button(
-            t('sec.found_colony'),
-            `data-action="found-colony" ${tt(t('sec.found_colony'), 'Gründet einen neuen Vorposten.', {
-              icon: getIcon('influence'),
-              sectionTitle: 'Kosten',
-              sectionBody: ttCosts(cost),
-              requirement: unlocked ? '' : 'Benötigt Standort-Lizenz (Forschung: Remote Work Policy).'
-            })}`,
-            !canFoundColony(),
-            canFoundColony() ? 'active' : ''
-          )}
-          ${state.colonies.length > 0 ? button(
-            'Upgrade All',
-            `data-action="upgrade-all-colonies" ${tt('Upgrade All', 'Wertet alle Standorte soweit wie möglich auf.', { icon: getIcon('alloy') })}`,
-            false,
-            'active'
-          ) : ''}
-        </div>
-      </div>
-      <div class="cost-row">${costMarkup(cost)}</div>
-    </section>
-
-    <section class="card-grid">
-      ${state.colonies.length
-        ? state.colonies.map((colony) => {
-            const world = WORLDS.find((entry) => entry.id === colony.world) || WORLDS[0];
-            const focus = FOCI.find((entry) => entry.id === colony.focus) || FOCI[0];
-            const upgradeCost = colonyUpgradeCost(colony);
-            const canUpgrade = canAfford(upgradeCost);
-            return `
-              <article class="item" ${tt(colony.name, `${world.name}. Fokus ${focus.name}.`, {
-                icon: getIcon('influence'),
-                meta: 'KOLONIE',
-                sectionTitle: 'Weltbonus',
-                sectionBody: `<p>${escapeHtml(world.name)} | ${escapeHtml(focus.desc)}</p>`
-              })}>
-                <div class="item-head">
-                  <strong>${escapeHtml(colony.name)}</strong>
-                  <span class="badge">Lvl ${fmt(colony.level)}</span>
-                </div>
-                <p class="muted">${escapeHtml(world.name)} | Fokus ${escapeHtml(focus.name)}</p>
-                <div class="stat-list compact">
-                  ${statRow(t('sec.stability'), `${fmt(colony.stability)}%`)}
-                  ${statRow(t('sec.focus'), escapeHtml(focus.name))}
-                  ${statRow(t('sec.world'), escapeHtml(world.name))}
-                  ${statRow(t('sec.bonus'), escapeHtml(focus.desc))}
-                </div>
-                <div class="cost-row">${costMarkup(upgradeCost)}</div>
-                <div class="item-footer">
-                  <div class="toggle-row">
-                    ${button(t('sec.rotate_focus'), `data-action="cycle-focus" data-id="${colony.id}" ${tt(t('sec.rotate_focus'), 'Dreht den Fokus weiter. Kostet etwas Stabilität.', { icon: getIcon('help') })}`)}
-                    ${button(t('sec.upgrade'), `data-action="upgrade-colony" data-id="${colony.id}" ${tt(t('sec.upgrade'), 'Hebt Stufe und Stabilität.', {
-                      icon: getIcon('alloy'),
-                      sectionTitle: t('sec.upgrade_cost'),
-                      sectionBody: ttCosts(upgradeCost)
-                    })}`, !canUpgrade, canUpgrade ? 'active' : '')}
-                  </div>
-                </div>
-              </article>
-            `;
-          }).join('')
-        : `<div class="card empty-state">
-            <h3>${getIcon('lock')} ${t('sec.no_outposts')}</h3>
-            <p class="muted">Benötigt Kolonial-Charta.</p>
-          </div>`}
-    </section>
-
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">${t('sec.doctrine_title')}</p>
-          <h3>${getIcon('help')} ${t('sec.doctrines')}</h3>
-        </div>
-        <span class="muted">${bonuses.doctrineUnlock ? (state.doctrine ? 'AKTIV' : t('sec.unlocked')) : t('ui.sealed')}</span>
-      </div>
-      ${state.doctrine ? (() => {
-        const active = DOCTRINES.find(d => d.id === state.doctrine);
-        const EFFECTS = { efficiency: ['+6% Gesamt-Output', '−3% Gebäudekosten'], expansion: ['+2% Output', '+8% Expedition-Power', '+1 Kolonie-Slot'], insight: ['+12% Forschung', '+10% Relikte', '+2% Relikte-Chance'], dominion: ['+12% Einfluss', '−5% Projektkosten', '+3% Event-Resistenz'] };
-        const tags = (EFFECTS[active?.id] || []).map(e => `<span class="badge good">${escapeHtml(e)}</span>`).join(' ');
-        return `<div class="dense-row" style="align-items:flex-start;gap:12px;padding:10px 0 4px;">
-          <div>
-            <strong>${escapeHtml(active?.name || state.doctrine)}</strong>
-            <p class="muted" style="margin:3px 0 6px;">${escapeHtml(active?.desc || '')}</p>
-            <div style="display:flex;flex-wrap:wrap;gap:4px;">${tags}</div>
-          </div>
-          <span class="badge active" style="white-space:nowrap;flex-shrink:0;">Aktiv</span>
-        </div>
-        <p class="muted" style="font-size:0.8em;margin:6px 0 0;">Die Doktrin ist für diesen Run gesetzt und kann nicht geändert werden.</p>`;
-      })() : `
-      <div class="card-grid">
-        ${DOCTRINES.map((doctrine) => {
-          const EFFECTS = { efficiency: ['+6% Gesamt-Output', '−3% Gebäudekosten'], expansion: ['+2% Output', '+8% Expedition-Power', '+1 Kolonie-Slot'], insight: ['+12% Forschung', '+10% Relikte', '+2% Relikte-Chance'], dominion: ['+12% Einfluss', '−5% Projektkosten', '+3% Event-Resistenz'] };
-          const effectTags = (EFFECTS[doctrine.id] || []).map(e => `<span class="badge good" style="font-size:0.75em;">${escapeHtml(e)}</span>`).join(' ');
-          return `
-          <article class="item" ${tt(doctrine.name, doctrine.desc, {
-            icon: getIcon('help'),
-            meta: 'DOKTRIN',
-            requirement: bonuses.doctrineUnlock ? '' : 'Kultur-Konzept benötigt.'
-          })}>
-            <div class="item-head">
-              <strong>${escapeHtml(doctrine.name)}</strong>
-            </div>
-            <p class="muted" style="margin:4px 0 6px;font-size:0.85em;">${escapeHtml(doctrine.desc)}</p>
-            <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:8px;">${effectTags}</div>
-            ${button('Wählen', `data-action="doctrine" data-id="${doctrine.id}"`, !bonuses.doctrineUnlock, 'active')}
-          </article>
-        `}).join('')}
-      </div>`}
-    </section>
-  `;
-}
-
-function renderExpeditions() {
-  const bonuses = state.cache.bonuses || computeBonuses();
-
-  return `
-    <section class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">${t('expeditions.eyebrow')}</p>
-        <h2>${t('expeditions.title')}</h2>
-        <p class="hero-text">${t('expeditions.subtitle')}</p>
-      </div>
-      <div class="hero-grid">
-        ${statRow(t('ui.free_slots'), `${bonuses.availableExpeditionSlots}/${bonuses.expeditionSlots}`)}
-        ${statRow('Team-Seniorität', `${fmt(bonuses.availableExpeditionPower)}/${fmt(bonuses.totalExpeditionPower)}`)}
-        ${statRow('Management-Level', fmt(state.stats.fleetLevel || 0))}
-        ${statRow('Aufträge erledigt', fmt(state.stats.expeditionsDone || 0))}
-      </div>
-    </section>
-    <section class="card-grid">
-      ${MISSIONS.map((mission) => {
-        const powerReq = mission.power * 0.65;
-        const canLaunch = bonuses.availableExpeditionSlots > 0 && bonuses.availableExpeditionPower >= powerReq;
-        const successPct = Math.round(Math.min(96, Math.max(35, 50 + (bonuses.expeditionPower / (mission.power || 1)) * 12 + bonuses.eventResist * 100)));
-        const successClass = successPct >= 80 ? 'good' : successPct >= 60 ? 'warn' : 'bad';
-        const rates = state.cache.rates || estimateRatesSnapshot();
-        const dynRewards = getDynamicMissionRewards(mission, bonuses, rates);
-        return `
-          <article class="item" ${tt(mission.name, `Dauer ${fmtSec(mission.duration)}. Skill-Req: ${fmt(powerReq)}. Erfolgswahrscheinlichkeit: ${successPct}%.`, {
-            icon: getIcon('relics'),
-            meta: 'AUFTRAG',
-            sectionTitle: 'Belohnungen',
-            sectionBody: ttCosts(dynRewards)
-          })}>
-            <div class="item-head">
-              <strong>${escapeHtml(mission.name)}</strong>
-              <span class="badge">${fmtSec(mission.duration)}</span>
-            </div>
-            <div class="stat-list compact">
-              <div><span>Erfolg</span><strong class="${successClass}">${successPct}%</strong></div>
-              <div><span>Artifact-Chance</span><strong>${Math.round((mission.relicChance || 0) * 100)}%</strong></div>
-            </div>
-            <div class="cost-row">${rewardMarkup(dynRewards)}</div>
-            <div class="item-footer">
-              ${button(t('sec.send_mission'), `data-action="send-mission" data-id="${mission.id}"`, !canLaunch, canLaunch ? 'active' : '')}
-            </div>
-          </article>
-        `;
-      }).join('')}
-    </section>
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">${t('sec.in_flight')}</p>
-          <h3>${getIcon('time')} ${t('sec.active_exp')}</h3>
-        </div>
-        <span class="muted">${fmt(state.expeditions.length)} aktiv</span>
-      </div>
-      <div class="card-grid">
-        ${state.expeditions.length
-          ? state.expeditions.map((mission) => {
-              const now = Date.now();
-              const total = Math.max(1, mission.end - mission.start);
-              const elapsed = Math.max(0, now - mission.start);
-              const progress = Math.min(100, Math.round((elapsed / total) * 100));
-              const remaining = Math.max(0, (mission.end - now) / 1000);
-              return `
-                <article class="item done" ${tt(mission.name || mission.missionId, 'Diese Expedition ist bereits unterwegs.', { icon: getIcon('time'), meta: 'AKTIV' })}>
-                  <div class="item-head">
-                    <strong>${escapeHtml(mission.name || mission.missionId)}</strong>
-                    <span class="badge">${fmtSec(remaining)}</span>
-                  </div>
-                  <div class="exp-progress-wrap">
-                    <div class="exp-progress-bar" style="width:${progress}%"></div>
-                  </div>
-                  <p class="muted">${progress}% abgeschlossen &bull; Devs gebunden: ${fmt(mission.powerUsed || 0)}</p>
-                </article>
-              `;
-            }).join('')
-          : `<p class="muted">${t('sec.no_expeditions')}</p>`}
-      </div>
-    </section>
-  `;
-}
-
+// ═══════════════════════════ RELEASES ═══════════════════════════
 function renderProjects() {
-  const bonuses = state.cache.bonuses || computeBonuses();
-  const visibleProjects = PROJECTS.filter((project) => !hasProject(project.id) && project.prereq.every((req) => isProjectRequirementMet(req)));
-  const dormantCount = PROJECTS.filter((project) => !hasProject(project.id) && !project.prereq.every((req) => isProjectRequirementMet(req))).length;
+  const b = bonuses();
+  const available = PROJECTS.filter(p => !hasProject(p.id) && isProjectUnlocked(p));
+  const upcoming = PROJECTS.filter(p => !hasProject(p.id) && !isProjectUnlocked(p));
+  const released = PROJECTS.filter(p => hasProject(p.id));
+
+  const card = (project, locked) => {
+    const cost = nextProjectCost(project, b);
+    const affordable = !locked && canAfford(cost);
+    const missing = project.prereq.filter(id => !isProjectRequirementMet(id)).map(projectRequirementLabel);
+    return `<article class="item ${locked ? 'locked' : ''} ${affordable ? 'affordable' : ''}" ${tt(project.name, project.desc, { meta: 'Release', sectionTitle: 'Kosten', sectionBody: ttCosts(cost), requirement: locked ? `Benötigt: ${missing.join(', ')}` : '' })}>
+      <div class="item-head"><strong>${getIcon('rocket')} ${escapeHtml(project.name)}</strong>${locked ? `<span class="badge">${getIcon('lock')} ${escapeHtml(missing.join(', '))}</span>` : ''}</div>
+      <p>${escapeHtml(project.desc)}</p>
+      <div class="tag-list">${(project.effects || []).map(e => `<span class="badge good">${escapeHtml(e)}</span>`).join('')}</div>
+      ${costChips(cost)}
+      <div class="item-foot">${!locked && !affordable ? etaLabel(cost) : '<span></span>'}<button class="btn sm ${affordable ? 'affordable' : ''}" data-action="buy-project" data-id="${project.id}" ${affordable ? '' : 'disabled'}>Release</button></div>
+    </article>`;
+  };
 
   return `
-    <section class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">${t('projects.eyebrow')}</p>
-        <h2>${t('projects.title')}</h2>
-        <p class="hero-text">${t('projects.subtitle')}</p>
-      </div>
-      <div class="hero-grid">
-        ${statRow(t('ui.available'), fmt(visibleProjects.length))}
-        ${statRow(t('ui.hidden'), fmt(dormantCount))}
-        ${statRow('Patente & IP', `${fmt(artifactCount())}/${fmt(ARTIFACTS.length)}`)}
-        ${statRow('Wirtschafts-Index', `x${fmt(bonuses.projectCostMult)}`)}
-      </div>
+    <section class="panel tight"><div class="kpis">
+      ${kpi('Verfügbar', fmt(available.length), 'Releases bereit')}
+      ${kpi('Released', `${released.length} / ${PROJECTS.length}`, 'in diesem Run')}
+      ${kpi('Kostenfaktor', `×${fmt(b.projectCostMult)}`, 'auf alle Release-Kosten')}
+      ${kpi('Funde', `${artifactCount()} / ${ARTIFACTS.length}`, 'permanent, über Aufträge')}
+    </div></section>
+    <section class="panel">
+      <div class="panel-head"><div><div class="eyebrow">Releases</div><h3>${getIcon('rocket')} Verfügbare Produkte</h3><div class="sub">Einmalige Megaprojekte mit permanentem Effekt für diesen Run.</div></div></div>
+      ${available.length ? `<div class="grid-auto">${available.map(p => card(p, false)).join('')}</div>` : emptyState('lock', 'Noch nichts releasebar', 'Forsche weiter – Docker schaltet die ToDo App frei.')}
     </section>
-    <section class="card-grid">
-      ${visibleProjects.length
-        ? visibleProjects.map((project) => {
-            const cost = nextProjectCost(project, bonuses);
-            const affordable = canAfford(cost);
-            return `
-              <article class="item" ${tt(project.name, project.desc, {
-                icon: getIcon('components'),
-                meta: 'RELEASE',
-                sectionTitle: 'Investition',
-                sectionBody: `${ttCosts(cost)}<div class="tt-section"><div class="tt-section-title">Voraussetzungen</div><p>${escapeHtml(formatRequirementList(project.prereq) || 'Keine')}</p></div>`
-              })}>
-                <div class="item-head">
-                  <strong>${escapeHtml(project.name)}</strong>
-                  <span class="badge">${project.prereq.length ? escapeHtml(formatRequirementList(project.prereq)) : 'Start'}</span>
-                </div>
-                <p class="muted">${escapeHtml(project.desc)}</p>
-                <div class="cost-row">${costMarkup(cost)}</div>
-                ${button(t('sec.start_project'), `data-action="buy-project" data-id="${project.id}"`, !affordable, affordable ? 'active' : '')}
-              </article>
-            `;
-          }).join('')
-        : `<div class="card empty-state">
-            <h3>${getIcon('lock')} ${t('sec.no_blueprints')}</h3>
-            <p class="muted">Weitere Frameworks schalten Releases frei.</p>
-          </div>`}
-    </section>
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">RELEASES</p>
-          <h3>${getIcon('check')} Releaste Produkte</h3>
-        </div>
-        <span class="muted">${fmt(PROJECTS.filter(p => hasProject(p.id)).length)} ${t('ui.active')}</span>
-      </div>
-      <div class="tag-list">
-        ${PROJECTS.filter(p => hasProject(p.id)).length
-          ? PROJECTS.filter(p => hasProject(p.id)).map((project) => `<span class="chip" ${tt(project.name, project.desc, { icon: getIcon('check'), meta: t('ui.active') })}>${escapeHtml(project.name)}</span>`).join('')
-          : `<p class="muted">Noch keine Produkte releast.</p>`}
-      </div>
-    </section>
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">${t('sec.finds')}</p>
-          <h3>${getIcon('relics')} ${t('sec.artifact_vault')}</h3>
-        </div>
-      </div>
-      <div class="card-grid">
-        ${ARTIFACTS.map((artifact) => `
-          <article class="item ${hasArtifact(artifact.id) ? 'done' : 'locked'}" ${tt(artifact.name, artifact.desc, {
-            icon: getIcon('relics'),
-            meta: hasArtifact(artifact.id) ? 'RELEAST' : 'UNBEKANNT'
-          })}>
-            <div class="item-head">
-              <strong>${escapeHtml(artifact.name)}</strong>
-              <span class="badge">${hasArtifact(artifact.id) ? t('sec.secured') : t('sec.empty')}</span>
-            </div>
-            <p class="muted">${escapeHtml(artifact.desc)}</p>
-          </article>
-        `).join('')}
-      </div>
+    ${upcoming.length ? `<section class="panel"><div class="panel-head"><div><div class="eyebrow">Roadmap</div><h3>${getIcon('time')} Bald verfügbar</h3></div></div><div class="grid-auto">${upcoming.slice(0, 6).map(p => card(p, true)).join('')}</div></section>` : ''}
+    ${released.length ? `<section class="panel"><div class="panel-head"><div><div class="eyebrow">Live</div><h3>${getIcon('check')} Released</h3></div></div><div class="tag-list">${released.map(p => `<span class="chip done" ${tt(p.name, (p.effects || []).join(' · '))}>${getIcon('check')} ${escapeHtml(p.name)}</span>`).join('')}</div></section>` : ''}
+    <section class="panel">
+      <div class="panel-head"><div><div class="eyebrow">Permanent</div><h3>${getIcon('trophy')} Funde</h3><div class="sub">Seltene Drops aus Freelance-Aufträgen. Bleiben über jeden Refactor erhalten.</div></div><span class="meta">${artifactCount()} / ${ARTIFACTS.length}</span></div>
+      <div class="grid-auto-sm">${ARTIFACTS.map(a => `<article class="item ${hasArtifact(a.id) ? 'done' : 'locked'}"><div class="item-head"><strong>${getIcon(hasArtifact(a.id) ? 'trophy' : 'lock')} ${escapeHtml(a.name)}</strong></div><p>${escapeHtml(a.desc)}</p></article>`).join('')}</div>
     </section>
   `;
 }
 
-function renderPrestige() {
-  const gain = prestigeGain();
+// ═══════════════════════════ EXPANSION ═══════════════════════════
+function renderMissions(b) {
+  const r = rates();
+  const active = state.expeditions;
+  const now = Date.now();
+  const activeHtml = active.length ? active.map(m => {
+    const total = Math.max(1, m.end - m.start);
+    const elapsed = Math.max(0, now - m.start);
+    const remaining = Math.max(0, (m.end - now) / 1000);
+    return `<div class="m-active"><div class="row-between"><strong>${getIcon('time')} ${escapeHtml(m.name)}</strong><span class="badge mono">${fmtSec(remaining)}</span></div>${progress(elapsed, total)}</div>`;
+  }).join('') : `<p class="muted small">Keine Aufträge aktiv. ${b.availableExpeditionSlots} Slot(s) frei.</p>`;
+
+  const rows = MISSIONS.map(mission => {
+    const powerReq = missionPowerReq(mission);
+    const canLaunch = b.availableExpeditionSlots > 0 && b.availableExpeditionPower >= powerReq;
+    const success = Math.round(missionSuccessChance(mission, b) * 100);
+    const rewards = getDynamicMissionRewards(mission, b, r);
+    const duration = Math.max(30, mission.duration / b.expeditionSpeed);
+    return `<div class="m-row" ${tt(mission.name, mission.desc, { meta: `Dauer ${fmtSec(duration)} · Power ${fmt(powerReq)} · Erfolg ${success}%`, sectionTitle: 'Belohnung (aktuell)', sectionBody: ttCosts(rewards) })}>
+      <div><div class="m-name">${escapeHtml(mission.name)}<span class="badge mono">${fmtSec(duration)}</span></div><div class="m-desc">${escapeHtml(mission.desc)}</div></div>
+      <div><div class="m-rewards">${rewardChips(rewards)}</div><div class="muted small" style="margin-top:4px">Erfolg <strong class="${success >= 80 ? 'good' : success >= 60 ? 'warn' : 'bad'}">${success}%</strong> · Fund-Chance ${Math.round((mission.relicChance + b.relicChance) * 100)}% · Power ${fmt(powerReq)}</div></div>
+      <button class="btn sm ${canLaunch ? 'primary' : ''}" data-action="send-mission" data-id="${mission.id}" ${canLaunch ? '' : 'disabled'}>Annehmen</button>
+    </div>`;
+  }).join('');
 
   return `
-    <section class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">${t('prestige.eyebrow')}</p>
-        <h2>${t('prestige.title')}</h2>
-        <p class="hero-text">${t('prestige.subtitle')}</p>
+    <section class="panel">
+      <div class="panel-head"><div><div class="eyebrow">Freelance</div><h3>${getIcon('briefcase')} Aufträge</h3><div class="sub">Laufen im Hintergrund. Belohnung skaliert mit deiner Produktion.</div></div>
+        <div class="row">${b.availableExpeditionSlots > 0 && MISSIONS.some(m => b.availableExpeditionPower >= missionPowerReq(m)) ? `<button class="btn sm primary" data-action="fill-missions" ${tt('Beste Aufträge starten', 'Füllt alle freien Slots mit den stärksten Aufträgen, die deine Power erlaubt.')}>Beste Aufträge starten</button>` : ''}<span class="badge" ${tt('Slots', 'Gleichzeitig laufende Aufträge. Mehr durch Freelance Portal, Funde, Releases.')}>Slots ${b.availableExpeditionSlots}/${b.expeditionSlots}</span><span class="badge" ${tt('Power', 'Team-Seniorität. Jeder Auftrag bindet Power, bis er fertig ist.')}>Power ${fmt(b.availableExpeditionPower)}/${fmt(b.totalExpeditionPower)}</span><span class="badge" ${tt('Agentur-Level', 'Steigt mit abgeschlossenen Aufträgen. Aufträge werden schneller und lohnender.')}>Lvl ${state.stats.fleetLevel || 0}</span></div>
       </div>
-      <div class="hero-grid">
-        ${statRow('XP Guthaben', fmt(state.chronicle))}
-        ${statRow('XP bei Refactor', gain > 0 ? `+${fmt(gain)}` : '–')}
-        ${statRow('Refactors', fmt(state.stats.prestigeCount))}
-        ${statRow('Arbeitszeit', fmtSec(state.stats.lifetime))}
-      </div>
-      ${button(
-        t('sec.ascend'),
-        `data-action="prestige" ${tt(t('sec.ascend'), t('prestige.subtitle'), {
-          icon: getIcon('time'),
-          meta: 'RESET',
-          requirement: gain > 0 ? '' : 'Noch nicht genug Fortschritt für XP.'
-        })}`,
-        gain <= 0,
-        gain > 0 ? 'active' : 'danger'
-      )}
-    </section>
-
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">ÜBERSICHT</p>
-          <h3>${getIcon('time')} Was passiert beim Hard Refactor?</h3>
-        </div>
-      </div>
-      <div class="prestige-summary">
-        <div class="prestige-summary-col prestige-keep">
-          <p style="color:var(--good)">BLEIBT ERHALTEN</p>
-          <ul>
-            <li>${state.artifacts.length} Artifact${state.artifacts.length !== 1 ? 's' : ''} / Patente</li>
-            <li>${state.achievements.length} Errungenschaften</li>
-            <li>${state.ownedChips.length} Mainframe-Chip${state.ownedChips.length !== 1 ? 's' : ''}</li>
-            <li>Chronicle-Upgrades (alle Level)</li>
-            <li>Doctrine-Wahl für nächsten Lauf</li>
-            <li>Lebenszeit-Statistiken</li>
-          </ul>
-        </div>
-        <div class="prestige-summary-col prestige-reset">
-          <p style="color:var(--bad)">WIRD ZURÜCKGESETZT</p>
-          <ul>
-            <li>Alle Gebäude &amp; Mitarbeiter</li>
-            <li>Tech-Stack / Forschung</li>
-            <li>Projekte &amp; Releases</li>
-            <li>Kolonien &amp; Expeditionen</li>
-            <li>Alle Ressourcen (außer Start-Kapital)</li>
-          </ul>
-        </div>
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">DAUERHAFT</p>
-          <h3>${getIcon('star')} Prestige-Meilensteine</h3>
-        </div>
-        <span class="badge">${(state.prestigeMilestones || []).length} / ${PRESTIGE_MILESTONES.length}</span>
-      </div>
-      <div class="card-grid" style="margin-top:0.75rem">
-        ${PRESTIGE_MILESTONES.map(m => {
-          const earned = (state.prestigeMilestones || []).includes(m.id);
-          const effectLines = Object.entries(m.effects).map(([k, v]) => {
-            const isAdd = ['relicChance','eventResist','expeditionRewardMult','perColonyMult','clickRateFraction','expeditionPower','expeditionSlots','colonyCap','offlineCapHours'].includes(k);
-            const display = isAdd ? `+${Math.round(v * 100)}%` : `×${v}`;
-            const label = k.replace(/Mult$/,'').replace(/([A-Z])/g, ' $1').trim();
-            return `<span>${escapeHtml(label)}: ${display}</span>`;
-          }).join('<br>');
-          return `
-            <article class="item${earned ? '' : ' locked'}" style="opacity:${earned ? 1 : 0.45}" ${tt(m.name, m.desc, {
-              icon: getIcon(earned ? 'star' : 'lock'),
-              meta: earned ? 'FREIGESCHALTET' : 'GESPERRT',
-              sectionTitle: 'Bonus',
-              sectionBody: `<p>${effectLines}</p>`
-            })}>
-              <div class="item-head">
-                <strong>${escapeHtml(m.name)}</strong>
-                <span class="badge" style="${earned ? 'color:var(--good)' : ''}">${earned ? '✓' : '–'}</span>
-              </div>
-              <p class="muted">${escapeHtml(m.desc)}</p>
-            </article>
-          `;
-        }).join('')}
-      </div>
-    </section>
-
-    <section class="card-grid">
-      ${CHRONICLE_UPGRADES.map((upgrade) => {
-        const cost = chronicleCost(upgrade.id);
-        const canBuy = state.chronicle >= cost;
-        const level = Number(state.chronicleUpgrades[upgrade.id] || 0);
-        const missing = canBuy ? 0 : Math.ceil(cost - state.chronicle);
-        return `
-          <article class="item" ${tt(upgrade.name, upgrade.desc, {
-            icon: getIcon('time'),
-            meta: `LEVEL ${level}`,
-            sectionTitle: 'Kosten',
-            sectionBody: `<p>${fmt(cost)} XP${!canBuy ? ` (fehlen ${fmt(missing)})` : ''}</p>`
-          })}>
-            <div class="item-head">
-              <strong>${escapeHtml(upgrade.name)}</strong>
-              <span class="badge">Lvl ${fmt(level)}</span>
-            </div>
-            <p class="muted">${escapeHtml(upgrade.desc)}</p>
-            <div class="dense-row">
-              <span>Kosten</span>
-              <strong class="${canBuy ? 'good' : 'bad'}">${fmt(cost)} XP${!canBuy ? ` <span style="font-size:0.8em;opacity:0.7">(−${fmt(missing)} fehlen)</span>` : ''}</strong>
-            </div>
-            ${button('Investieren', `data-action="buy-chronicle" data-id="${upgrade.id}"`, !canBuy, canBuy ? 'active' : '')}
-          </article>
-        `;
-      }).join('')}
-    </section>
-  `;
+      <div class="stack" style="margin-bottom:12px">${activeHtml}</div>
+      <div class="rows">${rows}</div>
+    </section>`;
 }
 
-function renderLeaderboard() {
-  const leaderboard = state.cache.leaderboard;
-  if (!Array.isArray(leaderboard)) {
-    return '<p class="muted">Rangdaten werden geladen.</p>';
+function renderColonies(b) {
+  const cost = colonyFoundCost();
+  const canFound = canFoundColony();
+  const atCap = colonyCount() >= b.colonyCap;
+  const cards = state.colonies.map(colony => {
+    const world = WORLDS.find(w => w.id === colony.world) || WORLDS[0];
+    const upgradeCost = colonyUpgradeCost(colony);
+    const maxed = colony.level >= COLONY_MAX_LEVEL;
+    const canUpgrade = !maxed && canAfford(upgradeCost);
+    return `<article class="item colony">
+      <div class="colony-head"><div class="row"><span class="colony-icon">${world.icon}</span><div><strong>${escapeHtml(colony.name)}</strong><div class="muted small">${escapeHtml(world.desc)}</div></div></div><span class="badge accent">Lvl ${colony.level}${maxed ? ' (Max)' : ''}</span></div>
+      <div class="stat-list">${statRow('Zufriedenheit', `${fmt(colony.stability)}%`)}${statRow('Standort-Bonus', `+${fmt(100 * colonyBaseBonus(colony))}% Gesamt`)}</div>
+      <div><div class="muted small" style="margin-bottom:4px">Fokus</div><div class="focus-grid">${FOCI.map(f => `<button class="btn ${colony.focus === f.id ? 'primary' : ''}" data-action="set-focus" data-id="${colony.id}" data-focus="${f.id}" ${tt(f.name, f.desc + ' Wechsel kostet 2% Zufriedenheit.')}>${escapeHtml(f.name)}</button>`).join('')}</div></div>
+      ${maxed ? '' : costChips(upgradeCost)}
+      <div class="item-foot">${maxed ? '<span class="muted small">Ausgebaut.</span>' : `<button class="btn sm ${canUpgrade ? 'affordable' : ''}" data-action="upgrade-colony" data-id="${colony.id}" ${canUpgrade ? '' : 'disabled'}>Renovieren → Lvl ${colony.level + 1}</button>`}</div>
+    </article>`;
+  }).join('');
+
+  return `
+    <section class="panel">
+      <div class="panel-head"><div><div class="eyebrow">Standorte</div><h3>${getIcon('building')} Büros weltweit</h3><div class="sub">Jeder Standort gibt +2% Gesamtproduktion pro Stufe plus Stadt-Boni.</div></div>
+        <div class="row"><span class="badge">${colonyCount()}/${b.colonyCap} Standorte</span>${state.colonies.length ? `<button class="btn sm" data-action="upgrade-all-colonies">Alle renovieren</button>` : ''}</div>
+      </div>
+      ${b.colonyCap === 0 ? `<div class="notice">${getIcon('lock')}<div>Standorte werden mit der Tech <strong>Remote Work</strong> freigeschaltet. Weitere Slots: ToDo App, Metaverse, HR Department, Chronicle „Remote-First“.</div></div>` : `
+      <div class="row-between" style="margin-bottom:12px">
+        <div><div class="muted small">Nächster Standort: <strong>${escapeHtml((WORLDS[colonyCount() % WORLDS.length] || WORLDS[0]).name)}</strong>${atCap ? ' · Limit erreicht' : ''}</div>${costChips(cost)}</div>
+        <button class="btn ${canFound ? 'primary' : ''}" data-action="found-colony" ${canFound ? '' : 'disabled'}>Standort eröffnen</button>
+      </div>`}
+      ${cards ? `<div class="grid-auto">${cards}</div>` : ''}
+    </section>`;
+}
+
+// Doktrin-Karte; `active` = aktuell gewählte Doktrin (null → Buttons zum Wählen).
+export function doctrineCard(d, active = null) {
+  return `<article class="item ${active?.id === d.id ? 'done' : (active ? 'locked' : '')}">
+    <div class="item-head"><strong>${escapeHtml(d.name)}</strong></div><p>${escapeHtml(d.desc)}</p>
+    <div class="tag-list">${d.effects.map(e => `<span class="badge good">${escapeHtml(e)}</span>`).join('')}</div>
+    ${active ? '' : `<button class="btn sm primary" data-action="doctrine" data-id="${d.id}">Wählen</button>`}
+  </article>`;
+}
+
+function renderDoctrine(b) {
+  if (!b.doctrineUnlock) return '';
+  const active = DOCTRINES.find(d => d.id === state.doctrine) || null;
+  return `<section class="panel">
+    <div class="panel-head"><div><div class="eyebrow">Kultur</div><h3>${getIcon('flag')} Core Values</h3><div class="sub">Eine Doktrin pro Run. Gilt bis zum nächsten Hard Refactor.</div></div>${active ? '<span class="badge good">Aktiv</span>' : ''}</div>
+    <div class="grid-auto-sm">${DOCTRINES.map(d => doctrineCard(d, active)).join('')}</div>
+  </section>`;
+}
+
+function renderExpansion() {
+  const b = bonuses();
+  const freelance = hasTech('freelance_platform');
+  if (!freelance && b.colonyCap === 0) {
+    return `<section class="panel">${emptyState('globe', 'Expansion noch gesperrt', 'Die Tech „Upwork Account“ schaltet Freelance-Aufträge frei, „Remote Work“ die Standorte.')}</section>`;
   }
-  if (!leaderboard.length) {
-    return '<p class="muted">Noch keine Einträge.</p>';
-  }
-
-  return leaderboard.map((entry, index) => `
-    <div class="log-item" ${tt(entry.username || 'Unbekannt', `Seniorität ${fmt(entry.prestige || entry.prestige_score || 0)}. ${t('res.scrap')} ${t('ui.total')} ${fmt(entry.totalScrap || entry.total_scrap || 0)}.`, {
-      icon: getIcon('data'),
-      meta: `${t('ui.rank').toUpperCase()} ${index + 1}`
-    })}>
-      <span>#${index + 1}</span>
-      <p><strong>${escapeHtml(entry.username || 'Unbekannt')}</strong> | ${fmt(entry.prestige || entry.prestige_score || 0)} Seniorität</p>
-      <div class="toggle-row">
-        <span class="muted">${t('res.scrap')} ${fmt(entry.totalScrap || entry.total_scrap || 0)}</span>
-        ${button(t('ui.profile'), `data-action="view-profile" data-id="${escapeHtml(entry.username || '')}"`)}
-      </div>
-    </div>
-  `).join('');
-}
-
-function renderAccount() {
-  const loggedIn = AstraforgeAPI.isLoggedIn();
-  const username = AstraforgeAPI.username || '';
-  const isFlagged = Boolean(AstraforgeAPI.flagged);
-  const flagReason = AstraforgeAPI.flagReason || 'Kein Grund angegeben.';
-
   return `
-    <section class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">${t('account.eyebrow')}</p>
-        <h2>${t('account.title')}</h2>
-        <p class="hero-text">${t('account.subtitle')}</p>
-      </div>
-      <div class="hero-grid">
-        ${statRow(t('sec.status'), loggedIn ? t('ui.connected') : t('ui.local'))}
-        ${statRow('Name', escapeHtml(username || '–'))}
-        ${statRow('Cloud-Sync', loggedIn ? t('ui.ready') : t('ui.locked'))}
-        ${statRow('Leaderboard', Array.isArray(state.cache.leaderboard) ? fmt(state.cache.leaderboard.length) : '...')}
-      </div>
-    </section>
-    <section class="card">
-      ${loggedIn ? `
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">SESSION</p>
-            <h3>${getIcon('data')} ${t('ui.connected')} – ${escapeHtml(username)}</h3>
-            <p class="muted">Cloud-Save aktiv.</p>
-          </div>
-          <div class="toggle-row">
-            ${button(t('sec.force_sync'), `data-action="force-sync" ${tt('Cloud-Sync', 'Aktuellen Stand in die Cloud speichern.', { icon: getIcon('data'), meta: 'PUSH' })}`, false, 'active')}
-            ${button('Cloud laden', `data-action="load-cloud" ${tt('Cloud laden', 'Cloud-Save auf dieses Gerät laden (überschreibt lokalen Stand).', { icon: getIcon('data'), meta: 'PULL' })}`, false, '')}
-            ${button(t('sec.logout'), `data-action="auth-logout" ${tt(t('sec.logout'), 'Vom Netzwerk trennen.', { icon: getIcon('lock'), meta: 'TRENNUNG' })}`, false, 'danger')}
-          </div>
-        </div>
-        ${isFlagged ? `
-          <div class="notice danger account-flag-notice">
-            <div>
-              <strong>Account geflaggt</strong>
-              <p class="muted">Grund: ${escapeHtml(flagReason)}</p>
-            </div>
-            <span class="muted">Leaderboard ausgeblendet</span>
-          </div>
-        ` : ''}
-      ` : `
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">ZUGANG</p>
-            <h3>${getIcon('data')} ${t('sec.net_binding')}</h3>
-            <p class="muted">Name und Passwort eingeben.</p>
-          </div>
-        </div>
-        <div class="form-grid">
-          <input id="auth-user" type="text" placeholder="Dev-Handle" autocomplete="username" inputmode="text" />
-          <input id="auth-pass" type="password" placeholder="Passwort" autocomplete="current-password" inputmode="text" />
-        </div>
-        <div class="toggle-row form-actions">
-          ${button(t('sec.register'), `data-action="auth-register" ${tt(t('sec.register'), 'Neuen Account anlegen.', { icon: getIcon('check') })}`)}
-          ${button(t('sec.login'), `data-action="auth-login" ${tt(t('sec.login'), 'Mit bestehendem Account anmelden.', { icon: getIcon('data') })}`, false, 'active')}
-        </div>
-      `}
-    </section>
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">${t('sec.leaderboard')}</p>
-          <h3>${getIcon('help')} ${t('sec.open_archives')}</h3>
-        </div>
-        ${button(t('sec.refresh'), `data-action="refresh-lb" ${tt(t('sec.leaderboard'), 'Aktualisieren.', { icon: getIcon('help') })}`)}
-      </div>
-      <div class="log-list">
-        ${renderLeaderboard()}
-      </div>
-    </section>
-    <section class="card" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-      <div>
-        <p class="eyebrow">SUPPORT</p>
-        <p class="muted" style="font-size:0.82rem">Bug gefunden oder Feedback?</p>
-      </div>
-      <a
-        href="https://github.com/SuriveAUT/CodeTycoon/issues/new/choose"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="btn active"
-        style="text-decoration:none;font-size:0.82rem;white-space:nowrap"
-      >${getIcon('help')} Bug melden</a>
-    </section>
+    ${freelance ? renderMissions(b) : `<section class="panel"><div class="notice">${getIcon('lock')}<div>Freelance-Aufträge werden mit der Tech <strong>Upwork Account</strong> freigeschaltet.</div></div></section>`}
+    ${renderColonies(b)}
+    ${renderDoctrine(b)}
   `;
 }
 
-function renderCodex() {
-  const unlockedAchievements = ACHIEVEMENTS.filter((achievement) => state.achievements.includes(achievement.id));
-  const resourceGuide = [
-    ['Code', 'Basisproduktion aus Praktikanten, Juniors und später Mid/Senior Devs. Wird für alles benötigt.'],
-    ['Revenue', 'Kommt über Google Ads und später Freemium, Abo-Fallen und B2B. Hält den Betrieb am Laufen.'],
-    ['Bugs', 'QA Tester wandeln Code und Revenue in Bugs. Bugs sind kein Fehler – sie sind ein Baumaterial.'],
-    ['Module', 'NPM Install wandelt Bugs in Module. Damit ist der mittlere Fortschritt nicht mehr blockiert.'],
-    ['Users', 'SEO Experten liefern früh erste Users, Growth Hacker skalieren den Datenpfad über Module.'],
-    ['Ideas', 'SEO Experten und Brainstorming erzeugen Ideen für neue Techs und Releases (// Sprachen Tab).'],
-    ['Hype', 'Tech Blogger und spätere Social-Rollen liefern Influence für Expansion, Kolonien und Projekte.'],
-    ['Legacy Code', 'Archeologists, Missionen und spätere Tools liefern Relics für seltene Projekte und Upgrades.']
-  ];
-
-  return `
-    <section class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">${t('codex.eyebrow')}</p>
-        <h2>${t('codex.title')}</h2>
-        <p class="hero-text">${t('codex.subtitle')}</p>
-      </div>
-      <div class="hero-grid">
-        ${statRow(t('sec.achievements'), `${fmt(unlockedAchievements.length)}/${fmt(ACHIEVEMENTS.length)}`)}
-        ${statRow(t('res.relics'), fmt(artifactCount()))}
-        ${statRow(t('tab.projects'), fmt(projectCount()))}
-        ${statRow(t('tab.colonies'), fmt(colonyCount()))}
-      </div>
-    </section>
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">GUIDE</p>
-          <h3>${getIcon('help')} Ressourcenpfad</h3>
-          <p class="muted">Kurze Referenz dafür, wie jede Materialart ins Spiel kommt und wofür sie gedacht ist.</p>
-        </div>
-      </div>
-      <div class="card-grid">
-        ${resourceGuide.map(([name, text]) => `
-          <article class="item" ${tt(name, text, { icon: getIcon('help'), meta: 'GUIDE' })}>
-            <div class="item-head">
-              <strong>${escapeHtml(name)}</strong>
-              <span class="badge">Guide</span>
-            </div>
-            <p class="muted">${escapeHtml(text)}</p>
-          </article>
-        `).join('')}
-      </div>
-    </section>
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">SUPPORT</p>
-          <h3>${getIcon('help')} Bug melden / Feedback geben</h3>
-          <p class="muted">Etwas stimmt nicht oder du hast einen Verbesserungsvorschlag?</p>
-        </div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:0.75rem;margin-top:0.5rem">
-        <div class="dense-row">
-          <span>GitHub Issues</span>
-          <a
-            href="https://github.com/SuriveAUT/CodeTycoon/issues/new/choose"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="btn active"
-            style="text-decoration:none;font-size:0.82rem"
-          >${getIcon('check')} Issue öffnen</a>
-        </div>
-        <div class="dense-row">
-          <span>Alle offenen Issues</span>
-          <a
-            href="https://github.com/SuriveAUT/CodeTycoon/issues"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="btn"
-            style="text-decoration:none;font-size:0.82rem"
-          >${getIcon('help')} Issues ansehen</a>
-        </div>
-        <p class="muted" style="font-size:0.78rem;margin-top:0.25rem">
-          Beim Melden bitte Spielstand-Infos angeben: Prestige-Anzahl, ungefähre Ressourcen, welcher Tab/Aktion das Problem ausgelöst hat.
-        </p>
-      </div>
-    </section>
-
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">${t('sec.achievements')}</p>
-          <h3>${getIcon('check')} ${t('sec.achievements_title')}</h3>
-        </div>
-      </div>
-      <div class="card-grid">
-        ${ACHIEVEMENTS.map((achievement) => `
-          <article class="item ${state.achievements.includes(achievement.id) ? 'done' : 'locked'}" ${tt(achievement.name, state.achievements.includes(achievement.id) ? 'Freigeschaltet!' : 'Noch gesperrt.', {
-            icon: getIcon('check'),
-            meta: state.achievements.includes(achievement.id) ? 'GESICHERT' : 'OFFEN',
-            sectionTitle: 'Bedingung',
-            sectionBody: `<p>${escapeHtml(achievement.desc)}</p>`
-          })}>
-            <div class="item-head">
-              <strong>${escapeHtml(achievement.name)}</strong>
-              <span class="badge">${state.achievements.includes(achievement.id) ? 'Frei' : 'Offen'}</span>
-            </div>
-            <p class="muted">${escapeHtml(achievement.desc)}</p>
-          </article>
-        `).join('')}
-      </div>
-    </section>
-  `;
-}
-
-export function renderTabs() {
-  return renderTabsMarkup();
-}
-
-export function renderStickyResources() {
-  return renderStickyResourcesMarkup();
-}
-
-export function renderCyberEventOverlay() {
-  const ce = state.cyberEvent;
-  if (!ce) return '';
-
-  const remaining = Math.max(0, (ce.endsAt - Date.now()) / 1000);
-  const progress = ce.type === 'interactive'
-    ? Math.min(100, ((ce.clicksDone || 0) / ce.clicksRequired) * 100)
-    : Math.min(100, (1 - remaining / ((ce.endsAt - ce.startedAt) / 1000)) * 100);
-
-  const colorClass = ce.color === 'danger' ? 'cyber-event--danger'
-    : ce.color === 'gold' ? 'cyber-event--gold'
-    : ce.color === 'warn' ? 'cyber-event--warn'
-    : 'cyber-event--info';
-
-  return `
-    <div class="cyber-event-panel ${colorClass}">
-      <div class="cyber-event-header">
-        <span class="cyber-event-icon">${ce.icon || '⚡'}</span>
-        <strong>${escapeHtml(ce.name)}</strong>
-        <span class="cyber-event-timer">${fmtSec(remaining)}</span>
-      </div>
-      <p class="cyber-event-desc">${escapeHtml(ce.desc)}</p>
-      <div class="cyber-event-bar-wrap">
-        <div class="cyber-event-bar" style="width:${progress}%"></div>
-      </div>
-      ${ce.type === 'interactive' ? `
-        <div class="cyber-event-action">
-          <button class="cyber-event-btn" data-action="cyber-event-click">
-            ${ce.icon || '⚡'} PATCH DEPLOYEN (${ce.clicksDone || 0}/${ce.clicksRequired})
-          </button>
-        </div>
-      ` : `
-        <div class="cyber-event-action">
-          <span class="cyber-event-passive">Automatisch aktiv...</span>
-        </div>
-      `}
-    </div>
-  `;
-}
-
+// ═══════════════════════════ BÖRSE ═══════════════════════════
 function renderStockCard(stock) {
   const price = getStockPrice(stock.id);
   const history = state.stockMarket?.history?.[stock.id] || [price];
   const prevPrice = history.length > 1 ? history[history.length - 2] : price;
   const trend = price > prevPrice * 1.005 ? 'up' : price < prevPrice * 0.995 ? 'down' : 'flat';
-  const trendIcon = trend === 'up' ? '▲' : trend === 'down' ? '▼' : '—';
   const trendClass = trend === 'up' ? 'good' : trend === 'down' ? 'bad' : 'muted';
-  const resourceLabel = RESOURCE_LABELS[stock.resource] || stock.resource;
   const owned = getOwnedShares(stock.id);
   const cash = state.resources.energy || 0;
-
-  let sparkPoints;
-  if (history.length < 2) {
-    sparkPoints = `0,10 100,10`;
-  } else {
-    const sparkMin = Math.min(...history), sparkMax = Math.max(...history);
-    const sparkRange = sparkMax - sparkMin || 1;
-    sparkPoints = history.map((v, i) => {
-      const x = (i / (history.length - 1)) * 100;
-      const y = 18 - ((v - sparkMin) / sparkRange) * 16;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(' ');
+  let points = '0,17 100,17';
+  if (history.length >= 2) {
+    const min = Math.min(...history), max = Math.max(...history), range = max - min || 1;
+    points = history.map((v, i) => `${((i / (history.length - 1)) * 100).toFixed(1)},${(30 - ((v - min) / range) * 26).toFixed(1)}`).join(' ');
   }
-  const sparkColor = trend === 'up' ? 'var(--good)' : trend === 'down' ? 'var(--bad)' : 'var(--text-muted)';
-
+  const color = trend === 'up' ? 'var(--good)' : trend === 'down' ? 'var(--bad)' : 'var(--muted)';
   const maxBuy = price > 0 ? Math.floor(cash / price) : 0;
-  const shareSteps = [1, 10, 50, 100];
-  const buyBtns = shareSteps.map((shares) => {
-    const cost = shares * price;
-    const ok = cash >= cost;
-    const tip = ok ? `Kaufe ${fmt(shares)} Aktien für ${fmt(cost)} Revenue` : 'Nicht genug Revenue';
-    return `<button class="mkt-btn${ok ? ' active' : ''}" ${ok ? '' : 'disabled'}
-      data-action="buy-stock" data-id="${stock.id}" data-shares="${shares}"
-      title="${escapeHtml(tip)}">+${shares}<span class="mkt-qty">${fmt(cost)}</span></button>`;
-  }).join('');
-  const maxBuyCost = maxBuy * price;
-  const maxBuyBtn = `<button class="mkt-btn mkt-btn--max${maxBuy > 0 ? ' active' : ''}" ${maxBuy > 0 ? '' : 'disabled'}
-    data-action="buy-stock" data-id="${stock.id}" data-shares="${maxBuy}"
-    title="${maxBuy > 0 ? `Kaufe ${fmt(maxBuy)} Aktien für ${fmt(maxBuyCost)} Revenue` : 'Nicht genug Revenue'}">Max<span class="mkt-qty">${maxBuy > 0 ? fmt(maxBuy) : '0'}</span></button>`;
-
-  const sellSteps = [1, 10, 50, 'all'];
-  const sellBtns = sellSteps.map((step) => {
-    const shares = step === 'all' ? owned : step;
-    const revenue = shares * price * (1 - BROKER_FEE);
-    const ok = shares > 0 && owned >= shares;
-    const label = step === 'all' ? 'Alle' : `-${step}`;
-    const tip = ok ? `Verkaufe ${fmt(shares)} Aktien für ${fmt(revenue)} Revenue` : 'Nicht genug Aktien';
-    return `<button class="mkt-btn mkt-btn--sell${ok ? ' active' : ''}" ${ok ? '' : 'disabled'}
-      data-action="sell-stock" data-id="${stock.id}" data-shares="${shares}"
-      title="${escapeHtml(tip)}">${label}<span class="mkt-qty">${fmt(revenue)}</span></button>`;
-  }).join('');
-
-  const pctChange = prevPrice ? ((price / prevPrice - 1) * 100).toFixed(1) : '0.0';
-  const pctLabel  = (Number(pctChange) >= 0 ? '+' : '') + pctChange + '%';
-
-  return `
-    <article class="item market-card">
-      <div class="mkt-header">
-        <strong class="mkt-title">${escapeHtml(stock.name)}</strong>
-        <span class="mkt-ticker ${trendClass}">${escapeHtml(stock.ticker)} ${trendIcon} ${pctLabel}</span>
-      </div>
-      <div class="mkt-sparkline">
-        <svg viewBox="0 0 100 20" preserveAspectRatio="none">
-          <polyline points="${sparkPoints}" fill="none" stroke="${sparkColor}" stroke-width="1.5" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <div class="mkt-price-row">
-        <span class="mkt-price">Kurs <strong>${fmt(price)}</strong> <em>Revenue</em></span>
-        <span class="muted" style="font-size:0.72em">Dividende: ${fmt(stock.dividendRate)}/s ${escapeHtml(resourceLabel)}</span>
-      </div>
-      <div class="mkt-stock-row">
-        <span class="muted">Besitz: ${fmt(owned)} Aktien · Ausschüttung in ${escapeHtml(resourceLabel)}</span>
-      </div>
-      <div class="mkt-trade-section">
-        <span class="mkt-label good">KAUFEN</span>
-        <div class="mkt-btn-row">${buyBtns}${maxBuyBtn}</div>
-      </div>
-      <div class="mkt-trade-section">
-        <span class="mkt-label bad">VERKAUFEN</span>
-        <div class="mkt-btn-row">${sellBtns}</div>
-      </div>
-    </article>
-  `;
+  const sellPrice = price * (1 - BROKER_FEE);
+  const mktBtn = (kind, shares, label, sub, enabled) => `<button class="mkt-btn ${kind}" data-action="${kind}-stock" data-id="${stock.id}" data-shares="${shares}" ${enabled ? '' : 'disabled'}>${label}<small>${sub}</small></button>`;
+  const buy = [1, 10, 100].map(n => mktBtn('buy', n, `+${n}`, fmt(n * price), cash >= n * price)).join('')
+    + mktBtn('buy', maxBuy, 'Max', fmt(maxBuy), maxBuy > 0);
+  const sell = [1, 10, 100].map(n => mktBtn('sell', n, `−${n}`, fmt(n * sellPrice), owned >= n)).join('')
+    + mktBtn('sell', owned, 'Alle', fmt(owned * sellPrice), owned > 0);
+  const pct = prevPrice ? ((price / prevPrice - 1) * 100).toFixed(1) : '0.0';
+  const dividend = dividendBonus(stock.id);
+  const toCap = sharesToCap(stock.id);
+  return `<article class="item mkt">
+    <div class="mkt-head"><div><strong>${escapeHtml(stock.name)}</strong><div class="muted small mono">${escapeHtml(stock.ticker)} · +${(DIVIDEND_PER_SHARE * 100).toFixed(2)}% ${escapeHtml(RESOURCE_LABELS[stock.resource])}-Produktion je Aktie</div></div><span class="badge mono ${trendClass}">${trend === 'up' ? '▲' : trend === 'down' ? '▼' : '—'} ${Number(pct) >= 0 ? '+' : ''}${pct}%</span></div>
+    <div class="mkt-spark"><svg viewBox="0 0 100 34" preserveAspectRatio="none"><polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
+    <div class="row-between"><span class="mono">Kurs <strong>${fmt(price)}</strong> <span class="muted">Revenue</span></span><span class="muted small">Depot: <strong class="mono">${fmt(owned)}</strong> Aktien</span></div>
+    <div class="row-between"><span class="badge ${dividend > 0 ? 'good' : ''}" ${tt('Dividende', `Jede Aktie erhöht deine ${RESOURCE_LABELS[stock.resource]}-Produktion um ${(DIVIDEND_PER_SHARE * 100).toFixed(2)}%, maximal +${Math.round(MAX_DIVIDEND_BONUS * 100)}%.`)}>${resIcon(stock.resource)} +${(dividend * 100).toFixed(1)}% ${escapeHtml(RESOURCE_LABELS[stock.resource])}</span><span class="muted small">${toCap > 0 ? `${fmt(toCap)} bis Max` : 'Maximum erreicht'}</span></div>
+    ${progress(dividend, MAX_DIVIDEND_BONUS, 'thin good')}
+    <div class="mkt-btns">${buy}</div>
+    <div class="mkt-btns">${sell}</div>
+  </article>`;
 }
 
 function renderMarket() {
-  const unlocked = state.techs?.includes('freelance_platform');
-  const nextUpdate = timeUntilNextPriceUpdate();
-  const updateLabel = nextUpdate === null ? 'Verbinde...' : fmtSec(nextUpdate / 1000);
-  const dividends = totalDividendRate();
-
-  if (!unlocked) {
-    return `
-      <section class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow">BÖRSE</p>
-          <h2>./resource_exchange</h2>
-          <p class="hero-text">Schalte "Upwork Account" in der Forschung frei, um Ressourcen-Aktien zu handeln.</p>
-        </div>
-      </section>
-      <section class="card empty-state">
-        <h3>${getIcon('lock')} Zugang verweigert</h3>
-        <p class="muted">Benötigt Forschung: Upwork Account</p>
-      </section>
-    `;
+  if (!hasTech('freelance_platform')) {
+    return `<section class="panel">${emptyState('lock', 'Börse gesperrt', 'Schalte „Upwork Account“ in der Forschung frei, um Aktien zu handeln.')}</section>`;
   }
-
+  const nextUpdate = timeUntilNextPriceUpdate();
+  const dividends = totalDividendBonus();
   return `
-    <section class="hero">
-      <div class="hero-copy">
-        <p class="eyebrow">BÖRSE</p>
-        <h2>./resource_exchange</h2>
-        <p class="hero-text">Kaufe Aktien mit Revenue. Jede Aktie zahlt Dividenden in ihrer Ressource. <span class="badge-live">● LIVE</span> Kurse sind serverbasiert — alle Spieler sehen denselben Markt. Nächstes Update in <strong>${updateLabel}</strong>.</p>
-      </div>
-      <div class="hero-grid">
-        ${statRow('Aktien', STOCKS.length)}
-        ${statRow('Depotwert', `${fmt(portfolioValue())} Revenue`)}
-        ${statRow('Verkaufsgebühr', Math.round(BROKER_FEE * 100) + '%')}
-        ${statRow('Kurs-Update', updateLabel)}
-      </div>
-    </section>
-    <section class="card-grid market-grid">
-      ${STOCKS.map(renderStockCard).join('')}
-    </section>
-    <section class="card" style="margin-top:14px;">
-      <h3>Dividenden / Sekunde</h3>
-      <div class="stat-grid">
-        ${Object.keys(dividends).length
-          ? Object.entries(dividends).map(([res, amount]) => statRow(RESOURCE_LABELS[res] || res, `${resIcon(res)} ${fmt(amount)}/s`)).join('')
-          : '<p class="muted">Noch keine Aktien im Depot.</p>'}
-      </div>
-    </section>
-  `;
+    <section class="panel tight"><div class="kpis">
+      ${kpi('Depotwert', `${fmt(portfolioValue())}`, 'Revenue')}
+      ${kpi('Gebühr', `${Math.round(BROKER_FEE * 100)}%`, 'beim Verkauf')}
+      ${kpi('Kurs-Update', nextUpdate === null ? 'Verbinde…' : fmtSec(nextUpdate / 1000), '<span class="live">LIVE</span> serverbasiert, alle Spieler')}
+      ${kpi('Dividenden', Object.keys(dividends).length ? Object.entries(dividends).map(([res, v]) => `<span class="res-${res}">+${Math.round(v * 100)}%</span>`).join(' · ') : '–', 'Produktionsbonus aus Aktien')}
+    </div></section>
+    <section class="panel"><div class="panel-head"><div><div class="eyebrow">Ressourcen-Börse</div><h3>${getIcon('market')} Aktien</h3><div class="sub">Kaufe mit Revenue. Jede Aktie erhöht die Produktion ihrer Ressource um ${(DIVIDEND_PER_SHARE * 100).toFixed(2)}% (max. +${Math.round(MAX_DIVIDEND_BONUS * 100)}%). Kurse steigen, wenn viele Spieler kaufen.</div></div></div>
+      <div class="grid-auto">${STOCKS.map(renderStockCard).join('')}</div>
+    </section>`;
 }
 
+// ═══════════════════════════ PRESTIGE ═══════════════════════════
 function renderMainframe() {
   const slots = state.mainframeSlots || 3;
   const equipped = state.equippedChips || [];
   const owned = state.ownedChips || [];
   const unequipped = owned.filter(id => !equipped.includes(id));
-
+  const freeSlot = equipped.length < slots;
+  const chipCard = (c, button) => `<article class="item chip-card ${c.rarity}"><div class="item-head"><strong>${getIcon('chip')} ${escapeHtml(c.name)}</strong><span class="badge rarity-${c.rarity}">${c.rarity}</span></div><p>${escapeHtml(c.desc)}</p>${button}</article>`;
   const slotCards = [];
   for (let i = 0; i < slots; i++) {
-    const chipId = equipped[i];
-    if (chipId) {
-      const chip = CHIPS.find(c => c.id === chipId);
-      if (chip) {
-        const rarityClass = chip.rarity === 'epic' ? 'chip--epic' : chip.rarity === 'rare' ? 'chip--rare' : 'chip--common';
-        slotCards.push(`
-          <article class="item chip-slot chip-slot--filled ${rarityClass}" ${tt(chip.name, chip.desc, {
-            icon: '🔧',
-            meta: chip.rarity.toUpperCase()
-          })}>
-            <div class="item-head">
-              <strong>🔧 ${escapeHtml(chip.name)}</strong>
-              <span class="badge">${escapeHtml(chip.rarity)}</span>
-            </div>
-            <p class="muted">${escapeHtml(chip.desc)}</p>
-            ${button('Entfernen', 'data-action="unequip-chip" data-id="' + chip.id + '"', false, 'danger')}
-          </article>
-        `);
-      }
-    } else {
-      slotCards.push(`
-        <article class="item chip-slot chip-slot--empty">
-          <div class="item-head">
-            <strong>Leerer Slot</strong>
-            <span class="badge">#${i + 1}</span>
-          </div>
-          <p class="muted">Kein Chip installiert.</p>
-        </article>
-      `);
-    }
+    const chip = getChip(equipped[i]);
+    slotCards.push(chip
+      ? chipCard(chip, `<button class="btn xs danger" data-action="unequip-chip" data-id="${chip.id}">Entfernen</button>`)
+      : `<article class="item chip-card empty"><div class="item-head"><strong>Slot ${i + 1}</strong></div><p>Leer. Chips findest du auf Freelance-Aufträgen.</p></article>`);
   }
+  return `<section class="panel">
+    <div class="panel-head"><div><div class="eyebrow">Mainframe</div><h3>${getIcon('chip')} Chips</h3><div class="sub">Ausrüstbare Boni mit Tradeoffs. Bleiben über jeden Refactor.</div></div><span class="meta">${equipped.length}/${slots} Slots · ${owned.length}/${CHIPS.length} gefunden</span></div>
+    <div class="grid-auto-sm">${slotCards.join('')}</div>
+    ${unequipped.length ? `<div class="eyebrow" style="margin-top:14px">Inventar</div><div class="grid-auto-sm">${unequipped.map(getChip).filter(Boolean).map(c => chipCard(c, `<button class="btn xs ${freeSlot ? 'primary' : ''}" data-action="equip-chip" data-id="${c.id}" ${freeSlot ? '' : 'disabled'}>Installieren</button>`)).join('')}</div>` : ''}
+  </section>`;
+}
 
-  const inventoryCards = unequipped.map(chipId => {
-    const chip = CHIPS.find(c => c.id === chipId);
-    if (!chip) return '';
-    const rarityClass = chip.rarity === 'epic' ? 'chip--epic' : chip.rarity === 'rare' ? 'chip--rare' : 'chip--common';
-    const canEquip = equipped.length < slots;
-    return `
-      <article class="item ${rarityClass}" ${tt(chip.name, chip.desc, {
-        icon: '🔧',
-        meta: chip.rarity.toUpperCase()
-      })}>
-        <div class="item-head">
-          <strong>🔧 ${escapeHtml(chip.name)}</strong>
-          <span class="badge">${escapeHtml(chip.rarity)}</span>
-        </div>
-        <p class="muted">${escapeHtml(chip.desc)}</p>
-        ${button('Installieren', 'data-action="equip-chip" data-id="' + chip.id + '"', !canEquip, canEquip ? 'active' : '')}
-      </article>
-    `;
-  }).join('');
+// Was ein Hard Refactor behält bzw. zurücksetzt (Prestige-Tab + Bestätigungs-Modal).
+export function renderKeepReset() {
+  const keep = [`${state.artifacts.length} Funde`, `${state.achievements.length} Errungenschaften`, `${state.ownedChips.length} Chips`, 'Chronicle-Upgrades & Meilensteine', 'Aufgaben-Fortschritt, Aktien-Depot', 'Lebenszeit-Statistiken'];
+  const reset = ['Alle Mitarbeiter (außer Start-Team)', 'Tech-Stack', 'Releases', 'Standorte & laufende Aufträge', 'Ressourcen', 'Core Values (neu wählen)'];
+  return `<div class="keep-reset">
+    <div class="keep"><p class="good">Bleibt</p><ul>${keep.map(k => `<li>${escapeHtml(k)}</li>`).join('')}</ul></div>
+    <div class="reset"><p class="bad">Weg</p><ul>${reset.map(k => `<li>${escapeHtml(k)}</li>`).join('')}</ul></div>
+  </div>`;
+}
 
+function renderPrestige() {
+  const gain = prestigeGain();
+  const raw = prestigeGainRaw();
+  const frac = raw - Math.floor(raw);
+  const nextIn = scrapForNextXp();
+  const canReset = gain > 0;
   return `
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">MAINFRAME</p>
-          <h3>🤖 AI-Kerne</h3>
-          <p class="muted">Installiere Chips für mächtige Boosts. Jeder Slot kann einen Chip halten.</p>
+    <div class="prestige-hero">
+      <section class="panel accent">
+        <div class="eyebrow">Hard Refactor</div>
+        <div class="row-between" style="align-items:flex-end">
+          <div><div class="xp-big">+${fmt(gain)} <small>XP bei Refactor</small></div><div class="muted small" style="margin-top:6px">Run: ${fmt(runScrap())} Code · XP = ${PRESTIGE_XP_BASE} · ∛(Code / 10 Mio.) · Struktur-Bonus ×${fmt(prestigeStructBonus())} · ${fmt(bonuses().prestigeGainMult)}× Multiplikator</div></div>
+          <div class="kpi"><div class="kpi-label">XP-Guthaben</div><div class="kpi-value">${fmt(state.chronicle)}</div><div class="kpi-sub">${state.stats.prestigeCount} Refactors</div></div>
         </div>
-        <span class="muted">${equipped.length}/${slots} Slots belegt</span>
-      </div>
-      <div class="card-grid mainframe-grid">
-        ${slotCards.join('')}
-      </div>
+        <div style="margin:12px 0 6px">${progress(frac, 1)}<div class="muted small" style="margin-top:4px">Nächster XP-Punkt in ${fmt(nextIn)} Code</div></div>
+        <button class="btn ${canReset ? 'primary' : ''} block" data-action="prestige" ${canReset ? '' : 'disabled'} ${tt('Hard Refactor', canReset ? 'Setzt den Run zurück und gibt XP.' : 'Noch nicht genug Code in diesem Run. Ab ~10 Mio. Code gibt es den ersten XP-Punkt.')}>${getIcon('prestige')} Hard Refactor${canReset ? ` (+${fmt(gain)} XP)` : ''}</button>
+        <p class="muted small" style="margin-top:8px">Tipp: Der erste Refactor lohnt sich ab etwa 10–20 XP. Jeder Run danach geht deutlich schneller.</p>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><div><div class="eyebrow">Was passiert?</div><h3>${getIcon('help')} Behalten vs. Zurücksetzen</h3></div></div>
+        ${renderKeepReset()}
+      </section>
+    </div>
+
+    <section class="panel">
+      <div class="panel-head"><div><div class="eyebrow">Chronicle</div><h3>${getIcon('star')} Permanente Upgrades</h3><div class="sub">Mit XP kaufen. Gelten für immer, in jedem Run.</div></div><span class="meta">${fmt(state.chronicle)} XP verfügbar</span></div>
+      <div class="grid-auto-sm">${CHRONICLE_UPGRADES.map(u => {
+        const level = state.chronicleUpgrades[u.id] || 0;
+        const maxed = u.max && level >= u.max;
+        const cost = chronicleCost(u.id);
+        const can = !maxed && state.chronicle >= cost;
+        return `<article class="item ${can ? 'affordable' : ''} ${maxed ? 'done' : ''}">
+          <div class="item-head"><strong>${escapeHtml(u.name)}</strong><span class="badge accent">Lvl ${level}${u.max ? `/${u.max}` : ''}</span></div>
+          <p>${escapeHtml(u.desc)}</p>
+          <div class="item-foot"><span class="cost ${can ? 'ok' : 'no'}">${getIcon('star')}${maxed ? 'Max' : `${fmt(cost)} XP`}</span><button class="btn sm ${can ? 'affordable' : ''}" data-action="buy-chronicle" data-id="${u.id}" ${can ? '' : 'disabled'}>Kaufen</button></div>
+        </article>`;
+      }).join('')}</div>
     </section>
-    ${unequipped.length || (owned.length === 0) ? `
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">INVENTAR</p>
-          <h3>🔧 Verfügbare Chips</h3>
-          <p class="muted">${owned.length === 0 ? 'Noch keine Chips gefunden. Schicke Freelancer auf Aufträge!' : 'Chips die nicht installiert sind.'}</p>
-        </div>
-      </div>
-      <div class="card-grid">
-        ${inventoryCards || '<p class="muted">Alle Chips sind installiert.</p>'}
-      </div>
+
+    <section class="panel">
+      <div class="panel-head"><div><div class="eyebrow">Dauerhaft</div><h3>${getIcon('trophy')} Meilensteine</h3><div class="sub">Einmal erreicht, für immer aktiv.</div></div><span class="meta">${(state.prestigeMilestones || []).length}/${PRESTIGE_MILESTONES.length}</span></div>
+      <div class="grid-auto-sm">${PRESTIGE_MILESTONES.map(m => { const earned = (state.prestigeMilestones || []).includes(m.id); return `<article class="item ${earned ? 'done' : 'locked'}"><div class="item-head"><strong>${getIcon(earned ? 'check' : 'lock')} ${escapeHtml(m.name)}</strong><span class="badge ${earned ? 'good' : ''}">${escapeHtml(m.label)}</span></div><p>${escapeHtml(m.desc)}</p></article>`; }).join('')}</div>
     </section>
-    ` : ''}
+    ${renderMainframe()}
   `;
+}
+
+// ═══════════════════════════ CODEX ═══════════════════════════
+function renderCodex() {
+  const unlocked = ACHIEVEMENTS.filter(a => state.achievements.includes(a.id));
+  const guide = [
+    ['Loop', 'Klicken → Praktikanten kaufen → Google Ads für Revenue → SEO-Experten für Ideas → Techs lernen → bessere Mitarbeiter. Alle 10/25/50/100… Stück verdoppelt sich der Output eines Gebäudes.'],
+    ['Konverter', 'Verbrauchen echten Vorrat. Wenn der Input fehlt, laufen sie gedrosselt (gelber Rand im Team-Tab). Die Drossel im Büro-Tab begrenzt sie global.'],
+    ['Revenue', 'Zweite Währung für bessere Mitarbeiter, Konverter, Standorte und die Börse. Google Ads und Nachfolger produzieren sie.'],
+    ['Ideas & Users', 'SEO-Experten machen aus Revenue Ideas und Users. Brainstorming macht aus Users noch mehr Ideas. Ideas kaufen Techs.'],
+    ['Bugs & Module', 'QA Tester verwandeln Code in Bugs, NPM Install Bugs in Module. Beides braucht man für Releases, Growth Hacker und Standorte.'],
+    ['Hype & Legacy', 'Tech Blogger machen aus Ideas Hype (für Standorte, große Releases). Code-Archäologen und Aufträge liefern Legacy Code.'],
+    ['Prestige', `Ein Hard Refactor gibt XP = ${PRESTIGE_XP_BASE}·∛(Run-Code/10 Mio.). XP kauft permanente Chronicle-Upgrades. Ab ~10 XP lohnt es sich.`],
+    ['Offline', 'Bis zum Offline-Limit (Standard 8h) wird mit 50% Effizienz weitergerechnet. Chronicle-Upgrades erhöhen beides.']
+  ];
+  const keys = [
+    ['Leertaste', 'Code schreiben'],
+    [TABS.filter(t => t.key).map(t => t.key).join(' / '), 'Tabs wechseln'],
+    [BUY_AMOUNTS.map((_, i) => i + 1).join(' / '), `Kaufmenge ${BUY_AMOUNTS.map(buyAmountLabel).join(' / ')}`],
+    ['Esc', 'Modal schließen']
+  ];
+  return `
+    <section class="panel tight"><div class="kpis">
+      ${kpi('Errungenschaften', `${unlocked.length} / ${ACHIEVEMENTS.length}`, `+${unlocked.length}% Gesamtproduktion`)}
+      ${kpi('Aufgaben', `${state.stats.questsDone || 0} / ${QUESTS.length}`, 'erledigt')}
+      ${kpi('Spielzeit', fmtSec(state.stats.lifetime), 'gesamt')}
+      ${kpi('Klicks', fmt(state.stats.manualClicks || 0), 'gesamt')}
+    </div></section>
+    <section class="panel">
+      <div class="panel-head"><div><div class="eyebrow">Guide</div><h3>${getIcon('help')} So funktioniert's</h3></div></div>
+      <div class="grid-auto">${guide.map(([t, d]) => `<article class="item"><div class="item-head"><strong>${escapeHtml(t)}</strong></div><p>${escapeHtml(d)}</p></article>`).join('')}</div>
+    </section>
+    <div class="grid-2">
+      <section class="panel">
+        <div class="panel-head"><div><div class="eyebrow">Tastatur</div><h3>${getIcon('keyboard')} Shortcuts</h3></div></div>
+        <div class="stat-list">${keys.map(([k, d]) => statRow(d, `<span class="badge mono">${escapeHtml(k)}</span>`)).join('')}</div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><div><div class="eyebrow">Support</div><h3>${getIcon('flag')} Bug melden / Feedback</h3></div></div>
+        <p class="muted small" style="margin-bottom:10px">Etwas stimmt nicht oder du hast eine Idee? Bitte Prestige-Anzahl, ungefähre Ressourcen und den Tab angeben.</p>
+        <div class="toggle-row"><a class="btn primary sm" href="https://github.com/SuriveAUT/CodeTycoon/issues/new/choose" target="_blank" rel="noopener noreferrer">Issue öffnen</a><a class="btn sm" href="https://github.com/SuriveAUT/CodeTycoon/issues" target="_blank" rel="noopener noreferrer">Alle Issues</a></div>
+      </section>
+    </div>
+    <section class="panel">
+      <div class="panel-head"><div><div class="eyebrow">Zahlen</div><h3>${getIcon('market')} Statistiken</h3><div class="sub">Lebenszeit, über alle Refactors.</div></div></div>
+      <div class="grid-2">
+        <div class="stat-list">${RESOURCES.map(res => statRow(`${RESOURCE_LABELS[res]} gesamt`, `<span class="res-${res}">${fmt(state.stats.total[res] || 0)}</span>`)).join('')}</div>
+        <div class="stat-list">
+          ${statRow('Refactors', fmt(state.stats.prestigeCount || 0))}
+          ${statRow('XP gesamt verdient', fmt((state.chronicle || 0) + CHRONICLE_UPGRADES.reduce((a, u) => { let sum = 0; for (let l = 0; l < (state.chronicleUpgrades[u.id] || 0); l++) sum += chronicleCostFor(u.id, l); return a + sum; }, 0)))}
+          ${statRow('Releases gebaut', fmt(state.stats.projectsBuilt || 0))}
+          ${statRow('Aufträge erledigt', fmt(state.stats.expeditionsDone || 0))}
+          ${statRow('Entscheidungen getroffen', fmt(state.stats.decisionsMade || 0))}
+          ${statRow('Protokolle aktiviert', fmt(state.stats.protocolsUsed || 0))}
+          ${statRow('Agentur-Level', fmt(state.stats.fleetLevel || 0))}
+          ${statRow('Erster Start', new Date(state.stats.firstSeen).toLocaleDateString('de-DE'))}
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><div><div class="eyebrow">Badges</div><h3>${getIcon('trophy')} Errungenschaften</h3><div class="sub">Jede Errungenschaft gibt +1% Gesamtproduktion – permanent.</div></div><span class="meta">${unlocked.length}/${ACHIEVEMENTS.length}</span></div>
+      <div class="grid-auto-sm">${ACHIEVEMENTS.map(a => { const done = state.achievements.includes(a.id); return `<article class="item ${done ? 'done' : 'locked'}"><div class="item-head"><strong>${getIcon(done ? 'check' : 'lock')} ${escapeHtml(a.name)}</strong></div><p>${escapeHtml(a.desc)}</p></article>`; }).join('')}</div>
+    </section>
+  `;
+}
+
+// ═══════════════════════════ ACCOUNT ═══════════════════════════
+function renderLeaderboard() {
+  const lb = state.cache.leaderboard;
+  if (!Array.isArray(lb)) return '<p class="muted small">Lade Rangliste…</p>';
+  if (!lb.length) return '<p class="muted small">Noch keine Einträge.</p>';
+  return `<div class="stack" style="gap:4px">${lb.slice(0, 50).map((e, i) => `<div class="lb-row"><span class="rank">#${i + 1}</span><strong class="truncate">${escapeHtml(e.username || '?')}</strong><span class="muted mono small">${fmt(e.prestige ?? e.prestige_score ?? 0)} Refactors · ${fmt(e.totalScrap ?? e.total_scrap ?? 0)} Code</span><button class="btn xs" data-action="view-profile" data-id="${escapeHtml(e.username || '')}">Profil</button></div>`).join('')}</div>`;
+}
+
+function renderAccount() {
+  const loggedIn = AstraforgeAPI.isLoggedIn();
+  const username = AstraforgeAPI.username || '';
+  const flagged = Boolean(AstraforgeAPI.flagged);
+  return `
+    <div class="grid-2">
+      <section class="panel">
+        ${loggedIn ? `
+          <div class="panel-head"><div><div class="eyebrow">Cloud</div><h3>${getIcon('account')} ${escapeHtml(username)}</h3><div class="sub">Eingeloggt. Der Spielstand wird alle 30s synchronisiert.</div></div><span class="badge good">Online</span></div>
+          ${flagged ? `<div class="notice bad" style="margin-bottom:10px">${getIcon('warning')}<div><strong>Account geflaggt.</strong> ${escapeHtml(AstraforgeAPI.flagReason || 'Kein Grund angegeben.')} – Leaderboard ausgeblendet.</div></div>` : ''}
+          <div class="toggle-row">
+            <button class="btn primary sm" data-action="force-sync">${getIcon('check')} Jetzt speichern</button>
+            <button class="btn sm" data-action="load-cloud" ${tt('Cloud laden', 'Überschreibt den lokalen Stand mit dem Cloud-Save.')}>Cloud laden</button>
+            <button class="btn danger sm" data-action="auth-logout">Logout</button>
+          </div>
+        ` : `
+          <div class="panel-head"><div><div class="eyebrow">Cloud-Save</div><h3>${getIcon('account')} Anmelden</h3><div class="sub">Für Cloud-Save auf allen Geräten, Leaderboard und Chat.</div></div><span class="badge">Lokal</span></div>
+          <div class="form-grid">
+            <input id="auth-user" class="input" type="text" placeholder="Benutzername" autocomplete="username" />
+            <input id="auth-pass" class="input" type="password" placeholder="Passwort" autocomplete="current-password" />
+            <div class="toggle-row"><button class="btn primary" data-action="auth-login">Einloggen</button><button class="btn" data-action="auth-register">Registrieren</button></div>
+          </div>
+        `}
+      </section>
+      <section class="panel">
+        <div class="panel-head"><div><div class="eyebrow">Spielstand</div><h3>${getIcon('settings')} Lokal</h3></div></div>
+        <div class="stat-list">
+          ${statRow('Erster Start', new Date(state.stats.firstSeen).toLocaleDateString('de-DE'))}
+          ${statRow('Spielzeit', fmtSec(state.stats.lifetime))}
+          ${statRow('Refactors', fmt(state.stats.prestigeCount))}
+          ${statRow('Code gesamt', fmt(state.stats.total.scrap))}
+        </div>
+        <div class="eyebrow" style="margin-top:12px">Einstellungen</div>
+        <div class="toggle-row">
+          <button class="btn sm ${getSetting('particles') ? 'good' : ''}" data-action="toggle-setting" data-id="particles">${getSetting('particles') ? getIcon('check') : ''} Klick-Partikel</button>
+          <button class="btn sm ${getSetting('toasts') ? 'good' : ''}" data-action="toggle-setting" data-id="toasts">${getSetting('toasts') ? getIcon('check') : ''} Benachrichtigungen</button>
+          <button class="btn sm ${getSetting('sciNotation') ? 'good' : ''}" data-action="toggle-setting" data-id="sciNotation" ${tt('Zahlenformat', 'Wissenschaftliche Schreibweise (1.5e9) statt Kürzel (1.50 B).')}>${getSetting('sciNotation') ? getIcon('check') : ''} 1e9-Notation</button>
+        </div>
+        <div class="toggle-row" style="margin-top:10px">
+          <button class="btn sm" data-action="export-save" ${tt('Export', 'Kopiert den Spielstand als Text in die Zwischenablage.')}>Export</button>
+          <button class="btn sm" data-action="import-save" ${tt('Import', 'Spielstand aus der Zwischenablage / Eingabe laden.')}>Import</button>
+          <button class="btn danger sm" data-action="hard-reset" ${tt('Alles löschen', 'Kompletter Neustart. Kann nicht rückgängig gemacht werden.')}>Alles löschen</button>
+        </div>
+      </section>
+    </div>
+    <section class="panel">
+      <div class="panel-head"><div><div class="eyebrow">Hall of Fame</div><h3>${getIcon('trophy')} Leaderboard</h3><div class="sub">Sortiert nach Refactors, dann Code.</div></div><button class="btn sm" data-action="refresh-lb">Aktualisieren</button></div>
+      ${renderLeaderboard()}
+    </section>
+  `;
+}
+
+// ═══════════════════════════ ADMIN ═══════════════════════════
+export function collectAdminSaveEdits() {
+  if (!adminSelectedUser) return null;
+  let save = {};
+  try { save = JSON.parse(adminSelectedUser.game_save || '{}'); } catch (e) { /* ignore */ }
+  save.resources = save.resources || {};
+  for (const r of RESOURCES) { const el = document.getElementById(`admin-ed-res-${r}`); if (el) save.resources[r] = Number(el.value) || 0; }
+  save.buildings = save.buildings || {};
+  for (const bd of BUILDINGS) { const el = document.getElementById(`admin-ed-bld-${bd.id}`); if (el) save.buildings[bd.id] = Math.max(0, Math.floor(Number(el.value) || 0)); }
+  save.stats = save.stats || {};
+  for (const f of ['lifetime', 'prestigeCount', 'projectsBuilt', 'expeditionsDone', 'manualClicks', 'fleetXP', 'fleetLevel']) { const el = document.getElementById(`admin-ed-stat-${f}`); if (el) save.stats[f] = Number(el.value) || 0; }
+  save.techs = TECHS.filter(t => document.getElementById(`admin-ed-tech-${t.id}`)?.checked).map(t => t.id);
+  save.projects = PROJECTS.filter(p => document.getElementById(`admin-ed-proj-${p.id}`)?.checked).map(p => p.id);
+  save.artifacts = ARTIFACTS.filter(a => document.getElementById(`admin-ed-art-${a.id}`)?.checked).map(a => a.id);
+  const chronicle = document.getElementById('admin-ed-chronicle'); if (chronicle) save.chronicle = Math.max(0, Math.floor(Number(chronicle.value) || 0));
+  const mfSlots = document.getElementById('admin-ed-mainframeSlots'); if (mfSlots) save.mainframeSlots = Math.max(1, Math.floor(Number(mfSlots.value) || 3));
+  if (save.stats) save.stats.lastSave = Date.now();
+  return JSON.stringify(save);
 }
 
 function renderAdminUserEditor(user) {
   let save = {};
-  try { save = JSON.parse(user.game_save || '{}'); } catch(e) {}
-  const resources = save.resources || {};
-  const buildings = save.buildings || {};
-  const stats = save.stats || {};
-  const techs = save.techs || [];
-  const projects = save.projects || [];
-  const artifacts = save.artifacts || [];
-
-  const RESOURCE_NAMES = ['scrap', 'energy', 'alloy', 'components', 'data', 'research', 'influence', 'relics'];
-
-  const resourceInputs = RESOURCE_NAMES.map(r => `
-    <label class="admin-editor-label">${escapeHtml(RESOURCE_LABELS[r] || r)}
-      <input id="admin-ed-res-${r}" class="text-input" type="number" value="${resources[r] ?? 0}" min="0" />
-    </label>`).join('');
-
-  // group buildings by category
-  const bldByCategory = {};
-  for (const b of BUILDINGS) {
-    (bldByCategory[b.category] = bldByCategory[b.category] || []).push(b);
-  }
-  const buildingInputs = Object.entries(bldByCategory).map(([cat, bs]) => `
-    <div class="admin-editor-subsection">
-      <p class="eyebrow" style="margin:0.4rem 0 0.2rem">${escapeHtml(cat)}</p>
-      <div class="admin-editor-grid admin-editor-grid-wide">
-        ${bs.map(b => `
-          <label class="admin-editor-label">${escapeHtml(b.name)}
-            <input id="admin-ed-bld-${b.id}" class="text-input" type="number" value="${buildings[b.id] ?? 0}" min="0" step="1" />
-          </label>`).join('')}
-      </div>
-    </div>`).join('');
-
-  const techChecks = TECHS.map(t => `
-    <label class="admin-editor-check-item">
-      <input type="checkbox" id="admin-ed-tech-${t.id}" ${techs.includes(t.id) ? 'checked' : ''} />
-      <span>${escapeHtml(t.name)}</span>
-    </label>`).join('');
-
-  const projChecks = PROJECTS.map(p => `
-    <label class="admin-editor-check-item">
-      <input type="checkbox" id="admin-ed-proj-${p.id}" ${projects.includes(p.id) ? 'checked' : ''} />
-      <span>${escapeHtml(p.name)}</span>
-    </label>`).join('');
-
-  const artChecks = ARTIFACTS.map(a => `
-    <label class="admin-editor-check-item">
-      <input type="checkbox" id="admin-ed-art-${a.id}" ${artifacts.includes(a.id) ? 'checked' : ''} />
-      <span>${escapeHtml(a.name)}</span>
-    </label>`).join('');
-
-  return `
-    <div class="admin-user-editor">
-      <p class="muted" style="margin:0.5rem 0 1rem">Bearbeite: <strong>${escapeHtml(user.username)}</strong> &mdash; Registriert: ${escapeHtml(String(user.created_at || '—'))}</p>
-
-      <div class="admin-editor-section">
-        <p class="eyebrow">ACCOUNT</p>
-        <div class="admin-editor-grid">
-          <label class="admin-editor-label">Prestige-Score
-            <input id="admin-editor-prestige" class="text-input" type="number" value="${user.prestige_score}" min="0" step="1" />
-          </label>
-          <label class="admin-editor-label">Total Scrap
-            <input id="admin-editor-scrap" class="text-input" type="number" value="${user.total_scrap}" min="0" />
-          </label>
-          <label class="admin-editor-label">Flag-Grund
-            <input id="admin-editor-flag-reason" class="text-input" type="text" value="${escapeHtml(user.flag_reason || '')}" placeholder="Kein Grund" />
-          </label>
-          <label class="admin-editor-label admin-editor-check-item" style="justify-content:flex-start;gap:0.5rem;align-items:center">
-            <input id="admin-editor-flagged" type="checkbox" ${user.flagged ? 'checked' : ''} />
-            <span>Geflaggt</span>
-          </label>
-        </div>
-        <label class="admin-editor-label" style="margin-top:0.5rem">Neues Passwort <span class="muted">(leer = unverändert)</span>
-          <input id="admin-editor-new-password" class="text-input" type="password" placeholder="Neues Passwort..." autocomplete="new-password" style="margin-top:0.3rem" />
-        </label>
-      </div>
-
-      <div class="admin-editor-section">
-        <p class="eyebrow">RESSOURCEN</p>
-        <div class="admin-editor-grid">${resourceInputs}</div>
-      </div>
-
-      <div class="admin-editor-section">
-        <p class="eyebrow">STATISTIKEN</p>
-        <div class="admin-editor-grid">
-          <label class="admin-editor-label">Spielzeit (ms)<input id="admin-ed-stat-lifetime" class="text-input" type="number" value="${stats.lifetime ?? 0}" min="0" /></label>
-          <label class="admin-editor-label">Prestige-Anzahl<input id="admin-ed-stat-prestigeCount" class="text-input" type="number" value="${stats.prestigeCount ?? 0}" min="0" step="1" /></label>
-          <label class="admin-editor-label">Projekte gebaut<input id="admin-ed-stat-projectsBuilt" class="text-input" type="number" value="${stats.projectsBuilt ?? 0}" min="0" step="1" /></label>
-          <label class="admin-editor-label">Expeditionen<input id="admin-ed-stat-expeditionsDone" class="text-input" type="number" value="${stats.expeditionsDone ?? 0}" min="0" step="1" /></label>
-          <label class="admin-editor-label">Manuelle Klicks<input id="admin-ed-stat-manualClicks" class="text-input" type="number" value="${stats.manualClicks ?? 0}" min="0" step="1" /></label>
-          <label class="admin-editor-label">Fleet XP<input id="admin-ed-stat-fleetXP" class="text-input" type="number" value="${stats.fleetXP ?? 0}" min="0" /></label>
-          <label class="admin-editor-label">Fleet Level<input id="admin-ed-stat-fleetLevel" class="text-input" type="number" value="${stats.fleetLevel ?? 0}" min="0" step="1" /></label>
-          <label class="admin-editor-label">Chronik-Stufe<input id="admin-ed-chronicle" class="text-input" type="number" value="${save.chronicle ?? 0}" min="0" step="1" /></label>
-          <label class="admin-editor-label">Mainframe-Slots<input id="admin-ed-mainframeSlots" class="text-input" type="number" value="${save.mainframeSlots ?? 3}" min="1" step="1" /></label>
-        </div>
-      </div>
-
-      <div class="admin-editor-section">
-        <p class="eyebrow">GEBÄUDE</p>
-        ${buildingInputs}
-      </div>
-
-      <div class="admin-editor-section">
-        <p class="eyebrow">TECHNOLOGIEN</p>
-        <div class="admin-editor-checks">${techChecks}</div>
-      </div>
-
-      <div class="admin-editor-section">
-        <p class="eyebrow">PROJEKTE</p>
-        <div class="admin-editor-checks">${projChecks}</div>
-      </div>
-
-      <div class="admin-editor-section">
-        <p class="eyebrow">ARTEFAKTE</p>
-        <div class="admin-editor-checks">${artChecks}</div>
-      </div>
-
-      <div style="display:flex;gap:0.5rem;margin-top:1rem;position:sticky;bottom:0;background:var(--bg-card,#1a1a2e);padding:0.75rem 0">
-        <button class="admin-btn active" data-action="admin-save-user-data" data-username="${escapeHtml(user.username)}">Änderungen speichern</button>
-        <button class="admin-btn" data-action="admin-clear-editor">Schließen</button>
-      </div>
-    </div>`;
+  try { save = JSON.parse(user.game_save || '{}'); } catch (e) { /* ignore */ }
+  const resources = save.resources || {}, buildings = save.buildings || {}, stats = save.stats || {};
+  const techs = save.techs || [], projects = save.projects || [], artifacts = save.artifacts || [];
+  const input = (id, val, extra = '') => `<input id="${id}" class="input" type="number" value="${val}" min="0" ${extra} />`;
+  return `<div class="stack" style="margin-top:12px">
+    <p class="muted small">Bearbeite <strong>${escapeHtml(user.username)}</strong> – registriert ${escapeHtml(String(user.created_at || '—'))}</p>
+    <div class="admin-editor-section"><div class="eyebrow">Account</div><div class="admin-editor-grid">
+      <label class="lbl">Prestige-Score ${input('admin-editor-prestige', user.prestige_score, 'step="1"')}</label>
+      <label class="lbl">Total Scrap ${input('admin-editor-scrap', user.total_scrap)}</label>
+      <label class="lbl">Flag-Grund <input id="admin-editor-flag-reason" class="input" type="text" value="${escapeHtml(user.flag_reason || '')}" /></label>
+      <label class="lbl" style="flex-direction:row;align-items:center;gap:8px"><input id="admin-editor-flagged" type="checkbox" ${user.flagged ? 'checked' : ''} /> Geflaggt</label>
+      <label class="lbl">Neues Passwort (leer = unverändert) <input id="admin-editor-new-password" class="input" type="password" autocomplete="new-password" /></label>
+    </div></div>
+    <div class="admin-editor-section"><div class="eyebrow">Ressourcen</div><div class="admin-editor-grid">${RESOURCES.map(r => `<label class="lbl">${escapeHtml(RESOURCE_LABELS[r])} ${input(`admin-ed-res-${r}`, resources[r] ?? 0)}</label>`).join('')}</div></div>
+    <div class="admin-editor-section"><div class="eyebrow">Statistiken</div><div class="admin-editor-grid">
+      ${[['lifetime', 'Spielzeit (s)'], ['prestigeCount', 'Prestige'], ['projectsBuilt', 'Releases'], ['expeditionsDone', 'Aufträge'], ['manualClicks', 'Klicks'], ['fleetXP', 'Agentur-XP'], ['fleetLevel', 'Agentur-Level']].map(([f, l]) => `<label class="lbl">${l} ${input(`admin-ed-stat-${f}`, stats[f] ?? 0)}</label>`).join('')}
+      <label class="lbl">Chronicle-XP ${input('admin-ed-chronicle', save.chronicle ?? 0)}</label>
+      <label class="lbl">Mainframe-Slots ${input('admin-ed-mainframeSlots', save.mainframeSlots ?? 3, 'min="1"')}</label>
+    </div></div>
+    <div class="admin-editor-section"><div class="eyebrow">Gebäude</div><div class="admin-editor-grid">${BUILDINGS.map(bd => `<label class="lbl">${escapeHtml(bd.name)} ${input(`admin-ed-bld-${bd.id}`, buildings[bd.id] ?? 0, 'step="1"')}</label>`).join('')}</div></div>
+    <div class="admin-editor-section"><div class="eyebrow">Technologien</div><div class="admin-editor-checks">${TECHS.map(t => `<label><input type="checkbox" id="admin-ed-tech-${t.id}" ${techs.includes(t.id) ? 'checked' : ''} /> ${escapeHtml(t.name)}</label>`).join('')}</div></div>
+    <div class="admin-editor-section"><div class="eyebrow">Releases</div><div class="admin-editor-checks">${PROJECTS.map(p => `<label><input type="checkbox" id="admin-ed-proj-${p.id}" ${projects.includes(p.id) ? 'checked' : ''} /> ${escapeHtml(p.name)}</label>`).join('')}</div></div>
+    <div class="admin-editor-section"><div class="eyebrow">Funde</div><div class="admin-editor-checks">${ARTIFACTS.map(a => `<label><input type="checkbox" id="admin-ed-art-${a.id}" ${artifacts.includes(a.id) ? 'checked' : ''} /> ${escapeHtml(a.name)}</label>`).join('')}</div></div>
+    <div class="toggle-row" style="position:sticky;bottom:0;background:var(--surface);padding:10px 0"><button class="btn primary" data-action="admin-save-user-data" data-username="${escapeHtml(user.username)}">Speichern</button><button class="btn" data-action="admin-clear-editor">Schließen</button></div>
+  </div>`;
 }
 
 function renderAdmin() {
   const rows = adminUsers;
-  const flaggedSection = rows.length === 0
-    ? '<p class="muted">Keine geflaggten User. Alles sauber.</p>'
-    : rows.map(u => `
-      <div class="admin-user-row">
-        <div class="admin-user-info">
-          <strong>${escapeHtml(u.username)}</strong>
-          <span class="muted">Prestige: ${u.prestige_score} · Scrap: ${fmt(u.total_scrap)}</span>
-          <span class="admin-flag-reason">${escapeHtml(u.flag_reason || '—')}</span>
-        </div>
-        <div class="admin-user-actions">
-          <button class="admin-btn" data-action="admin-unflag" data-username="${escapeHtml(u.username)}">Entflaggen</button>
-          <button class="admin-btn danger" data-action="admin-ban" data-username="${escapeHtml(u.username)}">Neu flaggen</button>
-          <button class="admin-btn" data-action="admin-rename-user" data-username="${escapeHtml(u.username)}">Umbenennen</button>
-          <button class="admin-btn danger" data-action="admin-delete-user" data-username="${escapeHtml(u.username)}">Löschen</button>
-        </div>
-      </div>
-    `).join('');
-
   return `
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">MODERATION</p>
-          <h3>🛡 Admin-Panel</h3>
-          <p class="muted">Geflaggte User werden automatisch aus dem Leaderboard ausgeschlossen.</p>
-        </div>
-        <button class="admin-btn" data-action="admin-refresh">Aktualisieren</button>
-      </div>
-      <div class="admin-user-list">${flaggedSection}</div>
+    <section class="panel">
+      <div class="panel-head"><div><div class="eyebrow">Moderation</div><h3>${getIcon('shield')} Geflaggte Accounts</h3><div class="sub">Geflaggte User sind aus dem Leaderboard ausgeblendet.</div></div><button class="btn sm" data-action="admin-refresh">Aktualisieren</button></div>
+      <div class="stack">${rows.length ? rows.map(u => `<div class="admin-user-row"><div class="admin-user-info"><strong>${escapeHtml(u.username)}</strong><span class="muted">Prestige ${u.prestige_score} · Scrap ${fmt(u.total_scrap)}</span><span class="bad small">${escapeHtml(u.flag_reason || '—')}</span></div><div class="admin-user-actions"><button class="btn xs" data-action="admin-unflag" data-username="${escapeHtml(u.username)}">Entflaggen</button><button class="btn xs danger" data-action="admin-ban" data-username="${escapeHtml(u.username)}">Neu flaggen</button><button class="btn xs" data-action="admin-rename-user" data-username="${escapeHtml(u.username)}">Umbenennen</button><button class="btn xs danger" data-action="admin-delete-user" data-username="${escapeHtml(u.username)}">Löschen</button></div></div>`).join('') : '<p class="muted small">Keine geflaggten User.</p>'}</div>
     </section>
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">MANUELL FLAGGEN</p>
-          <h3>🚩 User flaggen</h3>
-        </div>
-      </div>
-      <div class="admin-flag-form">
-        <input id="admin-flag-username" class="text-input" type="text" placeholder="Username" autocomplete="off" />
-        <input id="admin-flag-reason" class="text-input" type="text" placeholder="Grund" autocomplete="off" />
-        <button class="admin-btn danger" data-action="admin-flag-submit">Flaggen</button>
-      </div>
-    </section>
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">ACCOUNT UMBENENNEN</p>
-          <h3>Username ändern</h3>
-        </div>
-      </div>
-      <div class="admin-flag-form">
-        <input id="admin-rename-old-username" class="text-input" type="text" placeholder="Alter Username" autocomplete="off" />
-        <input id="admin-rename-new-username" class="text-input" type="text" placeholder="Neuer Username" autocomplete="off" />
-        <button class="admin-btn" data-action="admin-rename-user">Umbenennen</button>
-      </div>
-    </section>
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">ACCOUNT LÖSCHEN</p>
-          <h3>Account entfernen</h3>
-        </div>
-      </div>
-      <div class="admin-flag-form">
-        <input id="admin-delete-username" class="text-input" type="text" placeholder="Username" autocomplete="off" />
-        <button class="admin-btn danger" data-action="admin-delete-user">Löschen</button>
-      </div>
-    </section>
-    <section class="card">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">USER-DATEN BEARBEITEN</p>
-          <h3>Alle Daten bearbeiten</h3>
-          <p class="muted">Lade einen User und bearbeite alle Felder direkt.</p>
-        </div>
-      </div>
-      <div class="admin-flag-form">
-        <input id="admin-editor-username" class="text-input" type="text" placeholder="Username" autocomplete="off" />
-        <button class="admin-btn" data-action="admin-load-user">Laden</button>
-      </div>
+    <div class="grid-3">
+      <section class="panel"><div class="eyebrow">Flaggen</div><div class="admin-form" style="margin-top:8px"><input id="admin-flag-username" class="input" placeholder="Username" /><input id="admin-flag-reason" class="input" placeholder="Grund" /><button class="btn danger sm" data-action="admin-flag-submit">Flaggen</button></div></section>
+      <section class="panel"><div class="eyebrow">Umbenennen</div><div class="admin-form" style="margin-top:8px"><input id="admin-rename-old-username" class="input" placeholder="Alter Name" /><input id="admin-rename-new-username" class="input" placeholder="Neuer Name" /><button class="btn sm" data-action="admin-rename-user">Umbenennen</button></div></section>
+      <section class="panel"><div class="eyebrow">Löschen</div><div class="admin-form" style="margin-top:8px"><input id="admin-delete-username" class="input" placeholder="Username" /><button class="btn danger sm" data-action="admin-delete-user">Löschen</button></div></section>
+    </div>
+    <section class="panel">
+      <div class="panel-head"><div><div class="eyebrow">Editor</div><h3>${getIcon('settings')} Spielstand bearbeiten</h3></div></div>
+      <div class="admin-form"><input id="admin-editor-username" class="input" placeholder="Username" /><button class="btn sm" data-action="admin-load-user">Laden</button></div>
       ${adminSelectedUser ? renderAdminUserEditor(adminSelectedUser) : ''}
     </section>
   `;
 }
 
+// ═══════════════════════════ CYBER EVENT ═══════════════════════════
+function renderDecisionOverlay() {
+  const def = currentDecisionDef();
+  if (!def || !state.decision) return '';
+  const remaining = Math.max(0, (state.decision.endsAt - Date.now()) / 1000);
+  const total = Math.max(1, (state.decision.endsAt - state.decision.startedAt) / 1000);
+  return `<div class="cyber-panel info decision">
+    <div class="cyber-head"><span style="font-size:1.4rem">${def.icon}</span><strong>${escapeHtml(def.title)}</strong><span class="t" style="color:var(--muted)">${fmtSec(remaining)}</span></div>
+    <div class="cyber-desc">${escapeHtml(def.text)}</div>
+    <div class="progress thin"><span style="width:${(remaining / total) * 100}%"></span></div>
+    <div class="stack" style="gap:6px">${def.options.map((o, i) => `<button class="btn ${i === 0 ? 'primary' : ''} block decision-opt" data-action="decide" data-index="${i}" style="flex-direction:column;align-items:flex-start;gap:2px;padding:8px 12px"><span>${escapeHtml(o.label)}</span><span class="small" style="font-weight:500;opacity:0.8;white-space:normal;text-align:left">${escapeHtml(o.desc)}</span></button>`).join('')}</div>
+  </div>`;
+}
+
+export function renderCyberEventOverlay() {
+  const ce = state.cyberEvent;
+  if (!ce) return renderDecisionOverlay();
+  const remaining = Math.max(0, (ce.endsAt - Date.now()) / 1000);
+  const pct = ce.type === 'interactive'
+    ? Math.min(100, ((ce.clicksDone || 0) / ce.clicksRequired) * 100)
+    : Math.min(100, (1 - remaining / ((ce.endsAt - ce.startedAt) / 1000)) * 100);
+  return `<div class="cyber-panel ${ce.color}">
+    <div class="cyber-head"><span style="font-size:1.4rem">${ce.icon || '⚡'}</span><strong>${escapeHtml(ce.name)}</strong><span class="t">${fmtSec(remaining)}</span></div>
+    <div class="cyber-desc">${escapeHtml(ce.desc)}</div>
+    <div class="progress"><span style="width:${pct}%"></span></div>
+    ${ce.type === 'interactive' ? `<button class="btn primary block cyber-btn" data-action="cyber-event-click">${ce.icon || '⚡'} Patch deployen (${ce.clicksDone || 0}/${ce.clicksRequired})</button>` : '<div class="muted small" style="text-align:center">Wird automatisch aktiv…</div>'}
+  </div>`;
+}
+
+// ═══════════════════════════ DISPATCH ═══════════════════════════
 export function renderTabContent() {
   switch (state.selectedTab) {
-    case 'buildings':
-      return renderBuildings();
-    case 'research':
-      return renderResearch();
-    case 'colonies':
-      return renderColonies();
-    case 'expeditions':
-      return renderExpeditions();
-    case 'projects':
-      return renderProjects();
-    case 'market':
-      return renderMarket();
-    case 'prestige':
-      return renderPrestige() + renderMainframe();
-    case 'account':
-      return renderAccount();
-    case 'admin':
-      return renderAdmin();
-    case 'codex':
-      return renderCodex();
+    case 'buildings': return renderBuildings();
+    case 'research': return renderResearch();
+    case 'projects': return renderProjects();
+    case 'expansion': return renderExpansion();
+    case 'market': return renderMarket();
+    case 'prestige': return renderPrestige();
+    case 'codex': return renderCodex();
+    case 'account': return renderAccount();
+    case 'admin': return renderAdmin();
     case 'overview':
-    default:
-      return renderOverview();
+    default: return renderOverview();
   }
 }

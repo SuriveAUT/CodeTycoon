@@ -1,6 +1,7 @@
-const configuredBase = import.meta.env.VITE_API_BASE_URL;
-export const API_BASE_URL = (configuredBase || (import.meta.env.PROD ? '/api' : 'http://localhost:3005/api')).replace(/\/+$/, '');
-const REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 10000);
+const env = (typeof import.meta !== "undefined" && import.meta.env) ? import.meta.env : {};
+const configuredBase = env.VITE_API_BASE_URL;
+export const API_BASE_URL = (configuredBase || (env.PROD ? "/api" : "http://localhost:3005/api")).replace(/\/+$/, "");
+const REQUEST_TIMEOUT_MS = Number(env.VITE_API_TIMEOUT_MS || 10000);
 const RETRY_DELAY_MS = 400;
 
 export const AstraforgeAPI = {
