@@ -10,7 +10,7 @@ import {
 import { clickAnomaly } from '../engine/events.js';
 import { autoExpeditions } from '../engine/automation.js';
 import { clickCyberEvent } from '../engine/cyberEvents.js';
-import { renderTabContent, renderNav, renderTopbar, renderSidebarFoot, renderCyberEventOverlay, renderKeepReset, doctrineCard, setAdminUsers, setAdminSelectedUser, collectAdminSaveEdits, TABS, VALID_TABS, navBadges } from './renderers.js';
+import { renderTabContent, renderNav, renderTopbar, renderSidebarFoot, renderCyberEventOverlay, renderKeepReset, doctrineCard, challengeGoalText, setAdminUsers, setAdminSelectedUser, collectAdminSaveEdits, TABS, VALID_TABS, navBadges } from './renderers.js';
 import { AstraforgeAPI } from '../lib/api-client.js';
 import { RESOURCES, RESOURCE_LABELS, DOCTRINES } from '../data/misc.js';
 import { fmt, fmtSec, fmtRate, rand } from '../lib/format.js';
@@ -19,6 +19,9 @@ import { onToast } from '../lib/toast.js';
 import { fetchServerStockPrices, buyStock, sellStock } from '../engine/stocks.js';
 import { resolveDecision } from '../engine/decisions.js';
 import { getSetting, toggleSetting } from '../lib/settings.js';
+import { claimStandup, useCoffee, rewardText } from '../engine/daily.js';
+import { startChallenge, abortChallenge, activeChallenge } from '../engine/challenges.js';
+import { getChallenge } from '../data/challenges.js';
 
 const FRESH_FLAG = 'codetycoon-fresh-start';
 
@@ -329,8 +332,9 @@ export default function App() {
       case 'prestige': {
         const gain = prestigeGain();
         if (gain <= 0) return;
+        const sprint = activeChallenge();
         confirmModal('Hard Refactor',
-          `<p>Du bekommst <strong class="good">+${fmt(gain)} XP</strong> (Guthaben danach: ${fmt(state.chronicle + gain)}).</p><div style="margin-top:12px">${renderKeepReset()}</div>`,
+          `<p>Du bekommst <strong class="good">+${fmt(gain)} XP</strong> (Guthaben danach: ${fmt(state.chronicle + gain)}).</p>${sprint ? `<p class="bad" style="margin-top:6px">Der laufende Sprint „${escapeHtml(sprint.name)}“ endet dabei ohne Belohnung.</p>` : ''}<div style="margin-top:12px">${renderKeepReset()}</div>`,
           `Refactor (+${fmt(gain)} XP)`
         ).then(confirmed => {
           if (!confirmed || !doPrestigeReset()) return;
@@ -354,6 +358,40 @@ export default function App() {
         done(); return;
       }
       case 'doctrine': closeModal(null); setDoctrine(id); done(); return; // auch aus dem Doktrin-Modal
+      // ── Tages-Loop ──
+      case 'daily-claim': {
+        const info = claimStandup();
+        if (info) showToast(`Daily Standup, Tag ${info.streak}:${rewardText(info.reward)}${info.week ? ' + Retro-Bonus ×2' : ''}`, 'good', true);
+        done(); return;
+      }
+      case 'coffee-use': {
+        const result = useCoffee(id);
+        showToast(result.text, result.ok ? 'good' : 'warn');
+        done(); return;
+      }
+      // ── Sprints ──
+      case 'sprint-start': {
+        const def = getChallenge(id);
+        if (!def) return;
+        const gain = prestigeGain();
+        confirmModal(`Sprint: ${escapeHtml(def.name)}`,
+          `<p>Startet einen neuen Run wie ein Hard Refactor${gain > 0 ? ` (<strong class="good">+${fmt(gain)} XP</strong>)` : ' (aktuell 0 XP)'}.</p>
+           <ul class="muted small" style="margin:8px 0 0 18px"><li>Handicap: ${escapeHtml(def.modLabel)}</li><li>Ziel: ${escapeHtml(challengeGoalText(def))}${def.timeLimit ? ` in ${fmtSec(def.timeLimit / 1000)}` : ''}</li><li>Belohnung: ${escapeHtml(def.rewardLabel)} (permanent)</li></ul>
+           <div style="margin-top:12px">${renderKeepReset()}</div>`,
+          'Sprint starten'
+        ).then(ok => {
+          if (!ok || !startChallenge(id)) return;
+          showToast(`Sprint gestartet: ${def.name} – ${def.modLabel}`, 'good', true);
+          setState('selectedTab', 'overview');
+          done();
+        });
+        return;
+      }
+      case 'sprint-abort':
+        confirmModal('Sprint beenden?', '<p>Das Handicap fällt weg und der Run läuft normal weiter. Eine Belohnung gibt es dann nicht.</p>', 'Sprint beenden', 'danger').then(ok => {
+          if (ok && abortChallenge()) { showToast('Sprint beendet.', 'warn'); done(); }
+        });
+        return;
       case 'equip-chip': equipChip(id); done(); return;
       case 'unequip-chip': unequipChip(id); done(); return;
       case 'buy-stock': buyStock(id, Number(btn.dataset.shares || 1)); done(); return;

@@ -2,6 +2,7 @@ import { state, setState, add, log, hasProject, hasArtifact, totalBuildings, tec
 import { resourceMult, currentBonuses, currentRates } from '../store/bonuses.js';
 import { MISSIONS, ACHIEVEMENTS, PRESTIGE_MILESTONES, RESOURCE_LABELS } from '../data/misc.js';
 import { EVENT_POOL } from '../data/events.js';
+import { CHALLENGES } from '../data/challenges.js';
 import { BUILDINGS } from '../data/buildings.js';
 import { ARTIFACTS } from '../data/artifacts.js';
 import { CHIPS } from '../data/chips.js';
@@ -142,6 +143,15 @@ export function checkAchievements(silent) {
   if (clicks >= 1000) unlock('clicks_1k');
   if (clicks >= 50000) unlock('clicks_50k');
   if (clicks >= 100000) unlock('clicks_100k');
+  const daily = state.daily || {};
+  if ((daily.bestStreak || 0) >= 7) unlock('streak_7');
+  if ((daily.bestStreak || 0) >= 30) unlock('streak_30');
+  if ((daily.ticketsDone || 0) >= 50) unlock('tickets_50');
+  if ((state.coffee?.used || 0) >= 10) unlock('coffee_10');
+  if ((state.stats.bugsFixed || 0) >= 25) unlock('bugs_25');
+  const sprints = (state.challengesDone || []).length;
+  if (sprints >= 1) unlock('sprint_1');
+  if (sprints >= CHALLENGES.length) unlock('sprints_all');
   if (state.stats.lifetime >= 86400) unlock('playtime_1d');
   if (state.stats.lifetime >= 604800) unlock('playtime_7d');
   if (state.stats.lifetime >= 2592000) unlock('playtime_30d');
@@ -168,6 +178,7 @@ export function checkPrestigeMilestones(silent) {
 export function clickAnomaly(type) {
   if (!state.asteroidActive) return null;
   setState('asteroidActive', false);
+  setState('stats', 'bugsFixed', (state.stats.bugsFixed || 0) + 1);
   const now = Date.now();
   const b = currentBonuses();
   const rates = currentRates();

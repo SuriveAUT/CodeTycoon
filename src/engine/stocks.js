@@ -64,6 +64,7 @@ export function buyStock(stockId, shares) {
   if ((state.resources.energy || 0) < totalCost) return false;
   setState('resources', 'energy', Math.max(0, (state.resources.energy || 0) - totalCost));
   setState('stocks', stockId, getOwnedShares(stockId) + shares);
+  setState('stats', 'stockTrades', (state.stats.stockTrades || 0) + 1);
   // Report to backend so the trade influences the next global price tick
   AstraforgeAPI.recordStockTrade(stockId, shares, 'buy');
   return true;
@@ -78,6 +79,7 @@ export function sellStock(stockId, shares) {
   const price = getStockPrice(stockId);
   const revenue = price * toSell * (1 - BROKER_FEE);
   setState('stocks', stockId, owned - toSell);
+  setState('stats', 'stockTrades', (state.stats.stockTrades || 0) + 1);
   setState('resources', 'energy', (state.resources.energy || 0) + revenue);
   AstraforgeAPI.recordStockTrade(stockId, toSell, 'sell');
   return true;

@@ -9,6 +9,7 @@ import { RESOURCES, WORLDS, FOCI, PROTOCOLS, PRESTIGE_MILESTONES, CHRONICLE_UPGR
 import { BONUS_EFFECTS, PROJECT_EFFECTS, ARTIFACT_EFFECTS, DOCTRINE_EFFECTS } from '../data/effects.js';
 import { CHIPS } from '../data/chips.js';
 import { STOCKS, dividendBonusForShares } from '../data/stocks.js';
+import { getChallenge } from '../data/challenges.js';
 import { clamp } from '../lib/format.js';
 
 export const MAX_COLONIES = 8;
@@ -53,7 +54,13 @@ export function colonyBaseBonus(c) {
 
 export function computeBonuses(s = state) {
   const totalBld = totalBuildings(s);
-  const synergy = 1 + Math.min(totalBld, 1000) * 0.002; // Team-Synergie: +0,2% pro Mitarbeiter (max +200%)
+  // Sprints: laufendes Handicap und permanente Belohnungen
+  const challenge = s.challenge ? getChallenge(s.challenge) : null;
+  const doneChallenges = (s.challengesDone || []).map(getChallenge).filter(Boolean);
+  let synergyMult = 1;
+  doneChallenges.forEach(c => { if (c.reward.synergyMult) synergyMult *= c.reward.synergyMult; });
+  // Team-Synergie: +0,2% pro Mitarbeiter (max +200%)
+  const synergy = challenge?.mods.noSynergy ? 1 : 1 + Math.min(totalBld, 1000) * 0.002 * synergyMult;
   const b = {
     allMult: synergy,
     teamSynergy: synergy,
@@ -152,9 +159,17 @@ export function computeBonuses(s = state) {
   b.allMult *= 1 + colonyBonusSum;
   b.allMult *= b.colonyOutputMult;
 
+  // Sprints: Belohnungen abgeschlossener Sprints (permanent), Handicap des laufenden
+  doneChallenges.forEach(c => applyEffects(b, c.reward));
+  if (challenge) {
+    applyEffects(b, challenge.mods);
+    if (challenge.mods.noAuto) { b.autoBuild = b.autoResearch = b.autoExpeditions = b.autoProjects = false; b.challengeNoAuto = true; }
+  }
+
   // Temporäre Effekte
-  if (s.event?.effects) applyEffects(b, s.event.effects);
   const now = Date.now();
+  if (s.event?.effects) applyEffects(b, s.event.effects);
+  if (s.boost?.effects && (s.boost.endsAt || 0) > now) applyEffects(b, s.boost.effects);
   if (s.activeProtocol && (s.activeProtocolEndsAt || 0) > now) {
     const protocol = PROTOCOLS.find(p => p.id === s.activeProtocol);
     if (protocol?.effects) applyEffects(b, protocol.effects);

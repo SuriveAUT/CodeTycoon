@@ -37,6 +37,7 @@ export function purchaseBuilding(id, qty = 1, { quiet = false } = {}) {
     setState('buildings', id, buildingCount(id) + 1);
     bought += 1;
   }
+  if (bought) setState('stats', 'hiresTotal', (state.stats.hiresTotal || 0) + bought);
   if (bought && !quiet) {
     log(`${def.name}: +${bought}.`);
     const after = buildingCount(id);
@@ -71,6 +72,7 @@ export function purchaseTech(id, { quiet = false } = {}) {
   if (state.resources.research < cost) return false;
   setState('resources', 'research', state.resources.research - cost);
   setState('techs', [...state.techs, id]);
+  setState('stats', 'techsLearned', (state.stats.techsLearned || 0) + 1);
   if (!quiet) log(`Gelernt: ${tech.name}.`);
   return true;
 }
@@ -126,9 +128,10 @@ const RUN_KEYS = [
   'cyberEvent', 'nextCyberEventAt', 'decision', 'nextDecisionAt'
 ];
 
-export function doPrestigeReset() {
+// allowZero: Sprint-Start setzt auch ohne XP-Gewinn zurück. Ein laufender Sprint endet dabei ohne Belohnung.
+export function doPrestigeReset({ allowZero = false } = {}) {
   const gain = prestigeGain();
-  if (gain <= 0) return false;
+  if (gain <= 0 && !allowZero) return false;
   const prestigeCount = state.stats.prestigeCount + 1;
 
   const fresh = defaultState();
@@ -136,6 +139,8 @@ export function doPrestigeReset() {
   setState('chronicle', state.chronicle + gain);
   setState('stats', 'prestigeCount', prestigeCount);
   setState('stats', 'totalAtLastPrestige', { ...state.stats.total });
+  setState('stats', 'runStartedAt', Date.now());
+  setState('challenge', null);
   setState('cache', { bonuses: null, rates: {} });
 
   // Startkapital via Seed Funding

@@ -575,6 +575,20 @@ label.lbl { display: grid; gap: 4px; font-size: 0.76rem; color: var(--muted); }
 .modal-box p { color: var(--text-2); font-size: 0.86rem; }
 .modal-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
 
+/* ─────────────── Daily Standup / Tickets / Kaffee ─────────────── */
+.streak { display: flex; gap: 6px; flex-wrap: wrap; }
+.streak span { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border-2); display: grid; place-items: center; font-family: var(--mono); font-size: 0.7rem; color: var(--muted); background: var(--surface-2); }
+.streak span.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.streak span.next { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.streak span.big { border-style: dashed; font-weight: 800; }
+.ticket { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); font-size: 0.82rem; }
+.ticket.done { border-color: color-mix(in srgb, var(--good) 40%, transparent); opacity: 0.8; }
+.ticket .ticket-label { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.ticket .num { text-align: right; font-family: var(--mono); font-size: 0.7rem; white-space: nowrap; }
+.coffee { font-size: 1.15rem; letter-spacing: 3px; display: flex; align-items: center; gap: 8px; }
+.item.sprint.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft); }
+.sprint-progress { width: 100%; display: grid; gap: 6px; }
+
 /* ─────────────── Bug (Anomalie) ─────────────── */
 .bug {
   position: fixed; width: 52px; height: 52px; display: grid; place-items: center;

@@ -6,10 +6,13 @@ import { TECHS } from '../data/techs.js';
 import { PROJECTS } from '../data/projects.js';
 import { ARTIFACTS } from '../data/artifacts.js';
 import { zeroResources } from '../data/misc.js';
+import { QUESTS } from '../data/quests.js';
+import { COFFEE_INTERVAL_MS } from '../data/daily.js';
+import { CHALLENGES } from '../data/challenges.js';
 
 export const SAVE_KEY = 'dev-tycoon-save-v1';
 export const BUY_AMOUNTS = [1, 10, 100, 'max'];
-const VERSION = 6;
+const VERSION = 7;
 
 // Sehr alte Saves (Astraforge-Weltraum-Thema) auf die aktuellen IDs mappen.
 const ID_MAP = {
@@ -83,9 +86,22 @@ export function defaultState() {
       decisionsMade: 0,
       fleetXP: 0,
       fleetLevel: 0,
+      hiresTotal: 0,
+      techsLearned: 0,
+      bugsFixed: 0,
+      stockTrades: 0,
+      sprintsDone: 0,
+      runStartedAt: Date.now(),
       lastSave: Date.now(),
       firstSeen: Date.now()
     },
+    // Tages-Loop (engine/daily.js): Streak, Tickets, Kaffee, temporärer Boost
+    daily: { lastClaimDay: -1, streak: 0, bestStreak: 0, claimsTotal: 0, ticketsDay: -1, tickets: [], rerolls: 0, allDoneDay: -1, ticketsDone: 0 },
+    coffee: { beans: 1, nextBeanAt: Date.now() + COFFEE_INTERVAL_MS, used: 0 },
+    boost: null,
+    // Sprints (engine/challenges.js)
+    challenge: null,
+    challengesDone: [],
     event: null,
     eventEnds: 0,
     nextEventAt: Date.now() + rand(4 * 60e3, 8 * 60e3),
@@ -140,6 +156,12 @@ function migrateState(candidate) {
       candidate.stats.totalAtLastPrestige = { ...(candidate.stats.totalAtLastPrestige || {}), scrap: total - 1e9 };
     }
   }
+  // v6 → v7: neue Aufgaben wurden in die Reihenfolge eingefügt – questIndex entsprechend verschieben
+  if ((candidate.version || 0) < 7 && Number.isFinite(candidate.questIndex)) {
+    let idx = Math.max(0, Math.floor(candidate.questIndex));
+    QUESTS.forEach((q, pos) => { if (q.since === 7 && idx >= pos) idx++; });
+    candidate.questIndex = idx;
+  }
   return candidate;
 }
 
@@ -156,6 +178,8 @@ export function normalizeState(candidate) {
     chronicleUpgrades: { ...base.chronicleUpgrades, ...(candidate.chronicleUpgrades || {}) },
     protocolCooldowns: { ...base.protocolCooldowns, ...(candidate.protocolCooldowns || {}) },
     auto: { ...base.auto, ...(candidate.auto || {}) },
+    daily: { ...base.daily, ...(candidate.daily || {}) },
+    coffee: { ...base.coffee, ...(candidate.coffee || {}) },
     stats: {
       ...base.stats,
       ...(candidate.stats || {}),
@@ -191,6 +215,19 @@ export function normalizeState(candidate) {
   merged.stats.manualClicks = Math.max(0, Math.floor(asFiniteNumber(merged.stats.manualClicks, 0)));
   merged.stats.protocolsUsed = Math.max(0, Math.floor(asFiniteNumber(merged.stats.protocolsUsed, 0)));
   merged.stats.questsDone = Math.max(0, Math.floor(asFiniteNumber(merged.stats.questsDone, 0)));
+  ['hiresTotal', 'techsLearned', 'bugsFixed', 'stockTrades', 'sprintsDone'].forEach(k => { merged.stats[k] = Math.max(0, Math.floor(asFiniteNumber(merged.stats[k], 0))); });
+  merged.stats.runStartedAt = asFiniteNumber(merged.stats.runStartedAt, Date.now());
+  // Tages-Loop / Sprints
+  merged.daily.tickets = Array.isArray(merged.daily.tickets) ? merged.daily.tickets.filter(t => t && typeof t.id === 'string') : [];
+  ['lastClaimDay', 'ticketsDay', 'allDoneDay'].forEach(k => { merged.daily[k] = Math.floor(asFiniteNumber(merged.daily[k], -1)); });
+  ['streak', 'bestStreak', 'claimsTotal', 'rerolls', 'ticketsDone'].forEach(k => { merged.daily[k] = Math.max(0, Math.floor(asFiniteNumber(merged.daily[k], 0))); });
+  merged.coffee.beans = Math.max(0, Math.min(3, Math.floor(asFiniteNumber(merged.coffee.beans, 0))));
+  merged.coffee.nextBeanAt = asFiniteNumber(merged.coffee.nextBeanAt, 0);
+  merged.coffee.used = Math.max(0, Math.floor(asFiniteNumber(merged.coffee.used, 0)));
+  if (!merged.boost || typeof merged.boost !== 'object' || Number(merged.boost.endsAt || 0) <= Date.now()) merged.boost = null;
+  const knownChallenge = new Set(CHALLENGES.map(c => c.id));
+  merged.challenge = knownChallenge.has(merged.challenge) ? merged.challenge : null;
+  merged.challengesDone = Array.isArray(merged.challengesDone) ? merged.challengesDone.filter(id => knownChallenge.has(id)) : [];
 
   if (merged.stats.prestigeCount > 0 && !candidate.stats?.totalAtLastPrestige) {
     merged.stats.totalAtLastPrestige = { ...merged.stats.total };

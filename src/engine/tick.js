@@ -8,11 +8,14 @@ import { checkQuests } from './quests.js';
 import { tickCyberEvent } from './cyberEvents.js';
 import { tickDecisions } from './decisions.js';
 import { tickTheme } from './themeEngine.js';
+import { tickDaily } from './daily.js';
+import { checkChallenge } from './challenges.js';
 
 let lastChecksAt = 0;
 
 // Errungenschaften, Meilensteine und Aufgaben prüfen (monotone Schwellen – reicht 1×/s bzw. einmal nach Offline-Catchup).
 export function runProgressChecks(silent) {
+  checkChallenge(silent);          // zuerst, damit Sprint-Abschlüsse sofort in Errungenschaften/Aufgaben zählen
   checkAchievements(silent);
   checkPrestigeMilestones(silent);
   checkQuests(silent);
@@ -40,6 +43,10 @@ export function processTick(dt, opts = {}) {
     setState('event', null);
     setState('lastEventAt', now);
     setState('nextEventAt', now + rand(4 * 60e3, 10 * 60e3));
+  }
+  if (state.boost && state.boost.endsAt <= now) {
+    if (!silent) log(`Boost vorbei: ${state.boost.name}.`);
+    setState('boost', null);
   }
 
   const b = computeBonuses();
@@ -93,6 +100,7 @@ export function processTick(dt, opts = {}) {
   // Schwellen-Checks 1× pro Sekunde (oder pro großem Schritt), nicht pro Frame.
   if (dt >= 1 || now - lastChecksAt >= 1000) {
     lastChecksAt = now;
+    tickDaily(now, silent);
     if (!opts.offline) runProgressChecks(silent);
   }
 

@@ -32,19 +32,21 @@ No test or lint scripts are configured. The engine runs headless in Node (see "B
 - `src/index.jsx` — mounts the app
 - `src/components/App.jsx` — app shell (sidebar/bottom-nav, resource topbar), game loop timer, autosave, offline catch-up, modal/toast/tooltip system, chat widget, and the central `data-action` click dispatcher
 - `src/components/renderers.js` — HTML string renderers for navigation, topbar and every tab (`renderTabContent()`); tabs are: `overview` (Büro), `buildings` (Team), `research` (Tech), `projects` (Releases), `expansion` (Freelance-Aufträge + Standorte + Doktrin), `market` (Börse), `prestige`, `codex`, `account`, `admin`
-- `src/store/gameState.js` — single Solid.js `createStore` with all game state, save/load/normalize/migration (`VERSION` 5), cost helpers (`calcBuildingCost`, `maxAffordable`)
+- `src/store/gameState.js` — single Solid.js `createStore` with all game state, save/load/normalize/migration (`VERSION` 7), cost helpers (`calcBuildingCost`, `maxAffordable`)
 - `src/store/bonuses.js` — `computeBonuses(s)` and the production model `simulateProduction(dt, s, b)`; both take an optional state object so they run headless
 - `src/engine/` — pure game logic:
   - `tick.js` — one simulation step (`processTick`): effects expiry → production → missions → events → automation → achievements/milestones/quests
   - `actions.js` — all player-triggered mutations (buy, research, prestige, colonies, missions, protocols, click)
   - `automation.js` — auto-hire / auto-learn / auto-freelance / auto-deploy
   - `quests.js` — sequential quest system (`currentQuest`, `questProgress`, `checkQuests`)
+  - `daily.js` — daily loop: `tickDaily` (tickets per local day, coffee ripening, ticket rewards), `claimStandup` (login streak), `useCoffee`, `setBoost` (single temporary boost in `state.boost`); unlocked after the first tech (`dailyUnlocked`)
+  - `challenges.js` — sprints: `startChallenge` (prestige reset with `allowZero`), `checkChallenge` (goal/time limit, run in `runProgressChecks`), `abortChallenge`; mods and permanent rewards are applied in `computeBonuses`
   - `events.js` — missions completion, random events, achievements, prestige milestones, bug anomaly
   - `cyberEvents.js` — interactive pop-up events
   - `decisions.js` — choice events (`data/decisions.js`), rendered in the same top-right overlay as cyber events
   - `stocks.js` — server-driven stock market client; held shares give a per-resource production bonus (`dividendBonus`, +0.01%/share, cap +50%) applied in `computeBonuses`
   - `themeEngine.js` — accent theme by progress (early/mid/late)
-- `src/data/` — static content: `buildings.js` (42 buildings, categories, `milestoneMult`), `techs.js` (39 techs in 5 tiers), `projects.js`, `artifacts.js`, `chips.js`, `quests.js` (32 quests), `effects.js` (bonus functions), `events.js` (random event pool), `decisions.js` (choice events), `stocks.js` (stock list + dividend constants), `misc.js` (resources, `zeroResources()`, worlds, foci, doctrines, ops modes, protocols, missions, achievements, chronicle upgrades, prestige milestones, `COLONY_MAX_LEVEL`)
+- `src/data/` — static content: `buildings.js` (42 buildings, categories, `milestoneMult`), `techs.js` (39 techs in 5 tiers), `projects.js`, `artifacts.js`, `chips.js`, `quests.js` (35 quests; `since: 7` marks quests inserted in v7 for the questIndex migration), `daily.js` (streak/ticket/coffee constants, `dayKey`), `challenges.js` (6 sprints), `effects.js` (bonus functions), `events.js` (random event pool), `decisions.js` (choice events), `stocks.js` (stock list + dividend constants), `misc.js` (resources, `zeroResources()`, worlds, foci, doctrines, ops modes, protocols, missions, achievements, chronicle upgrades, prestige milestones, `COLONY_MAX_LEVEL`)
 - `src/lib/` — `api-client.js` (HTTP to backend, node-safe), `format.js`, `icons.js` (SVG sprite lookup; sprite lives in `index.html`), `sanitize.js`, `toast.js`, `settings.js` (per-device settings in localStorage, not part of the save)
 - `src/index.css` — the design system (CSS variables, layout, components). No other stylesheet.
 
@@ -55,6 +57,7 @@ No test or lint scripts are configured. The engine runs headless in Node (see "B
 - Building milestones: output ×2 at 10/25/50/100/200/300/400/500 owned (`MILESTONE_STEPS`).
 - Cost growth 1.15 per purchase (modifiers 1.6), soft cap ×1.03 per level above 100. Modifier effects cap at 20 units (`MODIFIER_CAP`), colonies at 8 (`MAX_COLONIES`), team synergy at +200%.
 - Prestige XP = `6 · ∛(runScrap / 1e7) · structBonus · prestigeGainMult` (`prestigeGainRaw` in actions.js).
+- Ticket targets and daily rewards scale with current gross production (minutes of output), so they stay relevant at any stage; lifetime counters for them live in `stats` (`hiresTotal`, `techsLearned`, `bugsFixed`, `stockTrades`).
 - Rates cache: `state.cache.rates[res]` = net/s, plus `__produced`, `__consumed`, `__utilization`, `__starved`. Read it through `currentRates()` / `currentBonuses()` (bonuses.js), which fall back to a fresh computation when the cache is empty; never read `state.cache.*` directly.
 - Automation runs every tick (auto-hire buys at most one unit per building per call); the threshold checks (achievements, milestones, quests via `runProgressChecks()`) run once per second inside `processTick`. With `opts.offline` the checks are skipped and the caller runs `runProgressChecks(true)` once afterwards.
 
