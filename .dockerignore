@@ -7,3 +7,4 @@ backend/database.sqlite
 dev-server.out.log
 dev-server.err.log
 *.md
+scripts

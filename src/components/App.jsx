@@ -1,7 +1,8 @@
 import { onMount, onCleanup, createSignal } from 'solid-js';
 import { state, setState, saveState, log as gameLog, SAVE_KEY, normalizeState, hadLocalSave, totalBuildings, techCount, projectCount, forceCloudSync, snapshotState, getTech, BUY_AMOUNTS } from '../store/gameState.js';
 import { computeBonuses, estimateRatesSnapshot, currentBonuses, currentRates, clickValue } from '../store/bonuses.js';
-import { processTick, runProgressChecks } from '../engine/tick.js';
+import { processTick } from '../engine/tick.js';
+import { simulateOffline } from '../engine/offline.js';
 import {
   purchaseBuilding, sellBuilding, purchaseTech, purchaseProject, doPrestigeReset, buyChronicle, foundColony, upgradeColony,
   upgradeAllColonies, setColonyFocus, launchMission, setDoctrine, setOperationsMode, activateProtocol, prestigeGain,
@@ -36,7 +37,6 @@ export default function App() {
   let currentBugTimeout = null;
   let autosaveIntervalId = null;
   let animationFrameId = null;
-  let backgroundTickId = null;
   let tooltipHandlers = null;
   let appClickHandler = null;
   let appKeydownHandler = null;
@@ -113,28 +113,18 @@ export default function App() {
   }
 
   // ── Offline-Fortschritt ──
-  function offlineCatchup() {
+  // Ohne Argument: Abwesenheit seit dem letzten Speichern (beim Laden). Mit `elapsedSec`: Lücke nach einem
+  // versteckten Tab oder Standby; dann erst ab 5 Minuten ein Dialog, damit kurze Tab-Wechsel nicht stören.
+  function offlineCatchup(elapsedSec, { resumed = false } = {}) {
     const last = state.stats.lastSave > 0 ? state.stats.lastSave : Date.now();
-    const elapsed = Math.max(0, (Date.now() - last) / 1000);
+    const elapsed = elapsedSec ?? Math.max(0, (Date.now() - last) / 1000);
     if (elapsed < 10) return;
-    const bonuses = currentBonuses();
-    const cap = (bonuses.offlineCapHours || 8) * 3600;
-    const sim = Math.min(elapsed, cap);
-    const efficiency = bonuses.offlineEfficiency || 0.5;
-    const before = {};
-    RESOURCES.forEach(r => { before[r] = state.resources[r] || 0; });
-    let left = sim;
-    while (left > 0) {
-      const step = Math.min(120, left);
-      processTick(step * efficiency, { silent: true, auto: true, offline: true });
-      left -= step;
-    }
-    runProgressChecks(true);
-    const gains = RESOURCES.map(r => [r, (state.resources[r] || 0) - before[r]]).filter(([, d]) => d >= 0.5).sort((a, z) => z[1] - a[1]).slice(0, 4);
+    const { sim, cap, efficiency, gains: gainsByRes } = simulateOffline(elapsed);
+    const gains = RESOURCES.map(r => [r, gainsByRes[r]]).filter(([, d]) => d >= 0.5).sort((a, z) => z[1] - a[1]).slice(0, 4);
     const summary = gains.length ? gains.map(([r, d]) => `+${fmt(d)} ${RESOURCE_LABELS[r]}`).join(', ') : 'nichts Nennenswertes';
     gameLog(`Offline ${fmtSec(sim)} (${Math.round(efficiency * 100)}%): ${summary}.`);
-    if (sim > 60) {
-      setTimeout(() => showModal('Willkommen zurück', `<p>Du warst <strong>${fmtSec(elapsed)}</strong> weg. Berechnet: ${fmtSec(sim)} mit ${Math.round(efficiency * 100)}% Effizienz${elapsed > cap ? ` (Offline-Limit ${fmt(bonuses.offlineCapHours)}h)` : ''}.</p><div class="tag-list" style="margin-top:10px">${gains.map(([r, d]) => `<span class="cost ok">+${fmt(d)} ${escapeHtml(RESOURCE_LABELS[r])}</span>`).join('') || '<span class="muted">Nichts produziert.</span>'}</div>`, [{ label: 'Weiter', action: 'confirm', cls: 'primary' }]), 300);
+    if (sim > (resumed ? 300 : 60)) {
+      setTimeout(() => showModal('Willkommen zurück', `<p>Du warst <strong>${fmtSec(elapsed)}</strong> weg. Berechnet: ${fmtSec(sim)} mit ${Math.round(efficiency * 100)}% Effizienz${elapsed > cap ? ` (Offline-Limit ${fmt(cap / 3600)}h)` : ''}.</p><div class="tag-list" style="margin-top:10px">${gains.map(([r, d]) => `<span class="cost ok">+${fmt(d)} ${escapeHtml(RESOURCE_LABELS[r])}</span>`).join('') || '<span class="muted">Nichts produziert.</span>'}</div>`, [{ label: 'Weiter', action: 'confirm', cls: 'primary' }]), 300);
     }
     setState('nextAsteroidAt', Date.now() + rand(30e3, 90e3));
   }
@@ -738,9 +728,20 @@ export default function App() {
 
   // ── Game Loop ──
   let mountedAt = 0;
+  // Wanduhrzeit, bis zu der das Spiel gerechnet ist. Lücken über RESUME_GAP_MS (Tab im Hintergrund,
+  // Standby) laufen über die Offline-Regeln, statt verloren zu gehen.
+  const RESUME_GAP_MS = 10000;
+  let lastTickWall = Date.now();
+  function catchUpGap() {
+    const elapsedMs = Date.now() - lastTickWall;
+    lastTickWall = Date.now();
+    if (elapsedMs > RESUME_GAP_MS) offlineCatchup(elapsedMs / 1000, { resumed: true });
+  }
   function gameLoop(now) {
+    if (Date.now() - lastTickWall > RESUME_GAP_MS) { catchUpGap(); lastFrame = now; }
     const dt = Math.min(2, (now - lastFrame) / 1000);
     lastFrame = now;
+    lastTickWall = Date.now();
     // Die ersten Sekunden nach dem Laden still halten (keine Toast-Flut bei alten Saves)
     processTick(dt, { silent: now - mountedAt < 2000, auto: true });
     if (!state.asteroidActive && Date.now() > (state.nextAsteroidAt || 0) && state.stats.lifetime > 60) spawnBug();
@@ -770,6 +771,7 @@ export default function App() {
       setState('cache', 'bonuses', computeBonuses());
       setState('cache', 'rates', estimateRatesSnapshot());
       offlineCatchup();
+      lastTickWall = Date.now();
       setState('cache', 'rates', estimateRatesSnapshot());
       renderAll(true);
       if (state.selectedTab === 'account') refreshLeaderboard();
@@ -788,9 +790,10 @@ export default function App() {
       chatIntervalId = setInterval(fetchChat, 5000);
       refreshAccountStatus();
       accountStatusIntervalId = setInterval(refreshAccountStatus, 30000);
-      autosaveIntervalId = setInterval(() => { if (Date.now() - state.stats.lastSave > 10000) saveState(); }, 5000);
+      // Im versteckten Tab ruht das Spiel: nicht speichern, sonst rückt lastSave ohne Fortschritt vor
+      autosaveIntervalId = setInterval(() => { if (!document.hidden && Date.now() - state.stats.lastSave > 10000) saveState(); }, 5000);
       cloudPollIntervalId = setInterval(() => {
-        if (!AstraforgeAPI.isLoggedIn()) return;
+        if (document.hidden || !AstraforgeAPI.isLoggedIn()) return;
         AstraforgeAPI.loadGame().then(res => {
           if (res?.gameData && applyRemoteSave(res.gameData, { force: false })) { offlineCatchup(); renderAll(); gameLog('Cloud-Save synchronisiert (anderes Gerät).'); }
         }).catch(() => {});
@@ -799,35 +802,41 @@ export default function App() {
       animationFrameId = requestAnimationFrame(gameLoop);
       appClickHandler = handleAction;
       appKeydownHandler = handleKeydown;
-      beforeUnloadHandler = saveState;
+      // Versteckter Tab wird geschlossen: Stand vom Verstecken behalten, damit der nächste Start die Zeit nachholt
+      beforeUnloadHandler = () => { if (!document.hidden) saveState(); };
       document.addEventListener('click', appClickHandler);
       document.addEventListener('keydown', appKeydownHandler);
       window.addEventListener('beforeunload', beforeUnloadHandler);
 
+      // Versteckter Tab: speichern und pausieren. Beim Zurückkommen erst prüfen, ob ein anderes Gerät
+      // weitergespielt hat, dann die Lücke nach den Offline-Regeln nachholen.
       function onVisibilityChange() {
         if (document.hidden) {
           if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
-          if (!backgroundTickId) {
-            backgroundTickId = setInterval(() => {
-              const now = performance.now();
-              const dt = Math.min(2, (now - lastFrame) / 1000);
-              lastFrame = now;
-              processTick(dt, { silent: true, auto: true });
-              if (Date.now() - state.stats.lastSave > 10000) saveState();
-            }, 1000);
-          }
-        } else {
-          if (backgroundTickId) { clearInterval(backgroundTickId); backgroundTickId = null; }
+          saveState();
+          if (AstraforgeAPI.isLoggedIn()) forceCloudSync().catch(() => {});
+          return;
+        }
+        const resume = () => {
+          if (document.hidden) return;
+          catchUpGap();
           lastFrame = performance.now();
           if (!animationFrameId) animationFrameId = requestAnimationFrame(gameLoop);
-        }
+        };
+        if (!AstraforgeAPI.isLoggedIn()) { resume(); return; }
+        AstraforgeAPI.loadGame().then(res => {
+          if (res?.gameData && applyRemoteSave(res.gameData, { force: false })) {
+            lastTickWall = Math.min(Date.now(), state.stats.lastSave || Date.now());
+            gameLog('Cloud-Save synchronisiert (anderes Gerät).');
+          }
+        }).catch(() => {}).finally(resume);
       }
       document.addEventListener('visibilitychange', onVisibilityChange);
     }
   });
 
   onCleanup(() => {
-    [autosaveIntervalId, cloudPollIntervalId, accountStatusIntervalId, stockPriceIntervalId, chatIntervalId, backgroundTickId].forEach(id => { if (id) clearInterval(id); });
+    [autosaveIntervalId, cloudPollIntervalId, accountStatusIntervalId, stockPriceIntervalId, chatIntervalId].forEach(id => { if (id) clearInterval(id); });
     if (currentBugTimeout) clearTimeout(currentBugTimeout);
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     if (appClickHandler) document.removeEventListener('click', appClickHandler);

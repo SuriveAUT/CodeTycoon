@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "concurrently \"vite --port 5173\" \"cd backend && node server.js\"",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "sim": "node scripts/sim.mjs"
   },
   "keywords": [],
   "author": "",

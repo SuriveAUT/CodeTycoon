@@ -43,10 +43,17 @@ export function abortChallenge() {
   return true;
 }
 
-// Läuft in runProgressChecks (1×/s): Ziel erreicht → Belohnung permanent; Zeitlimit abgelaufen → Sprint endet.
+// Läuft in runProgressChecks (1×/s): Zeitlimit abgelaufen → Sprint endet; Ziel erreicht → Belohnung permanent.
+// Die Deadline zuerst, damit ein Offline-Nachholen nach Ablauf den Sprint nicht nachträglich gewinnt.
 export function checkChallenge(silent, now = Date.now()) {
   const def = activeChallenge();
   if (!def) return;
+  if (def.timeLimit && challengeTimeLeft(def, state, now) <= 0) {
+    setState('challenge', null);
+    log(`⏱️ Sprint verpasst: ${def.name}. Der Run läuft normal weiter.`);
+    if (!silent) emitToast(`Sprint verpasst: ${def.name}`, 'warn');
+    return;
+  }
   const [cur, target] = challengeProgress(def);
   if (cur >= target) {
     setState('challengesDone', [...challengesDone(), def.id]);
@@ -54,11 +61,5 @@ export function checkChallenge(silent, now = Date.now()) {
     setState('stats', 'sprintsDone', (state.stats.sprintsDone || 0) + 1);
     log(`🏆 Sprint geschafft: ${def.name} → ${def.rewardLabel} (permanent).`);
     if (!silent) emitToast(`Sprint geschafft: ${def.name} – ${def.rewardLabel}`, 'good');
-    return;
-  }
-  if (def.timeLimit && challengeTimeLeft(def, state, now) <= 0) {
-    setState('challenge', null);
-    log(`⏱️ Sprint verpasst: ${def.name}. Der Run läuft normal weiter.`);
-    if (!silent) emitToast(`Sprint verpasst: ${def.name}`, 'warn');
   }
 }

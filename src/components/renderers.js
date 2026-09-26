@@ -10,6 +10,7 @@ import {
   prestigeGain, prestigeGainRaw, scrapForNextXp, runScrap, missionPowerReq, prestigeStructBonus, PRESTIGE_XP_BASE
 } from '../engine/actions.js';
 import { currentQuest, questProgress } from '../engine/quests.js';
+import { bestInvestmentId } from '../engine/advisor.js';
 import { missionSuccessChance, getDynamicMissionRewards } from '../engine/events.js';
 import { currentDecisionDef } from '../engine/decisions.js';
 import { dailyUnlocked, canClaimStandup, standupReward, ticketProgress, ticketLabel, coffeeUseAvailable } from '../engine/daily.js';
@@ -140,29 +141,6 @@ function emptyState(icon, title, text) {
 
 function visibleResources() {
   return RESOURCES.filter(res => res === 'scrap' || res === 'energy' || (state.stats.max[res] || 0) > 0 || (state.resources[res] || 0) > 0);
-}
-
-// ── "Beste Investition": Output-Wert pro Kosten (nur Producer/Konverter) ──
-const RES_VALUE = { scrap: 1, energy: 3, alloy: 6, components: 20, data: 6, research: 8, influence: 25, relics: 2000 };
-function bestInvestmentId(b) {
-  let best = null, bestScore = 0;
-  for (const def of BUILDINGS) {
-    if (def.type === 'modifier' || !isBuildingUnlocked(def)) continue;
-    const cost = calcNextBuildingCost(def);
-    const costValue = Object.entries(cost).reduce((a, [r, v]) => a + v * (RES_VALUE[r] || 1), 0);
-    if (costValue <= 0) continue;
-    const owned = buildingCount(def.id);
-    const out = buildingOutputPerSecond(def, state, b);
-    const inp = buildingInputPerSecond(def, state, b);
-    let value = Object.entries(out).reduce((a, [r, v]) => a + v * (RES_VALUE[r] || 1), 0)
-      - Object.entries(inp).reduce((a, [r, v]) => a + v * (RES_VALUE[r] || 1), 0) * 0.5;
-    const stepUp = milestoneMult(owned + 1) / milestoneMult(Math.max(owned, 1));
-    value *= stepUp;
-    if (value <= 0) continue;
-    const score = value / costValue;
-    if (score > bestScore) { bestScore = score; best = def.id; }
-  }
-  return best;
 }
 
 // ── Navigation ──

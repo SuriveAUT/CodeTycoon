@@ -19,9 +19,13 @@ cd backend && npm run dev
 
 # Backend only (production)
 cd backend && npm start
+
+# Balancing simulation (headless bot, see "Balancing" below)
+npm run sim
+npm run sim -- --model daily --seeds 3
 ```
 
-No test or lint scripts are configured. The engine runs headless in Node (see "Balancing" below).
+No test or lint scripts are configured. The engine runs headless in Node; `npm run sim` is the check for pacing changes.
 
 ## Architecture
 
@@ -30,7 +34,7 @@ No test or lint scripts are configured. The engine runs headless in Node (see "B
 ### Frontend (SolidJS + Vite)
 
 - `src/index.jsx` — mounts the app
-- `src/components/App.jsx` — app shell (sidebar/bottom-nav, resource topbar), game loop timer, autosave, offline catch-up, modal/toast/tooltip system, chat widget, and the central `data-action` click dispatcher
+- `src/components/App.jsx` — app shell (sidebar/bottom-nav, resource topbar), game loop timer, autosave, offline catch-up (on load, and for gaps > 10 s from a hidden tab or standby; nothing ticks or saves while the tab is hidden), modal/toast/tooltip system, chat widget, and the central `data-action` click dispatcher
 - `src/components/renderers.js` — HTML string renderers for navigation, topbar and every tab (`renderTabContent()`); tabs are: `overview` (Büro), `buildings` (Team), `research` (Tech), `projects` (Releases), `expansion` (Freelance-Aufträge + Standorte + Doktrin), `market` (Börse), `prestige`, `codex`, `account`, `admin`
 - `src/store/gameState.js` — single Solid.js `createStore` with all game state, save/load/normalize/migration (`VERSION` 7), cost helpers (`calcBuildingCost`, `maxAffordable`)
 - `src/store/bonuses.js` — `computeBonuses(s)` and the production model `simulateProduction(dt, s, b)`; both take an optional state object so they run headless
@@ -38,6 +42,8 @@ No test or lint scripts are configured. The engine runs headless in Node (see "B
   - `tick.js` — one simulation step (`processTick`): effects expiry → production → missions → events → automation → achievements/milestones/quests
   - `actions.js` — all player-triggered mutations (buy, research, prestige, colonies, missions, protocols, click)
   - `automation.js` — auto-hire / auto-learn / auto-freelance / auto-deploy
+  - `offline.js` — `simulateOffline(elapsedSec)`: offline catch-up (cap, efficiency, 120 s steps with automation); used by App.jsx and the sim
+  - `advisor.js` — `bestInvestmentId(b)`: the "best investment" hint in the Team tab; the sim bot buys with it
   - `quests.js` — sequential quest system (`currentQuest`, `questProgress`, `checkQuests`)
   - `daily.js` — daily loop: `tickDaily` (tickets per local day, coffee ripening, ticket rewards), `claimStandup` (login streak), `useCoffee`, `setBoost` (single temporary boost in `state.boost`); unlocked after the first tech (`dailyUnlocked`)
   - `challenges.js` — sprints: `startChallenge` (prestige reset with `allowZero`), `checkChallenge` (goal/time limit, run in `runProgressChecks`), `abortChallenge`; mods and permanent rewards are applied in `computeBonuses`
@@ -59,11 +65,15 @@ No test or lint scripts are configured. The engine runs headless in Node (see "B
 - Prestige XP = `6 · ∛(runScrap / 1e7) · structBonus · prestigeGainMult` (`prestigeGainRaw` in actions.js).
 - Ticket targets and daily rewards scale with current gross production (minutes of output), so they stay relevant at any stage; lifetime counters for them live in `stats` (`hiresTotal`, `techsLearned`, `bugsFixed`, `stockTrades`).
 - Rates cache: `state.cache.rates[res]` = net/s, plus `__produced`, `__consumed`, `__utilization`, `__starved`. Read it through `currentRates()` / `currentBonuses()` (bonuses.js), which fall back to a fresh computation when the cache is empty; never read `state.cache.*` directly.
-- Automation runs every tick (auto-hire buys at most one unit per building per call); the threshold checks (achievements, milestones, quests via `runProgressChecks()`) run once per second inside `processTick`. With `opts.offline` the checks are skipped and the caller runs `runProgressChecks(true)` once afterwards.
+- Automation runs 4× per second of game time (`AUTO_HZ` in tick.js, at most 4 passes per `processTick` call, so offline steps stay cheap); auto-hire buys at most one unit per building per pass. The threshold checks (achievements, milestones, quests via `runProgressChecks()`) run once per second inside `processTick`. With `opts.offline` the checks are skipped and the caller runs `runProgressChecks(true)` once afterwards.
 
 ### Balancing
 
-The engine imports cleanly in Node (`localStorage` must be stubbed). A greedy-bot simulation lives outside the repo (see git history of the rework commit for the approach): import `store/gameState.js`, `engine/tick.js`, `engine/actions.js`, mock `Date.now`, call `processTick(1, { silent: true, auto: true, offline: true })` in a loop. Target pacing for an active player: first tech < 2 min, tier 2 by ~20 min, first prestige worth taking after ~1.5–2 h, tiers 4–5 across several runs.
+`scripts/sim.mjs` (`npm run sim`) plays the game with a bot on the real engine: it stubs `localStorage`/`fetch`, mocks `Date.now` and seeds `Math.random` before importing, then calls `processTick(1, { silent: true, auto: true, offline: true })` + `runProgressChecks(true)` per second. The bot clicks, buys via `bestInvestmentId`, researches, releases, founds colonies, runs missions, protocols, stocks, standup/coffee and sprints, spends XP and refactors when XP/min drops (and the gain is ≥ 10 XP and ≥ 50 % of XP earned so far).
+
+- Models: `active` (continuous), `daily` (two 20-min sessions per day at 08:00/20:00 UTC, gaps via `simulateOffline`), `save --save <file>` (a real save, then daily). One child process per seed; the report prints median and range per milestone plus PASS/FAIL against `TARGETS` in the script.
+- The bot is faster than a human (it buys optimally every 5 s), so its times are a lower bound.
+- Target pacing: first tech < 2 min, tier 2 by ~20 min, first refactor after ~1.5–2 h active; a daily player should not reach the finale before ~day 16.
 
 ### Backend (Express + SQLite)
 
