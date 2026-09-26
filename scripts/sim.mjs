@@ -176,7 +176,8 @@ async function runWorker(opts) {
       probes.tierRevenue[tier] = bonusesMod.currentRates().__produced?.energy || 0;
     }
     if (state.techs.length >= TECHS.length - 1) mark('techs_all');
-    for (const id of state.projects) mark(`rel:${id}`);
+    // releasedEver statt state.projects: refactort der Bot im selben Schritt, wäre das Release sonst schon weg
+    for (const id of [...state.projects, ...(state.stats.releasedEver || [])]) mark(`rel:${id}`);
     const pc = state.stats.prestigeCount || 0;
     for (let n = 1; n <= Math.min(pc, 20); n++) mark(`refactor${n}`);
     const sprints = (state.challengesDone || []).length;
@@ -557,7 +558,7 @@ function report(model, runs) {
     if (perDay.length) console.log(`Refactors pro Tag (Tag 1–14): Median ${median(perDay)}, max ${Math.max(...perDay)}`);
   }
   const idle = runs.map(r => r.lab?.idleShare).filter(v => v !== null && v !== undefined);
-  if (idle.length) console.log(`Labor: ${median(runs.map(r => r.lab.started))} Projekte gestartet, Slots ${Math.round(median(idle) * 100)} % ungenutzt (Median)`);
+  if (idle.length) console.log(`Labor: ${median(runs.map(r => r.lab.started))} Projekte gestartet, Slots ${(median(idle) * 100).toFixed(1)} % ungenutzt (Median)`);
   const rounds = [...new Set(runs.flatMap(r => Object.keys(r.probes?.roundRates || {})))].sort();
   if (rounds.length) console.log(`Produktion/s beim Rundenwechsel (Ideas/Hype/Legacy): ${rounds.map(c => {
     const pick = (k) => fmtNum(median(runs.map(r => r.probes.roundRates[c]?.[k]).filter(v => v !== undefined)));
@@ -614,7 +615,7 @@ function reportTargets(results) {
     }
     if (t.labIdle) {
       const idle = runs.map(r => r.lab?.idleShare).filter(v => v !== null && v !== undefined);
-      line(idle.length ? median(idle) < t.labIdle : null, idle.length ? `${Math.round(median(idle) * 100)} % ungenutzt` : '–');
+      line(idle.length ? median(idle) < t.labIdle : null, idle.length ? `${(median(idle) * 100).toFixed(1)} % ungenutzt` : '–');
       continue;
     }
     const vals = runs.map(r => r.marks[t.mark]?.wall).filter(v => v !== undefined);

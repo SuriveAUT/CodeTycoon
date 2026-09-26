@@ -294,7 +294,14 @@ export function normalizeState(candidate) {
     : [];
   merged.lab.done = Array.isArray(merged.lab.done) ? [...new Set(merged.lab.done.filter(id => knownLab.has(id)))] : [];
   const repeatable = new Set(LAB_PROJECTS.filter(p => p.repeatable).map(p => p.id));
-  merged.lab.levels = Object.fromEntries(Object.entries(merged.lab.levels && typeof merged.lab.levels === 'object' ? merged.lab.levels : {})
+  // Jedes Projekt läuft höchstens einmal; ein schon abgeschlossenes Einmal-Projekt würde seinen Slot sonst für immer belegen
+  const runningIds = new Set();
+  merged.lab.running = merged.lab.running.filter(r => {
+    if (runningIds.has(r.id) || (!repeatable.has(r.id) && merged.lab.done.includes(r.id))) return false;
+    runningIds.add(r.id);
+    return true;
+  });
+  merged.lab.levels =Object.fromEntries(Object.entries(merged.lab.levels && typeof merged.lab.levels === 'object' ? merged.lab.levels : {})
     .filter(([id]) => repeatable.has(id)).map(([id, lvl]) => [id, Math.max(0, Math.floor(asFiniteNumber(lvl, 0)))]));
   merged.stats.runStartedAt = asFiniteNumber(merged.stats.runStartedAt, Date.now());
   // Tages-Loop / Sprints
