@@ -3,13 +3,11 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const db = require('../db');
+const { isAdminUser } = require('../lib/admin');
 
 function getJwtSecret() {
   return process.env.JWT_SECRET || 'very_secret_key_change_in_production';
 }
-
-// Admin username — override via ADMIN_USERNAME env var
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'Dominik';
 
 const MAX_SAVE_BYTES = 1.5 * 1024 * 1024;
 
@@ -28,7 +26,8 @@ const RESERVED_USERNAMES = new Set([
   'staff',
   'devtycoon',
   'codetyc',
-  'astraforge'
+  'astraforge',
+  'dominik'
 ]);
 
 const BLOCKED_USERNAME_KEYWORDS = [
@@ -153,7 +152,7 @@ const authenticateToken = (req, res, next) => {
 };
 
 const requireAdmin = (req, res, next) => {
-  if (!req.user || req.user.username !== ADMIN_USERNAME) {
+  if (!req.user || !isAdminUser(req.user.username)) {
     return res.status(403).json({ error: 'Kein Zugriff.' });
   }
   next();
@@ -259,7 +258,7 @@ router.post('/save', authenticateToken, limitSave, (req, res) => {
         if (err2) return res.status(500).json({ error: 'Failed to save game' });
         res.json({
           message: 'Game saved successfully',
-          account: { username: row.username, flagged: Boolean(newFlagged), flagReason: newReason || '' }
+          account: { username: row.username, flagged: Boolean(newFlagged), flagReason: newReason || '', isAdmin: isAdminUser(row.username) }
         });
       }
     );
@@ -280,7 +279,7 @@ router.get('/status', authenticateToken, (req, res) => {
   db.get('SELECT username, flagged, flag_reason FROM users WHERE id = ?', [req.user.id], (err, row) => {
     if (err) return res.status(500).json({ error: 'Database error' });
     if (!row) return res.status(404).json({ error: 'User nicht gefunden.' });
-    res.json({ username: row.username, flagged: Boolean(row.flagged), flagReason: row.flag_reason || '' });
+    res.json({ username: row.username, flagged: Boolean(row.flagged), flagReason: row.flag_reason || '', isAdmin: isAdminUser(row.username) });
   });
 });
 
@@ -364,7 +363,7 @@ router.patch('/admin/user/:username/rename', authenticateToken, requireAdmin, (r
   const oldUsername = req.params.username;
   const newUsername = String(req.body?.newUsername || '').trim();
 
-  if (oldUsername === ADMIN_USERNAME || newUsername === ADMIN_USERNAME) {
+  if (isAdminUser(oldUsername) || isAdminUser(newUsername)) {
     return res.status(400).json({ error: 'Admin-Account kann nicht umbenannt werden.' });
   }
 
@@ -483,7 +482,7 @@ router.patch('/admin/user/:username/data', authenticateToken, requireAdmin, asyn
 // Delete a user account
 router.delete('/admin/user/:username', authenticateToken, requireAdmin, (req, res) => {
   const username = req.params.username;
-  if (username === ADMIN_USERNAME) {
+  if (isAdminUser(username)) {
     return res.status(400).json({ error: 'Admin-Account kann nicht gelöscht werden.' });
   }
 

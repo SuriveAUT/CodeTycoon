@@ -3,10 +3,10 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const db = require('../db');
 const { censorProfanity, censorChatRows } = require('../lib/profanityFilter');
+const { isAdminUser } = require('../lib/admin');
 
 const MSG_COOLDOWN_MS = 5000;
 const MAX_MSG_LENGTH = 200;
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'Dominik';
 const MODERATOR_USERNAMES = new Set(
   (process.env.MODERATOR_USERNAMES || '')
     .split(',')
@@ -64,7 +64,7 @@ function verifyToken(req) {
 }
 
 function isChatModerator(username) {
-  return username === ADMIN_USERNAME || MODERATOR_USERNAMES.has(username);
+  return isAdminUser(username) || MODERATOR_USERNAMES.has(username);
 }
 
 // GET /api/chat/messages
@@ -180,7 +180,7 @@ function handleChatCommand(cmd, args, username, isAdmin, isMod, res) {
       const banTarget = banParts[0];
       const banReason = banParts.slice(1).join(' ') || 'Manuell via Chat geflaggt';
       if (!banTarget) return res.status(400).json({ error: 'Username fehlt. Beispiel: /ban User123 Cheating' });
-      if (banTarget === ADMIN_USERNAME) return res.status(400).json({ error: 'Admin kann nicht gebannt werden.' });
+      if (isAdminUser(banTarget)) return res.status(400).json({ error: 'Admin kann nicht gebannt werden.' });
       db.run('UPDATE users SET flagged = 1, flag_reason = ? WHERE username = ?', [banReason, banTarget], function(err) {
         if (err) return res.status(500).json({ error: 'DB-Fehler.' });
         if (this.changes === 0) return res.status(404).json({ error: `User "${banTarget}" nicht gefunden.` });
@@ -249,7 +249,7 @@ router.post('/send', (req, res) => {
     if (!row) return res.status(404).json({ error: 'User nicht gefunden.' });
 
     const username = row.username;
-    const isAdmin = username === ADMIN_USERNAME;
+    const isAdmin = isAdminUser(username);
     const isMod = isChatModerator(username);
 
     // Parse commands

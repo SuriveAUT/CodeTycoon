@@ -10,6 +10,8 @@ export const AstraforgeAPI = {
     username: localStorage.getItem('astraforge_username'),
     flagged: localStorage.getItem('astraforge_flagged') === '1',
     flagReason: localStorage.getItem('astraforge_flag_reason') || '',
+    // Only shows the admin UI; the server checks admin rights on every admin request.
+    isAdmin: localStorage.getItem('astraforge_admin') === '1',
 
     _setAccountStatus(account) {
         if (!account || typeof account !== 'object') return;
@@ -17,6 +19,8 @@ export const AstraforgeAPI = {
             this.username = account.username;
             localStorage.setItem('astraforge_username', account.username);
         }
+        this.isAdmin = Boolean(account.isAdmin);
+        localStorage.setItem('astraforge_admin', this.isAdmin ? '1' : '0');
         this.flagged = Boolean(account.flagged);
         this.flagReason = account.flagReason || account.flag_reason || '';
         localStorage.setItem('astraforge_flagged', this.flagged ? '1' : '0');
@@ -107,10 +111,12 @@ export const AstraforgeAPI = {
         this.username = null;
         this.flagged = false;
         this.flagReason = '';
+        this.isAdmin = false;
         localStorage.removeItem('astraforge_token');
         localStorage.removeItem('astraforge_username');
         localStorage.removeItem('astraforge_flagged');
         localStorage.removeItem('astraforge_flag_reason');
+        localStorage.removeItem('astraforge_admin');
     },
 
     // Check if user is logged in

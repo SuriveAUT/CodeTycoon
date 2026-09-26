@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
+const { isAdminUser } = require('../lib/admin');
 
 // In-memory rate limiter: max 10 auth attempts per 15 minutes per IP
 const authAttempts = new Map();
@@ -59,7 +60,8 @@ const RESERVED_USERNAMES = new Set([
   'staff',
   'devtycoon',
   'codetyc',
-  'astraforge'
+  'astraforge',
+  'dominik'
 ]);
 
 const BLOCKED_USERNAME_KEYWORDS = [
@@ -195,7 +197,7 @@ router.post('/login', rateLimitAuth, (req, res) => {
       token,
       userId: user.id,
       username: user.username,
-      account: { flagged: Boolean(user.flagged), flagReason: user.flag_reason || '' }
+      account: { flagged: Boolean(user.flagged), flagReason: user.flag_reason || '', isAdmin: isAdminUser(user.username) }
     });
   });
 });

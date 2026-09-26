@@ -579,8 +579,10 @@ export default function App() {
   function refreshAccountStatus() {
     if (!AstraforgeAPI.isLoggedIn()) return;
     const wasFlagged = Boolean(AstraforgeAPI.flagged);
+    const wasAdmin = AstraforgeAPI.isAdmin;
     AstraforgeAPI.getAccountStatus().then(() => {
       const isFlagged = Boolean(AstraforgeAPI.flagged);
+      if (AstraforgeAPI.isAdmin !== wasAdmin) renderAll(true);
       if (isFlagged === wasFlagged) return;
       renderAll(true);
       showToast(isFlagged ? 'Account wurde geflaggt.' : 'Account-Flag wurde entfernt.', isFlagged ? 'bad' : 'good');
@@ -616,7 +618,7 @@ export default function App() {
   }
 
   function showChatHelp() {
-    const isAdmin = AstraforgeAPI.username === (import.meta.env.VITE_ADMIN_USERNAME || 'Dominik');
+    const isAdmin = AstraforgeAPI.isAdmin;
     ['— Befehle —', '/help — Hilfe', '/me <aktion> — Emote', '/stats — Deine Statistiken', '/top — Top 5', '/ping — Latenz', '/version — Version'].forEach(m => addLocalChatMsg('System', m));
     if (isAdmin) ['— Moderation —', '/announce <text>', '/warn <user> [grund]', '/clear', '/ban <user> [grund]', '/unban <user>', '/users'].forEach(m => addLocalChatMsg('System', m));
   }
