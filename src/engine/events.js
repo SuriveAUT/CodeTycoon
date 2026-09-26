@@ -133,10 +133,10 @@ export function checkAchievements(silent) {
   if (artifactCount() >= 1) unlock('artifact_1');
   if (artifactCount() >= 6) unlock('artifact_6');
   if ((state.stats.questsDone || 0) >= 10) unlock('quests_10');
-  const pc = state.stats.prestigeCount;
-  if (pc >= 1) unlock('prestige_1');
-  if (pc >= 5) unlock('prestige_5');
-  if (pc >= 10) unlock('prestige_10');
+  if (state.stats.prestigeCount >= 1) unlock('prestige_1');
+  const xpEarned = state.stats.xpEarned || 0;
+  if (xpEarned >= 1000) unlock('prestige_5');
+  if (xpEarned >= 10000) unlock('prestige_10');
   if (hasProject('operating_system')) unlock('world_engine');
   if (hasProject('internet_three')) unlock('singularity');
   const clicks = state.stats.manualClicks || 0;

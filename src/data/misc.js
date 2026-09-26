@@ -119,8 +119,8 @@ export const ACHIEVEMENTS = [
   { id: 'quests_10', name: 'Sprint-Held', desc: '10 Aufgaben abgeschlossen.' },
   { id: 'doctrine', name: 'Culture Fit', desc: 'Core Values definiert.' },
   { id: 'prestige_1', name: 'Pivot', desc: 'Einmal refactored.' },
-  { id: 'prestige_5', name: 'Serial Pivot', desc: 'Fünfmal refactored.' },
-  { id: 'prestige_10', name: 'Seriengründer', desc: 'Zehnmal refactored.' },
+  { id: 'prestige_5', name: 'Serial Pivot', desc: '1.000 XP über alle Refactors verdient.' },
+  { id: 'prestige_10', name: 'Seriengründer', desc: '10.000 XP über alle Refactors verdient.' },
   { id: 'world_engine', name: 'Monopol', desc: 'Das eigene Betriebssystem gebaut.' },
   { id: 'singularity', name: 'Web 3.0', desc: 'Das Internet neu erfunden.' },
   { id: 'clicks_1k', name: 'Hackerman', desc: '1.000 Tastenanschläge.' },
@@ -150,8 +150,17 @@ export const CHRONICLE_UPGRADES = [
   { id: 'epoch', name: 'IPO', desc: 'XP-Gewinn +10% pro Stufe.', base: 30 },
   { id: 'time_dilation', name: '4-Tage-Woche', desc: 'Offline-Effizienz +10% pro Stufe (50% → max. 90%).', base: 40, max: 4 },
   { id: 'infinite_synergy', name: 'Synergie-Effekte', desc: 'Gesamtproduktion +15% pro Stufe (endlos).', base: 80 },
-  { id: 'quantum_click', name: '10x Typist', desc: 'Klick-Kraft ×2 pro Stufe (endlos).', base: 100 }
+  { id: 'quantum_click', name: '10x Typist', desc: 'Jeder Klick bringt zusätzlich 0,5% der Code-Produktion pro Sekunde, pro Stufe.', base: 100, max: 10 }
 ];
+
+export const CHRONICLE_COST_GROWTH = 1.32;
+
+// XP-Kosten der Stufe `lvl` → `lvl + 1` eines Chronicle-Upgrades
+export function chronicleCostFor(id, lvl) {
+  const def = CHRONICLE_UPGRADES.find(x => x.id === id);
+  if (!def) return Infinity;
+  return Math.floor(def.base * Math.pow(CHRONICLE_COST_GROWTH, lvl));
+}
 
 // Permanente Meilensteine: einmal freigeschaltet, für immer aktiv (auch nach Prestige).
 export const PRESTIGE_MILESTONES = [
@@ -164,9 +173,9 @@ export const PRESTIGE_MILESTONES = [
   { id: 'pm_expeditions_25', name: 'On-Site-Veteran', desc: '25 Aufträge abgeschlossen.', condition: (s) => s.stats.expeditionsDone >= 25, effects: { expeditionRewardMult: 0.10 }, label: 'Auftrags-Belohnung +10%' },
   { id: 'pm_expeditions_100', name: 'Globetrotter', desc: '100 Aufträge abgeschlossen.', condition: (s) => s.stats.expeditionsDone >= 100, effects: { expeditionRewardMult: 0.20, expeditionSpeed: 1.10 }, label: 'Belohnung +20%, Aufträge 10% schneller' },
   { id: 'pm_first_prestige', name: 'Erster Neustart', desc: 'Den ersten Hard Refactor durchgeführt.', condition: (s) => s.stats.prestigeCount >= 1, effects: { allMult: 1.05 }, label: 'Gesamt +5%' },
-  { id: 'pm_prestige_3', name: 'Serienentwickler', desc: 'Dreimal neu gestartet.', condition: (s) => s.stats.prestigeCount >= 3, effects: { allMult: 1.10 }, label: 'Gesamt +10%' },
-  { id: 'pm_prestige_5', name: 'Veteranen-Coder', desc: 'Fünfmal neu gestartet.', condition: (s) => s.stats.prestigeCount >= 5, effects: { allMult: 1.15, researchMult: 1.10 }, label: 'Gesamt +15%, Ideas +10%' },
+  { id: 'pm_prestige_3', name: 'Serienentwickler', desc: '250 XP über alle Refactors verdient.', condition: (s) => (s.stats.xpEarned || 0) >= 250, effects: { allMult: 1.10 }, label: 'Gesamt +10%' },
+  { id: 'pm_prestige_5', name: 'Veteranen-Coder', desc: '2.500 XP über alle Refactors verdient.', condition: (s) => (s.stats.xpEarned || 0) >= 2500, effects: { allMult: 1.15, researchMult: 1.10 }, label: 'Gesamt +15%, Ideas +10%' },
   { id: 'pm_streak_14', name: 'Zwei Wochen Standup', desc: '14 Tage in Folge beim Daily Standup.', condition: (s) => (s.daily?.bestStreak || 0) >= 14, effects: { offlineCapHours: 2 }, label: 'Offline-Limit +2h' },
   { id: 'pm_sprints_3', name: 'Sprint-Veteran', desc: 'Drei Sprints abgeschlossen.', condition: (s) => (s.challengesDone || []).length >= 3, effects: { allMult: 1.10 }, label: 'Gesamt +10%' },
-  { id: 'pm_prestige_10', name: 'Hardcore-Optimierer', desc: 'Zehnmal neu gestartet.', condition: (s) => s.stats.prestigeCount >= 10, effects: { allMult: 1.20, clickPowerMult: 1.25 }, label: 'Gesamt +20%, Klick +25%' }
+  { id: 'pm_prestige_10', name: 'Hardcore-Optimierer', desc: '25.000 XP über alle Refactors verdient.', condition: (s) => (s.stats.xpEarned || 0) >= 25000, effects: { allMult: 1.20, clickPowerMult: 1.25 }, label: 'Gesamt +20%, Klick +25%' }
 ];

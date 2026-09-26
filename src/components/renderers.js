@@ -2,14 +2,16 @@
 import {
   state, canAfford, buildingCount, calcNextBuildingCost, calcBuildingCost, maxAffordable, isBuildingUnlocked, unlockReason,
   isTechUnlocked, hasTech, hasProject, hasArtifact, totalBuildings, techCount, projectCount, artifactCount, colonyCount,
-  isProjectRequirementMet, isProjectUnlocked, projectRequirementLabel, getTech, getBuilding, BUY_AMOUNTS
+  isProjectRequirementMet, isProjectUnlocked, projectRequirementLabel, getTech, getBuilding, BUY_AMOUNTS, techChapter
 } from '../store/gameState.js';
-import { currentBonuses as bonuses, currentRates as rates, buildingOutputPerSecond, buildingInputPerSecond, clickValue, colonyBaseBonus, MODIFIER_CAP, STARVED_UTILIZATION, chronicleCostFor } from '../store/bonuses.js';
+import { currentBonuses as bonuses, currentRates as rates, buildingOutputPerSecond, buildingInputPerSecond, clickValue, colonyBaseBonus, MODIFIER_CAP, STARVED_UTILIZATION } from '../store/bonuses.js';
 import {
   nextResearchCost, nextProjectCost, chronicleCost, colonyFoundCost, canFoundColony, colonyUpgradeCost, COLONY_MAX_LEVEL,
-  prestigeGain, prestigeGainRaw, scrapForNextXp, runScrap, missionPowerReq, prestigeStructBonus, PRESTIGE_XP_BASE
+  prestigeGain, prestigeGainRaw, scrapForNextXp, runScrap, missionPowerReq, prestigeStructBonus, PRESTIGE_XP_BASE, canPrestige, minPrestigeGain
 } from '../engine/actions.js';
 import { currentQuest, questProgress } from '../engine/quests.js';
+import { chapterIndex, currentChapter, nextChapter, goalProgress, goalLabel } from '../engine/roadmap.js';
+import { CHAPTERS } from '../data/chapters.js';
 import { bestInvestmentId } from '../engine/advisor.js';
 import { missionSuccessChance, getDynamicMissionRewards } from '../engine/events.js';
 import { currentDecisionDef } from '../engine/decisions.js';
@@ -28,7 +30,7 @@ import {
   ACHIEVEMENTS, CHRONICLE_UPGRADES, PRESTIGE_MILESTONES
 } from '../data/misc.js';
 import { CHIPS, getChip } from '../data/chips.js';
-import { STOCKS, BROKER_FEE, getStockPrice, getOwnedShares, portfolioValue, totalDividendBonus, dividendBonus, sharesToCap, timeUntilNextPriceUpdate, DIVIDEND_PER_SHARE, MAX_DIVIDEND_BONUS } from '../engine/stocks.js';
+import { STOCKS, BROKER_FEE, getStockPrice, rawStockPrice, getOwnedShares, portfolioValue, totalDividendBonus, dividendBonus, sharesToCap, timeUntilNextPriceUpdate, DIVIDEND_PER_SHARE, MAX_DIVIDEND_BONUS } from '../engine/stocks.js';
 import { AstraforgeAPI } from '../lib/api-client.js';
 import { fmt, fmtSec, fmtRate, clamp } from '../lib/format.js';
 import { getIcon, resIcon, CATEGORY_ICONS } from '../lib/icons.js';
@@ -539,6 +541,38 @@ function techUnlockChips(techId) {
   return chips.join('');
 }
 
+// Ziele einer Finanzierungsrunde als Fortschrittszeilen (Tech-Tab, Prestige-Tab)
+function chapterGoalRows(chapter) {
+  return `<div class="stack" style="gap:8px">${chapter.goals.map(g => {
+    const [cur, target] = goalProgress(g);
+    const done = cur >= target;
+    return `<div><div class="row-between"><span>${getIcon(done ? 'check' : 'flag')} ${escapeHtml(goalLabel(g))}</span><span class="muted small mono">${fmt(Math.min(cur, target))} / ${fmt(target)}</span></div>${progress(Math.min(cur, target), target, done ? 'thin good' : 'thin')}</div>`;
+  }).join('')}</div>`;
+}
+
+// Tech-Stufe, die erst eine spätere Finanzierungsrunde freischaltet
+function lockedTierPanel(tier) {
+  const target = CHAPTERS[tier.chapter];
+  const current = currentChapter();
+  const direct = tier.chapter === chapterIndex() + 1;
+  return `<section class="panel">
+    <div class="panel-head"><div><div class="eyebrow">Stufe ${tier.tier}</div><h3>${getIcon('lock')} ${escapeHtml(tier.name)}</h3><div class="sub">${escapeHtml(tier.desc)}</div></div><span class="meta">ab ${escapeHtml(target?.name || '?')}</span></div>
+    <p class="muted small" style="margin-bottom:10px">Diese Stufe kommt mit der Finanzierungsrunde <strong>${escapeHtml(target?.name || '?')}</strong>.${direct ? ` Dafür brauchst du in der aktuellen Runde ${escapeHtml(current.name)}:` : ''}</p>
+    ${direct ? chapterGoalRows(current) : ''}
+  </section>`;
+}
+
+function renderRoundPanel() {
+  const current = currentChapter();
+  const next = nextChapter();
+  return `<section class="panel">
+    <div class="panel-head"><div><div class="eyebrow">Finanzierungsrunde</div><h3>${getIcon('flag')} ${escapeHtml(current.name)}</h3><div class="sub">${escapeHtml(current.desc)}</div></div><span class="meta">Runde ${chapterIndex() + 1}/${CHAPTERS.length}</span></div>
+    ${next && current.goals.length
+      ? `<p class="muted small" style="margin-bottom:10px">Nächste Runde: <strong>${escapeHtml(next.name)}</strong> – ${escapeHtml(next.desc)}</p>${chapterGoalRows(current)}`
+      : '<p class="muted small">Weitere Runden folgen.</p>'}
+  </section>`;
+}
+
 function renderResearch() {
   const b = bonuses();
   const r = rates();
@@ -547,9 +581,10 @@ function renderResearch() {
   if (freshTechs.length) setTimeout(() => freshTechs.forEach(t => seenTechs.add(t.id)), 4000);
   const learned = TECHS.filter(t => hasTech(t.id));
   const maxLearnedTier = learned.reduce((m, t) => Math.max(m, t.tier), 0);
-  const visibleTierMax = Math.min(5, Math.max(1, maxLearnedTier + 1));
+  const visibleTierMax = Math.max(1, maxLearnedTier + 1);
 
   const tierSections = TECH_TIERS.filter(tier => tier.tier <= visibleTierMax).map(tier => {
+    if (tier.chapter > chapterIndex()) return lockedTierPanel(tier);
     const techs = TECHS.filter(t => t.tier === tier.tier && !hasTech(t.id) && !(t.excludes || []).some(id => hasTech(id)));
     if (!techs.length) return '';
     const rows = techs.sort((a, z) => (isTechUnlocked(z) ? 1 : 0) - (isTechUnlocked(a) ? 1 : 0) || a.cost - z.cost).map(tech => {
@@ -729,9 +764,11 @@ function renderExpansion() {
 // ═══════════════════════════ BÖRSE ═══════════════════════════
 function renderStockCard(stock) {
   const price = getStockPrice(stock.id);
-  const history = state.stockMarket?.history?.[stock.id] || [price];
-  const prevPrice = history.length > 1 ? history[history.length - 2] : price;
-  const trend = price > prevPrice * 1.005 ? 'up' : price < prevPrice * 0.995 ? 'down' : 'flat';
+  // Trend und Verlauf auf Basisniveau (Server-Kurse), gehandelt wird zum skalierten Kurs
+  const raw = rawStockPrice(stock.id);
+  const history = state.stockMarket?.history?.[stock.id] || [raw];
+  const prevRaw = history.length > 1 ? history[history.length - 2] : raw;
+  const trend = raw > prevRaw * 1.005 ? 'up' : raw < prevRaw * 0.995 ? 'down' : 'flat';
   const trendClass = trend === 'up' ? 'good' : trend === 'down' ? 'bad' : 'muted';
   const owned = getOwnedShares(stock.id);
   const cash = state.resources.energy || 0;
@@ -748,7 +785,7 @@ function renderStockCard(stock) {
     + mktBtn('buy', maxBuy, 'Max', fmt(maxBuy), maxBuy > 0);
   const sell = [1, 10, 100].map(n => mktBtn('sell', n, `−${n}`, fmt(n * sellPrice), owned >= n)).join('')
     + mktBtn('sell', owned, 'Alle', fmt(owned * sellPrice), owned > 0);
-  const pct = prevPrice ? ((price / prevPrice - 1) * 100).toFixed(1) : '0.0';
+  const pct = prevRaw ? ((raw / prevRaw - 1) * 100).toFixed(1) : '0.0';
   const dividend = dividendBonus(stock.id);
   const toCap = sharesToCap(stock.id);
   return `<article class="item mkt">
@@ -775,7 +812,7 @@ function renderMarket() {
       ${kpi('Kurs-Update', nextUpdate === null ? 'Verbinde…' : fmtSec(nextUpdate / 1000), '<span class="live">LIVE</span> serverbasiert, alle Spieler')}
       ${kpi('Dividenden', Object.keys(dividends).length ? Object.entries(dividends).map(([res, v]) => `<span class="res-${res}">+${Math.round(v * 100)}%</span>`).join(' · ') : '–', 'Produktionsbonus aus Aktien')}
     </div></section>
-    <section class="panel"><div class="panel-head"><div><div class="eyebrow">Ressourcen-Börse</div><h3>${getIcon('market')} Aktien</h3><div class="sub">Kaufe mit Revenue. Jede Aktie erhöht die Produktion ihrer Ressource um ${(DIVIDEND_PER_SHARE * 100).toFixed(2)}% (max. +${Math.round(MAX_DIVIDEND_BONUS * 100)}%). Kurse steigen, wenn viele Spieler kaufen.</div></div></div>
+    <section class="panel"><div class="panel-head"><div><div class="eyebrow">Ressourcen-Börse</div><h3>${getIcon('market')} Aktien</h3><div class="sub">Kaufe mit Revenue. Jede Aktie erhöht die Produktion ihrer Ressource um ${(DIVIDEND_PER_SHARE * 100).toFixed(2)}% (max. +${Math.round(MAX_DIVIDEND_BONUS * 100)}%). Kurse schwanken täglich und steigen, wenn viele Spieler kaufen; sie skalieren mit deiner höchsten Tech-Stufe. Das Depot gilt für den laufenden Run.</div></div></div>
       <div class="grid-auto">${STOCKS.map(renderStockCard).join('')}</div>
     </section>`;
 }
@@ -834,8 +871,8 @@ function renderSprints() {
 
 // Was ein Hard Refactor behält bzw. zurücksetzt (Prestige-Tab + Bestätigungs-Modal).
 export function renderKeepReset() {
-  const keep = [`${state.artifacts.length} Funde`, `${state.achievements.length} Errungenschaften`, `${state.ownedChips.length} Chips`, 'Chronicle-Upgrades & Meilensteine', 'Aufgaben-Fortschritt, Aktien-Depot', 'Daily-Streak, Kaffee & Sprint-Belohnungen', 'Lebenszeit-Statistiken'];
-  const reset = ['Alle Mitarbeiter (außer Start-Team)', 'Tech-Stack', 'Releases', 'Standorte & laufende Aufträge', 'Ressourcen', 'Core Values (neu wählen)', 'Laufender Sprint (ohne Belohnung)'];
+  const keep = [`${state.artifacts.length} Funde`, `${state.achievements.length} Errungenschaften`, `${state.ownedChips.length} Chips`, 'Chronicle-Upgrades & Meilensteine', 'Finanzierungsrunde & Aufgaben-Fortschritt', 'Daily-Streak, Kaffee & Sprint-Belohnungen', 'Lebenszeit-Statistiken'];
+  const reset = ['Alle Mitarbeiter (außer Start-Team)', 'Tech-Stack', 'Releases', 'Standorte & laufende Aufträge', 'Ressourcen & Aktien-Depot', 'Core Values (neu wählen)', 'Laufender Sprint (ohne Belohnung)'];
   return `<div class="keep-reset">
     <div class="keep"><p class="good">Bleibt</p><ul>${keep.map(k => `<li>${escapeHtml(k)}</li>`).join('')}</ul></div>
     <div class="reset"><p class="bad">Weg</p><ul>${reset.map(k => `<li>${escapeHtml(k)}</li>`).join('')}</ul></div>
@@ -847,24 +884,27 @@ function renderPrestige() {
   const raw = prestigeGainRaw();
   const frac = raw - Math.floor(raw);
   const nextIn = scrapForNextXp();
-  const canReset = gain > 0;
+  const canReset = canPrestige();
+  const minGain = minPrestigeGain();
   return `
     <div class="prestige-hero">
       <section class="panel accent">
         <div class="eyebrow">Hard Refactor</div>
         <div class="row-between" style="align-items:flex-end">
           <div><div class="xp-big">+${fmt(gain)} <small>XP bei Refactor</small></div><div class="muted small" style="margin-top:6px">Run: ${fmt(runScrap())} Code · XP = ${PRESTIGE_XP_BASE} · ∛(Code / 10 Mio.) · Struktur-Bonus ×${fmt(prestigeStructBonus())} · ${fmt(bonuses().prestigeGainMult)}× Multiplikator</div></div>
-          <div class="kpi"><div class="kpi-label">XP-Guthaben</div><div class="kpi-value">${fmt(state.chronicle)}</div><div class="kpi-sub">${state.stats.prestigeCount} Refactors</div></div>
+          <div class="kpi"><div class="kpi-label">XP-Guthaben</div><div class="kpi-value">${fmt(state.chronicle)}</div><div class="kpi-sub">${state.stats.prestigeCount} Refactors · ${fmt(state.stats.xpEarned || 0)} verdient</div></div>
         </div>
         <div style="margin:12px 0 6px">${progress(frac, 1)}<div class="muted small" style="margin-top:4px">Nächster XP-Punkt in ${fmt(nextIn)} Code</div></div>
-        <button class="btn ${canReset ? 'primary' : ''} block" data-action="prestige" ${canReset ? '' : 'disabled'} ${tt('Hard Refactor', canReset ? 'Setzt den Run zurück und gibt XP.' : 'Noch nicht genug Code in diesem Run. Ab ~10 Mio. Code gibt es den ersten XP-Punkt.')}>${getIcon('prestige')} Hard Refactor${canReset ? ` (+${fmt(gain)} XP)` : ''}</button>
-        <p class="muted small" style="margin-top:8px">Tipp: Der erste Refactor lohnt sich ab etwa 10–20 XP. Jeder Run danach geht deutlich schneller.</p>
+        <button class="btn ${canReset ? 'primary' : ''} block" data-action="prestige" ${canReset ? '' : 'disabled'} ${tt('Hard Refactor', canReset ? 'Setzt den Run zurück und gibt XP.' : `Mindestens ${fmt(minGain)} XP nötig, aktuell ${fmt(gain)}.`)}>${getIcon('prestige')} Hard Refactor${canReset ? ` (+${fmt(gain)} XP)` : ` (ab ${fmt(minGain)} XP)`}</button>
+        <p class="muted small" style="margin-top:8px">Ein Refactor braucht mindestens ${fmt(minGain)} XP (10 XP bzw. 2 % deiner bisher verdienten XP). Jeder Run danach geht deutlich schneller.</p>
       </section>
       <section class="panel">
         <div class="panel-head"><div><div class="eyebrow">Was passiert?</div><h3>${getIcon('help')} Behalten vs. Zurücksetzen</h3></div></div>
         ${renderKeepReset()}
       </section>
     </div>
+
+    ${renderRoundPanel()}
 
     <section class="panel">
       <div class="panel-head"><div><div class="eyebrow">Chronicle</div><h3>${getIcon('star')} Permanente Upgrades</h3><div class="sub">Mit XP kaufen. Gelten für immer, in jedem Run.</div></div><span class="meta">${fmt(state.chronicle)} XP verfügbar</span></div>
@@ -941,7 +981,8 @@ function renderCodex() {
         <div class="stat-list">${RESOURCES.map(res => statRow(`${RESOURCE_LABELS[res]} gesamt`, `<span class="res-${res}">${fmt(state.stats.total[res] || 0)}</span>`)).join('')}</div>
         <div class="stat-list">
           ${statRow('Refactors', fmt(state.stats.prestigeCount || 0))}
-          ${statRow('XP gesamt verdient', fmt((state.chronicle || 0) + CHRONICLE_UPGRADES.reduce((a, u) => { let sum = 0; for (let l = 0; l < (state.chronicleUpgrades[u.id] || 0); l++) sum += chronicleCostFor(u.id, l); return a + sum; }, 0)))}
+          ${statRow('XP gesamt verdient', fmt(state.stats.xpEarned || 0))}
+          ${statRow('Finanzierungsrunde', escapeHtml(currentChapter().name))}
           ${statRow('Releases gebaut', fmt(state.stats.projectsBuilt || 0))}
           ${statRow('Aufträge erledigt', fmt(state.stats.expeditionsDone || 0))}
           ${statRow('Entscheidungen getroffen', fmt(state.stats.decisionsMade || 0))}
@@ -967,7 +1008,7 @@ function renderLeaderboard() {
   const lb = state.cache.leaderboard;
   if (!Array.isArray(lb)) return '<p class="muted small">Lade Rangliste…</p>';
   if (!lb.length) return '<p class="muted small">Noch keine Einträge.</p>';
-  return `<div class="stack" style="gap:4px">${lb.slice(0, 50).map((e, i) => `<div class="lb-row"><span class="rank">#${i + 1}</span><strong class="truncate">${escapeHtml(e.username || '?')}</strong><span class="muted mono small">${fmt(e.prestige ?? e.prestige_score ?? 0)} Refactors · ${fmt(e.totalScrap ?? e.total_scrap ?? 0)} Code</span><button class="btn xs" data-action="view-profile" data-id="${escapeHtml(e.username || '')}">Profil</button></div>`).join('')}</div>`;
+  return `<div class="stack" style="gap:4px">${lb.slice(0, 50).map((e, i) => `<div class="lb-row"><span class="rank">#${i + 1}</span><strong class="truncate">${escapeHtml(e.username || '?')}</strong><span class="muted mono small">${fmt(e.xp_earned ?? 0)} XP · ${fmt(e.prestige ?? e.prestige_score ?? 0)} Refactors</span><button class="btn xs" data-action="view-profile" data-id="${escapeHtml(e.username || '')}">Profil</button></div>`).join('')}</div>`;
 }
 
 function renderAccount() {

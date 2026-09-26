@@ -6,7 +6,7 @@ import { simulateOffline } from '../engine/offline.js';
 import {
   purchaseBuilding, sellBuilding, purchaseTech, purchaseProject, doPrestigeReset, buyChronicle, foundColony, upgradeColony,
   upgradeAllColonies, setColonyFocus, launchMission, setDoctrine, setOperationsMode, activateProtocol, prestigeGain,
-  handleManualClick, equipChip, unequipChip
+  handleManualClick, equipChip, unequipChip, canPrestige
 } from '../engine/actions.js';
 import { clickAnomaly } from '../engine/events.js';
 import { autoExpeditions } from '../engine/automation.js';
@@ -21,8 +21,8 @@ import { fetchServerStockPrices, buyStock, sellStock } from '../engine/stocks.js
 import { resolveDecision } from '../engine/decisions.js';
 import { getSetting, toggleSetting } from '../lib/settings.js';
 import { claimStandup, useCoffee, rewardText } from '../engine/daily.js';
-import { startChallenge, abortChallenge, activeChallenge } from '../engine/challenges.js';
-import { getChallenge } from '../data/challenges.js';
+import { startChallenge, abortChallenge, activeChallenge, challengeStatus } from '../engine/challenges.js';
+import { getChallenge, CHALLENGES } from '../data/challenges.js';
 
 const FRESH_FLAG = 'codetycoon-fresh-start';
 
@@ -320,15 +320,28 @@ export default function App() {
         done(); return;
       }
       case 'prestige': {
+        if (!canPrestige()) return;
         const gain = prestigeGain();
-        if (gain <= 0) return;
         const sprint = activeChallenge();
+        // Der nächste Run kann direkt als Sprint starten (Handicap, dafür permanente Belohnung)
+        const readySprints = CHALLENGES.filter(c => challengeStatus(c) === 'ready' || (sprint && c.id !== sprint.id && challengeStatus(c) === 'busy'));
+        const sprintSelect = readySprints.length
+          ? `<label class="lbl" style="margin-top:12px">Nächster Run<select id="prestige-next-run" class="input"><option value="">Normaler Run</option>${readySprints.map(c => `<option value="${c.id}">Sprint: ${escapeHtml(c.name)} – ${escapeHtml(c.modLabel)} → ${escapeHtml(c.rewardLabel)}</option>`).join('')}</select></label>`
+          : '';
         confirmModal('Hard Refactor',
-          `<p>Du bekommst <strong class="good">+${fmt(gain)} XP</strong> (Guthaben danach: ${fmt(state.chronicle + gain)}).</p>${sprint ? `<p class="bad" style="margin-top:6px">Der laufende Sprint „${escapeHtml(sprint.name)}“ endet dabei ohne Belohnung.</p>` : ''}<div style="margin-top:12px">${renderKeepReset()}</div>`,
+          `<p>Du bekommst <strong class="good">+${fmt(gain)} XP</strong> (Guthaben danach: ${fmt(state.chronicle + gain)}).</p>${sprint ? `<p class="bad" style="margin-top:6px">Der laufende Sprint „${escapeHtml(sprint.name)}“ endet dabei ohne Belohnung.</p>` : ''}${sprintSelect}<div style="margin-top:12px">${renderKeepReset()}</div>`,
           `Refactor (+${fmt(gain)} XP)`
         ).then(confirmed => {
-          if (!confirmed || !doPrestigeReset()) return;
-          showToast(`Hard Refactor abgeschlossen: +${fmt(gain)} XP`, 'good', true);
+          const sprintId = document.getElementById('prestige-next-run')?.value || '';
+          if (!confirmed) return;
+          if (sprintId) {
+            if (sprint) abortChallenge();
+            if (!startChallenge(sprintId)) return;
+            showToast(`Hard Refactor: +${fmt(gain)} XP – Sprint ${getChallenge(sprintId)?.name} läuft`, 'good', true);
+          } else {
+            if (!doPrestigeReset()) return;
+            showToast(`Hard Refactor abgeschlossen: +${fmt(gain)} XP`, 'good', true);
+          }
           setState('selectedTab', 'prestige');
           done();
           if (currentBonuses().doctrineUnlock && !state.doctrine) setTimeout(showDoctrineModal, 400);
@@ -637,7 +650,7 @@ export default function App() {
         const rows = result.rows || [];
         addLocalChatMsg('System', '— Top 5 —');
         if (!rows.length) addLocalChatMsg('System', 'Noch keine Einträge.');
-        rows.forEach((r, i) => addLocalChatMsg('System', `${['🥇', '🥈', '🥉', '4.', '5.'][i]} ${r.username} · ${r.prestige_score} Refactors`));
+        rows.forEach((r, i) => addLocalChatMsg('System', `${['🥇', '🥈', '🥉', '4.', '5.'][i]} ${r.username} · ${fmt(r.xp_earned || 0)} XP`));
       } else if (result?.command === 'users') addLocalChatMsg('System', `👥 ${result.total} Accounts · ${result.active} aktiv (7d) · ${result.flagged} geflaggt`);
       await fetchChat();
       if (chatMsgsRef) chatMsgsRef.scrollTop = chatMsgsRef.scrollHeight;

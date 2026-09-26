@@ -52,10 +52,11 @@ export const TECHS = [
   { id: 'agi_completion', name: 'AGI', tier: 5, cost: 3.84e+10, prereq: ['global_cdn'], desc: 'Das Endziel. Schaltet 10x Developer und Tech Monopol frei. Bereit für den ultimativen Refactor.' }
 ];
 
+// chapter: ab welcher Finanzierungsrunde (data/chapters.js) die Stufe erforscht werden kann
 export const TECH_TIERS = [
-  { tier: 1, name: 'Garage', desc: 'Die Grundlagen: erste Sprachen, erste Bugs.' },
-  { tier: 2, name: 'Startup', desc: 'Prozesse, Marketing und erste Aufträge.' },
-  { tier: 3, name: 'Scale-up', desc: 'Standorte, Automatisierung, Architektur.' },
-  { tier: 4, name: 'Konzern', desc: 'Daten, KI und Unternehmenskultur.' },
-  { tier: 5, name: 'Singularität', desc: 'Das Ende des Internets.' }
+  { tier: 1, name: 'Garage', desc: 'Die Grundlagen: erste Sprachen, erste Bugs.', chapter: 0 },
+  { tier: 2, name: 'Startup', desc: 'Prozesse, Marketing und erste Aufträge.', chapter: 0 },
+  { tier: 3, name: 'Scale-up', desc: 'Standorte, Automatisierung, Architektur.', chapter: 0 },
+  { tier: 4, name: 'Konzern', desc: 'Daten, KI und Unternehmenskultur.', chapter: 1 },
+  { tier: 5, name: 'Singularität', desc: 'Das Ende des Internets.', chapter: 2 }
 ];

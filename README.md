@@ -78,13 +78,16 @@ Klick-Button, aktuelle Aufgabe, KPIs, Tages-Loop (Daily Standup, Tickets, Kaffee
 - **Sprints** (Prestige-Tab, ab dem ersten Refactor): Runs mit Handicap und Ziel. Belohnungen sind permanent: Klick ×2, Konverter −10 % Input, Mitarbeiter −5 %, Team-Synergie +25 %, Forschung −10 %, XP +15 %.
 
 ### Prestige (Hard Refactor)
-XP = 6 · ∛(Code im Run / 10 Mio.) · Struktur-Bonus. Erhalten bleiben Funde, Chips, Errungenschaften, Chronicle-Upgrades (11), Meilensteine (14), Aufgaben-Fortschritt, Aktien-Depot, Daily-Streak, Kaffee und Sprint-Belohnungen. Mainframe-Chips (10) mit Tradeoffs.
+XP = 6 · ∛(Code im Run / 10 Mio.) · Struktur-Bonus. Ein Refactor braucht mindestens 10 XP bzw. 2 % der bisher verdienten XP. Erhalten bleiben Funde, Chips, Errungenschaften, Chronicle-Upgrades (11), Meilensteine (14), Finanzierungsrunde, Aufgaben-Fortschritt, Daily-Streak, Kaffee und Sprint-Belohnungen. Mainframe-Chips (10) mit Tradeoffs.
+
+### Finanzierungsrunden
+Garage → Seed → Series A: Jede Runde schaltet neue Tech-Stufen frei (Stufe 4 ab Seed, Stufe 5 ab Series A). Die Ziele (Refactors, verdiente XP) stehen im Tech- und im Prestige-Tab.
 
 ### Ereignisse
 Zufallsereignisse, interaktive Cyber-Events (Ransomware, DDoS, Investor Call …) und der herumfliegende Bug 🐛 mit Sofort-Bonus.
 
 ### Börse
-Serverbasierter Aktienmarkt (alle Spieler sehen dieselben Kurse). Jede Aktie erhöht die Produktion ihrer Ressource um 0,01 % (max. +50 % je Ressource).
+Serverbasierter Aktienmarkt (alle Spieler sehen dieselben Kurse, sie schwanken täglich um den Basispreis). Jede Aktie erhöht die Produktion ihrer Ressource um 0,01 % (max. +50 % je Ressource). Die Kurse skalieren mit der höchsten Tech-Stufe des Runs; das Depot gilt bis zum nächsten Refactor.
 
 ### Cloud & Community
 JWT-Login, Cloud-Save mit Konfliktauflösung, Leaderboard, Profile, globaler Chat mit Befehlen.

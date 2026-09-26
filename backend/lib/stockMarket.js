@@ -13,8 +13,12 @@ const STOCKS = [
 ];
 
 const UPDATE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
-const MAX_HISTORY = 24;
-const MEAN_REVERSION = 0.08; // strength of pull back toward base price
+const HISTORY_EVERY_TICKS = 6;             // one history point per 30 minutes …
+const MAX_HISTORY = 48;                    // … for a 24 h chart; the last point is always the live price
+const SIGMA_PER_TICK = 0.06;               // log-price noise per tick = volatility × 0.06 (roughly ±10–25 % per day)
+const MEAN_REVERSION = 0.005;              // pull toward base price per tick (half-life ~11 h)
+
+let ticksSinceHistory = 0;
 
 // In-memory cache — populated from DB on startup
 const cache = {};
@@ -27,33 +31,35 @@ function normalRandom() {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
+// Mean-reverting random walk in log space (Ornstein-Uhlenbeck), so prices swing noticeably from day to day
+// but keep returning to their base price.
 function nextPrice(stock, currentPrice, buyVol, sellVol) {
-  // Geometric Brownian Motion: annual drift 5%, scaled to 5-minute interval
-  const dt = UPDATE_INTERVAL_MS / (365 * 24 * 60 * 60 * 1000);
-  const mu = 0.05;
-  const sigma = stock.volatility;
-  const gbm = Math.exp((mu - 0.5 * sigma * sigma) * dt + sigma * Math.sqrt(dt) * normalRandom());
-
-  // Mean reversion: gently pulls price back toward base price
+  const sigma = stock.volatility * SIGMA_PER_TICK;
   const logRatio = Math.log(currentPrice / stock.basePrice);
-  const reversion = Math.exp(-MEAN_REVERSION * logRatio * dt * 52560); // dt in 5-min units
 
   // Supply/demand: net buy pressure moves price up, net sell pressure moves it down (max ±4%)
   const totalVol = buyVol + sellVol;
-  const pressure = totalVol > 0 ? 1 + ((buyVol - sellVol) / totalVol) * 0.04 : 1;
+  const pressure = totalVol > 0 ? ((buyVol - sellVol) / totalVol) * 0.04 : 0;
 
-  const raw = currentPrice * gbm * reversion * pressure;
+  const nextLog = logRatio * (1 - MEAN_REVERSION) + sigma * normalRandom() - 0.5 * sigma * sigma + pressure;
+  const raw = stock.basePrice * Math.exp(nextLog);
   return Math.max(stock.basePrice * 0.08, Math.min(stock.basePrice * 10, raw));
 }
 
 function runTick() {
   const now = Date.now();
+  ticksSinceHistory += 1;
+  const newPoint = ticksSinceHistory >= HISTORY_EVERY_TICKS;
+  if (newPoint) ticksSinceHistory = 0;
   STOCKS.forEach(stock => {
     const entry = cache[stock.id];
     if (!entry) return;
 
     const price = nextPrice(stock, entry.price, entry.buyVol, entry.sellVol);
-    const history = [...entry.history.slice(-(MAX_HISTORY - 1)), price];
+    // Start a new point every HISTORY_EVERY_TICKS ticks, otherwise keep the last point at the live price
+    const history = newPoint || !entry.history.length
+      ? [...entry.history.slice(-(MAX_HISTORY - 1)), price]
+      : [...entry.history.slice(0, -1), price];
 
     cache[stock.id] = { price, history, buyVol: 0, sellVol: 0, lastUpdated: now };
 

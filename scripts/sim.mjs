@@ -124,6 +124,7 @@ async function runWorker(opts) {
   const { CHALLENGES } = await load('../src/data/challenges.js');
   const { STOCKS } = await load('../src/data/stocks.js');
   const { QUESTS } = await load('../src/data/quests.js');
+  const { CHAPTERS } = await load('../src/data/chapters.js');
 
   const CLICKS_PER_SEC = 2;
   const BOT_EVERY = 5;             // Bot handelt alle 5 s
@@ -144,11 +145,16 @@ async function runWorker(opts) {
     if (!marks[name]) marks[name] = { wall: wall(), active: activeSec };
   }
 
+  // Revenue pro Sekunde beim ersten Erreichen jeder Tech-Stufe (Kalibrierung der Aktienkurse)
+  const probes = { tierRevenue: {} };
+
   function checkMarks() {
     if (state.techs.length >= 1) mark('tech_first');
     for (const id of state.techs) {
       const tier = TECHS.find(t => t.id === id)?.tier;
-      if (tier) mark(`tier${tier}`);
+      if (!tier || marks[`tier${tier}`]) continue;
+      mark(`tier${tier}`);
+      probes.tierRevenue[tier] = bonusesMod.currentRates().__produced?.energy || 0;
     }
     if (state.techs.length >= TECHS.length - 1) mark('techs_all');
     for (const id of state.projects) mark(`rel:${id}`);
@@ -281,6 +287,16 @@ async function runWorker(opts) {
     if ((state.coffee?.beans || 0) > 0 && !state.boost && daily.coffeeUseAvailable('espresso')) daily.useCoffee('espresso');
   }
 
+  // XP, die der aktuellen Finanzierungsrunde bis zu ihrem XP-Ziel noch fehlen (Infinity = kein XP-Ziel)
+  function xpNeededForRound() {
+    const chapter = CHAPTERS[state.roadmap?.chapter || 0];
+    if (!chapter || !CHAPTERS[(state.roadmap?.chapter || 0) + 1]) return Infinity;
+    const goal = chapter.goals.find(g => g.type === 'xpEarned');
+    return goal ? Math.max(0, goal.value - chronicleTotal()) : Infinity;
+  }
+
+  // Refactor, wenn der Gewinn das XP-Ziel der Runde deckt (so spielt ein Mensch mit sichtbarem Ziel),
+  // sonst sobald die XP/min fallen und sich der Refactor lohnt.
   function maybePrestige() {
     if (state.challenge) return;
     const runMin = (clock - state.stats.runStartedAt) / 60000;
@@ -288,7 +304,10 @@ async function runWorker(opts) {
     const rate = raw / Math.max(1, runMin);
     peakRate = Math.max(peakRate, rate);
     const gain = actions.prestigeGain();
-    if (runMin < MIN_RUN_MIN || gain < Math.max(MIN_GAIN, GROW * chronicleTotal()) || rate >= PRESTIGE_DROP * peakRate) return;
+    const needed = xpNeededForRound();
+    const reachesGoal = needed > 0 && gain >= needed && gain >= MIN_GAIN;
+    const ratePeaked = gain >= Math.max(MIN_GAIN, GROW * chronicleTotal()) && rate < PRESTIGE_DROP * peakRate;
+    if (runMin < MIN_RUN_MIN || !(reachesGoal || ratePeaked) || (actions.canPrestige && !actions.canPrestige())) return;
     const sprint = CHALLENGES.find(c => challenges.challengeStatus(c) === 'ready');
     const runWall = runMin * 60;
     const ok = sprint ? challenges.startChallenge(sprint.id) : actions.doPrestigeReset();
@@ -359,6 +378,7 @@ async function runWorker(opts) {
   }
 
   function chronicleTotal() {
+    if (Number.isFinite(state.stats.xpEarned)) return state.stats.xpEarned;
     let spent = state.chronicle;
     for (const u of CHRONICLE_UPGRADES) {
       const lvl = gs.upgradeLevel(u.id);
@@ -384,7 +404,7 @@ async function runWorker(opts) {
   const result = {
     model, seed,
     simulated: { wall: wall(), active: activeSec },
-    marks, refactors, perDay,
+    marks, refactors, perDay, probes,
     final: {
       prestigeCount: state.stats.prestigeCount || 0,
       xpEarned: chronicleTotal(),
@@ -426,6 +446,11 @@ function median(xs) {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
+function fmtNum(n) {
+  if (n === null || n === undefined) return '–';
+  return n >= 1e4 ? n.toExponential(1) : String(Math.round(n));
+}
+
 function fmtDuration(sec, model) {
   if (sec === null || sec === undefined) return '–';
   if (model !== 'active') return `Tag ${(sec / 86400).toFixed(1)}`;
@@ -456,14 +481,18 @@ function report(model, runs) {
     const perDay = runs.flatMap(r => (r.perDay || []).filter(Boolean).slice(0, 14).map(d => d.refactors));
     if (perDay.length) console.log(`Refactors pro Tag (Tag 1–14): Median ${median(perDay)}, max ${Math.max(...perDay)}`);
   }
+  const tiers = [...new Set(runs.flatMap(r => Object.keys(r.probes?.tierRevenue || {})))].sort();
+  if (tiers.length) console.log(`Revenue/s beim Erreichen: ${tiers.map(t => `T${t} ${fmtNum(median(runs.map(r => r.probes.tierRevenue[t]).filter(v => v !== undefined)))}`).join(' · ')}`);
   console.log(`Ende: ${median(runs.map(r => r.final.prestigeCount))} Refactors, ${Math.round(median(runs.map(r => r.final.xpEarned)))} XP verdient, Quest ${median(runs.map(r => r.final.questIndex))}, ${median(runs.map(r => r.final.sprints))} Sprints (Median)`);
 }
 
 // Zielwerte aus dem Plan. Werte außerhalb → FAIL. Fehlende Meilensteine → n/a.
+// before: [a, b] → in jedem Lauf muss Meilenstein a vor b liegen (oder b fehlt)
 const TARGETS = [
   { model: 'active', mark: 'tech_first', max: 120, label: 'Erste Tech < 2 min' },
   { model: 'active', mark: 'tier2', max: 20 * 60, label: 'Tier 2 ≤ 20 min' },
   { model: 'active', mark: 'refactor1', min: 90 * 60, max: 120 * 60, label: 'Erster Refactor nach 90–120 min' },
+  { model: 'active', before: ['refactor1', 'tier4'], label: 'Tier 4 erst nach dem ersten Refactor' },
   { model: 'daily', mark: 'rel:internet_three', min: 16 * 86400, label: 'Finale (Internet 3.0) nicht vor Tag 16' }
 ];
 
@@ -474,6 +503,12 @@ function reportTargets(results) {
   console.log('\n══ Zielwerte ══');
   for (const t of relevant) {
     const runs = results.filter(r => r.model === t.model);
+    if (t.before) {
+      const [a, b] = t.before;
+      const ok = runs.every(r => !r.marks[b] || (r.marks[a] && r.marks[a].wall <= r.marks[b].wall));
+      console.log(`${(ok ? 'PASS' : 'FAIL').padEnd(6)}${t.label.padEnd(44)}${runs.filter(r => r.marks[b]).length}/${runs.length} Läufe mit ${b}`);
+      continue;
+    }
     const vals = runs.map(r => r.marks[t.mark]?.wall).filter(v => v !== undefined);
     let status = 'n/a';
     let shown = '–';

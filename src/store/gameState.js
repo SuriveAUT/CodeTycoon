@@ -2,17 +2,20 @@ import { createStore } from 'solid-js/store';
 import { rand } from '../lib/format.js';
 import { AstraforgeAPI } from '../lib/api-client.js';
 import { BUILDINGS } from '../data/buildings.js';
-import { TECHS } from '../data/techs.js';
+import { TECHS, TECH_TIERS } from '../data/techs.js';
 import { PROJECTS } from '../data/projects.js';
 import { ARTIFACTS } from '../data/artifacts.js';
-import { zeroResources } from '../data/misc.js';
+import { zeroResources, chronicleCostFor } from '../data/misc.js';
 import { QUESTS } from '../data/quests.js';
 import { COFFEE_INTERVAL_MS } from '../data/daily.js';
 import { CHALLENGES } from '../data/challenges.js';
+import { CHAPTERS } from '../data/chapters.js';
+import { MAX_DIVIDEND_BONUS, DIVIDEND_PER_SHARE } from '../data/stocks.js';
+import { emitToast } from '../lib/toast.js';
 
 export const SAVE_KEY = 'dev-tycoon-save-v1';
 export const BUY_AMOUNTS = [1, 10, 100, 'max'];
-const VERSION = 7;
+const VERSION = 8;
 
 // Sehr alte Saves (Astraforge-Weltraum-Thema) auf die aktuellen IDs mappen.
 const ID_MAP = {
@@ -91,6 +94,7 @@ export function defaultState() {
       bugsFixed: 0,
       stockTrades: 0,
       sprintsDone: 0,
+      xpEarned: 0,
       runStartedAt: Date.now(),
       lastSave: Date.now(),
       firstSeen: Date.now()
@@ -102,6 +106,8 @@ export function defaultState() {
     // Sprints (engine/challenges.js)
     challenge: null,
     challengesDone: [],
+    // Finanzierungsrunden (engine/roadmap.js): aktuelle Runde, reachedAt[i] = Zeitpunkt, an dem Runde i begann
+    roadmap: { chapter: 0, reachedAt: [] },
     event: null,
     eventEnds: 0,
     nextEventAt: Date.now() + rand(4 * 60e3, 8 * 60e3),
@@ -162,7 +168,44 @@ function migrateState(candidate) {
     QUESTS.forEach((q, pos) => { if (q.since === 7 && idx >= pos) idx++; });
     candidate.questIndex = idx;
   }
+  if ((candidate.version || 0) < 8) migrateToV8(candidate);
   return candidate;
+}
+
+// v7 → v8 (Finanzierungsrunden, XP-basierte Meilensteine, neuer 10x Typist)
+function migrateToV8(candidate) {
+  const levels = { ...(candidate.chronicleUpgrades || {}) };
+  const spentOn = (id) => {
+    let sum = 0;
+    for (let lvl = 0; lvl < (levels[id] || 0); lvl++) sum += chronicleCostFor(id, lvl);
+    return sum;
+  };
+  // Verdiente XP = Guthaben + alles, was in Chronicle-Upgrades steckt
+  const spent = Object.keys(levels).reduce((sum, id) => sum + spentOn(id), 0);
+  candidate.stats = { ...(candidate.stats || {}), xpEarned: Math.max(0, Number(candidate.chronicle) || 0) + spent };
+  // 10x Typist wirkt jetzt anders: bisher investierte XP zurückgeben
+  if (levels.quantum_click > 0) {
+    candidate.chronicle = (Number(candidate.chronicle) || 0) + spentOn('quantum_click');
+    candidate.chronicleUpgrades = { ...levels, quantum_click: 0 };
+  }
+  // Startrunde aus dem bisherigen Fortschritt: vorhandene Techs und Releases bleiben immer erhalten
+  const techTier = (id) => TECHS.find(t => t.id === id)?.tier || 0;
+  const maxTier = (candidate.techs || []).reduce((m, id) => Math.max(m, techTier(id)), 0);
+  const achievements = candidate.achievements || [];
+  const projects = candidate.projects || [];
+  let chapter = 0;
+  if (maxTier >= 4 || achievements.includes('tech_25')) chapter = 1;
+  if (maxTier >= 5 || ['world_engine', 'singularity'].some(a => achievements.includes(a))
+    || ['operating_system', 'internet_three'].some(p => projects.includes(p))) chapter = 2;
+  candidate.roadmap = { chapter: Math.max(chapter, Number(candidate.roadmap?.chapter) || 0), reachedAt: [] };
+  // Aktien kosteten bisher nur den Basispreis. Zum neuen, skalierten Kurs wären alte Bestände ein Vermögen:
+  // auf den Dividenden-Cap kürzen (die volle Dividende bleibt bis zum nächsten Refactor erhalten)
+  const capShares = Math.ceil(MAX_DIVIDEND_BONUS / DIVIDEND_PER_SHARE);
+  if (candidate.stocks && typeof candidate.stocks === 'object') {
+    for (const id of Object.keys(candidate.stocks)) {
+      candidate.stocks[id] = Math.min(capShares, Math.max(0, Math.floor(Number(candidate.stocks[id]) || 0)));
+    }
+  }
 }
 
 export function normalizeState(candidate) {
@@ -180,6 +223,7 @@ export function normalizeState(candidate) {
     auto: { ...base.auto, ...(candidate.auto || {}) },
     daily: { ...base.daily, ...(candidate.daily || {}) },
     coffee: { ...base.coffee, ...(candidate.coffee || {}) },
+    roadmap: { ...base.roadmap, ...(candidate.roadmap || {}) },
     stats: {
       ...base.stats,
       ...(candidate.stats || {}),
@@ -216,6 +260,9 @@ export function normalizeState(candidate) {
   merged.stats.protocolsUsed = Math.max(0, Math.floor(asFiniteNumber(merged.stats.protocolsUsed, 0)));
   merged.stats.questsDone = Math.max(0, Math.floor(asFiniteNumber(merged.stats.questsDone, 0)));
   ['hiresTotal', 'techsLearned', 'bugsFixed', 'stockTrades', 'sprintsDone'].forEach(k => { merged.stats[k] = Math.max(0, Math.floor(asFiniteNumber(merged.stats[k], 0))); });
+  merged.stats.xpEarned = Math.max(0, asFiniteNumber(merged.stats.xpEarned, 0));
+  merged.roadmap.chapter = Math.min(CHAPTERS.length - 1, Math.max(0, Math.floor(asFiniteNumber(merged.roadmap.chapter, 0))));
+  merged.roadmap.reachedAt = Array.isArray(merged.roadmap.reachedAt) ? merged.roadmap.reachedAt.map(t => (t == null ? t : asFiniteNumber(t, 0))) : [];
   merged.stats.runStartedAt = asFiniteNumber(merged.stats.runStartedAt, Date.now());
   // Tages-Loop / Sprints
   merged.daily.tickets = Array.isArray(merged.daily.tickets) ? merged.daily.tickets.filter(t => t && typeof t.id === 'string') : [];
@@ -302,7 +349,11 @@ export function saveState() {
     if (AstraforgeAPI.isLoggedIn()) {
       const now = Date.now();
       if (now - lastCloudSync > 30000) {
-        AstraforgeAPI.saveGame(snapshot).catch(e => console.warn('Cloud sync error:', e));
+        AstraforgeAPI.saveGame(snapshot).catch(e => {
+          console.warn('Cloud sync error:', e);
+          // Server lehnt Saves eines veralteten Tabs ab (neueres Save-Format in der Cloud)
+          if (/neu laden/.test(e?.message || '')) emitToast(e.message, 'bad');
+        });
         lastCloudSync = now;
       }
     }
@@ -427,7 +478,13 @@ export function unlockReason(def) {
   return 'Gesperrt';
 }
 
+// Ab welcher Finanzierungsrunde eine Tech erforscht werden kann (Stufe aus TECH_TIERS, einzeln überschreibbar)
+export function techChapter(tech) {
+  return tech.chapter ?? TECH_TIERS.find(t => t.tier === tech.tier)?.chapter ?? 0;
+}
+
 export function isTechUnlocked(tech) {
+  if (techChapter(tech) > (state.roadmap?.chapter || 0)) return false;
   if (tech.excludes && tech.excludes.some(id => hasTech(id))) return false;
   return tech.prereq.every(id => hasTech(id));
 }
@@ -439,5 +496,6 @@ export function projectRequirementLabel(id) {
 }
 
 export function isProjectUnlocked(project) {
+  if ((project.chapter || 0) > (state.roadmap?.chapter || 0)) return false;
   return project.prereq.every((id) => isProjectRequirementMet(id));
 }
