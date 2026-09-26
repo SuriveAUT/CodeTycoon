@@ -7,6 +7,8 @@ import {
   dayKey, STREAK_CYCLE, STANDUP_MINUTES, STANDUP_WEEK_RELICS, STANDUP_WEEK_BOOST,
   COFFEE_INTERVAL_MS, COFFEE_MAX, COFFEE_USES, TICKETS_PER_DAY, TICKETS_ALL_DONE_BOOST, TICKET_COUNTERS, TICKET_POOL
 } from '../data/daily.js';
+import { STANDUP_LAB_SPEEDUP_MS, STANDUP_WEEK_LAB_SPEEDUP_MS, OVERTIME_LAB_SPEEDUP_MS } from '../data/lab.js';
+import { speedUpLab } from './lab.js';
 import { fmt } from '../lib/format.js';
 import { emitToast } from '../lib/toast.js';
 
@@ -160,6 +162,8 @@ export function claimStandup(now = Date.now()) {
   const info = standupReward(state, now);
   Object.entries(info.reward).forEach(([res, amt]) => { if (amt > 0) add(res, amt); });
   if (info.week) setBoost(STANDUP_WEEK_BOOST, now);
+  // Der Standup bringt auch das Labor voran
+  info.labSped = speedUpLab(info.week ? STANDUP_WEEK_LAB_SPEEDUP_MS : STANDUP_LAB_SPEEDUP_MS);
   setState('daily', 'lastClaimDay', dayKey(now));
   setState('daily', 'streak', info.streak);
   setState('daily', 'bestStreak', Math.max(state.daily.bestStreak || 0, info.streak));
@@ -173,6 +177,7 @@ export function coffeeUseAvailable(id, s = state) {
   if ((s.coffee.beans || 0) <= 0) return false;
   if (id === 'crunch') return s.expeditions.length > 0;
   if (id === 'reroll') return s.daily.tickets.some(t => !t.done);
+  if (id === 'overtime') return (s.lab?.running || []).length > 0;
   return true;
 }
 
@@ -189,6 +194,10 @@ export function useCoffee(id, now = Date.now()) {
     if (!running) return { ok: false, text: 'Gerade läuft kein Auftrag.' };
     setState('expeditions', state.expeditions.map(m => ({ ...m, end: now })));
     text = `Crunch: ${running} Auftr${running > 1 ? 'äge' : 'ag'} sofort fertig.`;
+  } else if (id === 'overtime') {
+    const sped = speedUpLab(OVERTIME_LAB_SPEEDUP_MS);
+    if (!sped) return { ok: false, text: 'Im Labor läuft gerade nichts.' };
+    text = `Überstunden: ${sped} Labor-Projekt${sped > 1 ? 'e' : ''} 3 Stunden schneller.`;
   } else {
     const keep = state.daily.tickets.filter(t => t.done);
     const open = state.daily.tickets.filter(t => !t.done);

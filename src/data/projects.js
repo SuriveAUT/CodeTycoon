@@ -41,6 +41,14 @@ export const PROJECTS = [
   { id: 'internet_three', name: 'Das Internet 3.0', prereq: ['operating_system', 'agi_completion'],
     cost: { scrap: 2e11, energy: 4e10, research: 4e8, influence: 2e8, relics: 3000 },
     effects: ['XP-Gewinn +50%', 'Offline-Limit +4h'],
-    desc: 'Du hast das Internet neu erfunden. Dezentralisiert alles.' }
+    desc: 'Du hast das Internet neu erfunden. Dezentralisiert alles.' },
+  { id: 'super_app', name: 'Super-App', prereq: ['marketplace_tech'], chapter: 3,
+    cost: { scrap: 5e13, energy: 1e13, research: 1e11, influence: 5e10, relics: 3e4 },
+    effects: ['Gesamtproduktion +50%', 'Users und Hype +25%'],
+    desc: 'Chat, Bezahlen, Taxi, Essen – alles in einer App. Niemand verlässt sie mehr.' },
+  { id: 'ipo', name: 'Börsengang', prereq: ['digital_twin', 'super_app'], chapter: 5, manual: true,
+    cost: { influence: 3e20, relics: 1.5e20 },
+    effects: ['Die Glocke läutet: deine Firma geht an die Börse'],
+    desc: 'Das Ziel jeder Gründung. Danach gehört die Firma allen – und dir das Vermächtnis.' }
 ];
 

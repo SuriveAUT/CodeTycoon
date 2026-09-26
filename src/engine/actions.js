@@ -10,6 +10,7 @@ import { clamp } from '../lib/format.js';
 import { checkAchievements } from './events.js';
 import { milestoneMult } from '../data/buildings.js';
 import { emitToast } from '../lib/toast.js';
+import { roundRewardSum } from './roadmap.js';
 
 export { COLONY_MAX_LEVEL };
 
@@ -85,6 +86,7 @@ export function purchaseProject(id, { quiet = false } = {}) {
   spend(cost);
   setState('projects', [...state.projects, id]);
   setState('stats', 'projectsBuilt', state.stats.projectsBuilt + 1);
+  if (!(state.stats.releasedEver || []).includes(id)) setState('stats', 'releasedEver', [...(state.stats.releasedEver || []), id]);
   if (!quiet) log(`Release: ${proj.name}.`);
   return true;
 }
@@ -334,10 +336,13 @@ export function handleManualClick() {
 }
 
 // ── Mainframe ──
+// Basis-Slots (3, per Admin-Editor änderbar) plus Rundenbelohnungen
+export function chipSlots(s = state) { return (s.mainframeSlots || 3) + roundRewardSum('chipSlots', s); }
+
 export function equipChip(chipId) {
   if (!state.ownedChips.includes(chipId)) return false;
   if (state.equippedChips.includes(chipId)) return false;
-  if (state.equippedChips.length >= (state.mainframeSlots || 3)) return false;
+  if (state.equippedChips.length >= chipSlots()) return false;
   setState('equippedChips', [...state.equippedChips, chipId]);
   log(`Chip installiert: ${getChip(chipId)?.name || chipId}.`);
   return true;

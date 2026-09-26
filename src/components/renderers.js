@@ -7,11 +7,14 @@ import {
 import { currentBonuses as bonuses, currentRates as rates, buildingOutputPerSecond, buildingInputPerSecond, clickValue, colonyBaseBonus, MODIFIER_CAP, STARVED_UTILIZATION } from '../store/bonuses.js';
 import {
   nextResearchCost, nextProjectCost, chronicleCost, colonyFoundCost, canFoundColony, colonyUpgradeCost, COLONY_MAX_LEVEL,
-  prestigeGain, prestigeGainRaw, scrapForNextXp, runScrap, missionPowerReq, prestigeStructBonus, PRESTIGE_XP_BASE, canPrestige, minPrestigeGain
+  prestigeGain, prestigeGainRaw, scrapForNextXp, runScrap, missionPowerReq, prestigeStructBonus, PRESTIGE_XP_BASE, canPrestige, minPrestigeGain,
+  chipSlots
 } from '../engine/actions.js';
 import { currentQuest, questProgress } from '../engine/quests.js';
-import { chapterIndex, currentChapter, nextChapter, goalProgress, goalLabel } from '../engine/roadmap.js';
+import { chapterIndex, currentChapter, nextChapter, goalProgress, goalLabel, goalTab } from '../engine/roadmap.js';
 import { CHAPTERS } from '../data/chapters.js';
+import { labUnlocked, labSlots, labFreeSlots, labRunning, labReady, labLevel, labDurationMs, labCost, labStatus, canStartLab } from '../engine/lab.js';
+import { LAB_PROJECTS } from '../data/lab.js';
 import { bestInvestmentId } from '../engine/advisor.js';
 import { missionSuccessChance, getDynamicMissionRewards } from '../engine/events.js';
 import { currentDecisionDef } from '../engine/decisions.js';
@@ -46,6 +49,7 @@ export const TABS = [
   { id: 'expansion', label: 'Expansion', icon: 'globe', key: 'E', blurb: 'Freelance-Aufträge und Standorte.' },
   { id: 'market', label: 'Börse', icon: 'market', key: 'M', blurb: 'Aktien handeln.' },
   { id: 'prestige', label: 'Prestige', icon: 'prestige', key: 'S', blurb: 'Hard Refactor, XP, Chips.' },
+  { id: 'roadmap', label: 'Roadmap', icon: 'flag', key: 'F', blurb: 'Finanzierungsrunden und Labor.' },
   { id: 'codex', label: 'Codex', icon: 'codex', key: 'C', blurb: 'Errungenschaften und Hilfe.' },
   { id: 'account', label: 'Account', icon: 'account', key: 'A', blurb: 'Cloud-Save, Leaderboard.' }
 ];
@@ -162,6 +166,10 @@ export function navBadges() {
   const fresh = newBuildings().length;
   if (fresh && state.selectedTab !== 'buildings') badges.buildings = fresh;
   if (dailyUnlocked() && canClaimStandup()) badges.overview = 'dot';
+  // Labor: fertige Projekte abholen, sonst Hinweis auf freien Slot
+  const ready = labReady().length;
+  if (ready) badges.roadmap = ready;
+  else if (labUnlocked() && labFreeSlots() > 0 && LAB_PROJECTS.some(def => canStartLab(def.id))) badges.roadmap = 'dot';
   return badges;
 }
 
@@ -372,6 +380,7 @@ function renderOverview() {
       </section>
       <div class="stack">
         ${renderQuestCard()}
+        ${dailyUnlocked() ? renderRoundCard() : ''}
         <div class="kpis">
           ${kpi('Code / s', `<span class="res-scrap">${fmt(r.__produced?.scrap || 0)}</span>`, `netto ${fmtRate(r.scrap)}`)}
           ${kpi('Revenue / s', `<span class="res-energy">${fmt(r.__produced?.energy || 0)}</span>`, `netto ${fmtRate(r.energy)}`)}
@@ -543,13 +552,121 @@ function techUnlockChips(techId) {
   return chips.join('');
 }
 
-// Ziele einer Finanzierungsrunde als Fortschrittszeilen (Tech-Tab, Prestige-Tab)
-function chapterGoalRows(chapter) {
+// Ziele einer Finanzierungsrunde als Fortschrittszeilen (Tech-, Prestige- und Roadmap-Tab).
+// links: offene Ziele bekommen einen Button zum Tab, in dem man sie vorantreibt.
+function chapterGoalRows(chapter, { links = false } = {}) {
   return `<div class="stack" style="gap:8px">${chapter.goals.map(g => {
     const [cur, target] = goalProgress(g);
     const done = cur >= target;
-    return `<div><div class="row-between"><span>${getIcon(done ? 'check' : 'flag')} ${escapeHtml(goalLabel(g))}</span><span class="muted small mono">${fmt(Math.min(cur, target))} / ${fmt(target)}</span></div>${progress(Math.min(cur, target), target, done ? 'thin good' : 'thin')}</div>`;
+    const tab = goalTab(g);
+    const link = links && !done && tab !== state.selectedTab ? ` <button class="btn xs" data-action="tab" data-tab="${tab}">Zum Tab</button>` : '';
+    return `<div><div class="row-between"><span>${getIcon(done ? 'check' : 'flag')} ${escapeHtml(goalLabel(g))}</span><span class="muted small mono">${fmt(Math.min(cur, target))} / ${fmt(target)}${link}</span></div>${progress(Math.min(cur, target), target, done ? 'thin good' : 'thin')}</div>`;
   }).join('')}</div>`;
+}
+
+// ═══════════════════════════ ROADMAP & LABOR ═══════════════════════════
+function fmtHours(ms) {
+  return ms >= 3600e3 ? `${Math.round(ms / 360e3) / 10} h` : `${Math.max(1, Math.ceil(ms / 60e3))} min`;
+}
+
+function labCard(def) {
+  const status = labStatus(def);
+  const run = labRunning(def.id);
+  const now = Date.now();
+  const tags = [
+    def.key ? `<span class="badge accent" ${tt('Rundenziel', `Schlüsselprojekt der Runde ${CHAPTERS[def.chapter]?.name || ''}.`)}>${getIcon('flag')} Rundenziel</span>` : '',
+    def.repeatable ? `<span class="badge">Stufe ${labLevel(def.id)}</span>` : '',
+    def.label ? `<span class="badge good">${escapeHtml(def.label)}</span>` : ''
+  ].join('');
+  let foot;
+  if (status === 'ready') {
+    foot = `<span class="badge good">${getIcon('check')} Fertig</span><button class="btn sm primary" data-action="lab-claim" data-id="${def.id}">Abholen</button>`;
+  } else if (status === 'running') {
+    foot = `<div class="sprint-progress">${progress(now - run.startedAt, run.endsAt - run.startedAt, 'good')}<div class="row-between"><span class="muted small mono">noch ${fmtSec((run.endsAt - now) / 1000)}</span></div></div>`;
+  } else if (status === 'locked') {
+    foot = `<span class="badge">${getIcon('lock')} Ab ${escapeHtml(CHAPTERS[def.chapter]?.name || '?')}</span>`;
+  } else {
+    const cost = labCost(def);
+    const can = canStartLab(def.id);
+    const reason = labFreeSlots() <= 0 ? 'Kein Slot frei – warte, bis ein Projekt fertig ist.' : !canAfford(cost) ? 'Nicht genug Hype bzw. Legacy Code.' : '';
+    foot = `<div class="stack" style="gap:6px;width:100%">${costChips(cost)}<div class="row-between"><span class="muted small">${getIcon('time')} ${fmtHours(labDurationMs(def))}</span><button class="btn sm ${can ? 'primary' : ''}" data-action="lab-start" data-id="${def.id}" ${can ? '' : 'disabled'} ${reason ? tt('Labor', reason) : ''}>Starten</button></div></div>`;
+  }
+  return `<article class="item ${status === 'ready' ? 'affordable' : ''} ${status === 'locked' ? 'locked' : ''}">
+    <div class="item-head"><strong>${getIcon('research')} ${escapeHtml(def.name)}</strong></div>
+    <p>${escapeHtml(def.desc)}</p>
+    <div class="tag-list">${tags}</div>
+    <div class="item-foot">${foot}</div>
+  </article>`;
+}
+
+function renderLab() {
+  if (!labUnlocked()) return `<section class="panel">${emptyState('lock', 'Labor gesperrt', 'Das R&D-Labor öffnet mit deinem ersten Hard Refactor.')}</section>`;
+  const cur = chapterIndex();
+  const order = { ready: 0, running: 1, available: 2, locked: 3 };
+  const visible = LAB_PROJECTS
+    .filter(def => { const st = labStatus(def); return st !== 'done' && st !== 'skipped' && (st !== 'locked' || def.chapter === cur + 1); })
+    .sort((a, z) => order[labStatus(a)] - order[labStatus(z)] || Number(!!z.key) - Number(!!a.key) || a.chapter - z.chapter);
+  const done = LAB_PROJECTS.filter(def => labStatus(def) === 'done');
+  return `<section class="panel">
+    <div class="panel-head"><div><div class="eyebrow">R&amp;D-Labor</div><h3>${getIcon('research')} Projekte</h3><div class="sub">Projekte laufen in Echtzeit weiter, auch offline. Starte sie, bevor du gehst, und hol sie beim nächsten Besuch ab. Daily Standup und Kaffee „Überstunden“ machen sie schneller. Kosten: Minuten deiner Produktion, höchstens die Hälfte des Vorrats.</div></div><span class="meta">${(state.lab?.running || []).length}/${labSlots()} Slots belegt</span></div>
+    <div class="grid-auto-sm">${visible.map(labCard).join('')}</div>
+    ${done.length ? `<div class="eyebrow" style="margin-top:14px">Abgeschlossen</div><div class="tag-list">${done.map(def => `<span class="chip done" ${tt(def.name, def.label || def.desc)}>${getIcon('check')} ${escapeHtml(def.name)}</span>`).join('')}</div>` : ''}
+  </section>`;
+}
+
+function renderRoadmap() {
+  const idx = chapterIndex();
+  const current = currentChapter();
+  const next = nextChapter();
+  const reachedAt = state.roadmap?.reachedAt || [];
+  const labDone = (state.lab?.done || []).length + Object.values(state.lab?.levels || {}).reduce((a, n) => a + n, 0);
+  const timeline = CHAPTERS.map((c, i) => {
+    const status = i < idx ? 'done' : i === idx ? 'current' : 'locked';
+    const when = i > 0 && reachedAt[i] ? ` · ${new Date(reachedAt[i]).toLocaleDateString('de-AT')}` : '';
+    return `<article class="item ${status === 'done' ? 'done' : status === 'locked' ? 'locked' : 'affordable'}">
+      <div class="item-head"><strong>${getIcon(status === 'done' ? 'check' : status === 'current' ? 'flag' : 'lock')} ${escapeHtml(c.name)}</strong><span class="badge ${status === 'current' ? 'accent' : ''}">Runde ${i + 1}${when}</span></div>
+      <p>${escapeHtml(c.desc)}</p>
+      <div class="tag-list">${(c.unlocks || []).map(u => `<span class="badge">${escapeHtml(u)}</span>`).join('')}${c.rewardLabel ? `<span class="badge good" ${tt('Belohnung', 'Gilt für immer, sobald die Runde abgeschlossen ist.')}>${getIcon('star')} ${escapeHtml(c.rewardLabel)}</span>` : ''}</div>
+    </article>`;
+  }).join('');
+  return `
+    <section class="panel tight"><div class="kpis">
+      ${kpi('Runde', escapeHtml(current.name), `${idx + 1} von ${CHAPTERS.length}`)}
+      ${kpi('XP verdient', fmt(state.stats.xpEarned || 0), 'über alle Refactors')}
+      ${kpi('Labor', labUnlocked() ? `${(state.lab?.running || []).length}/${labSlots()}` : '–', labUnlocked() ? 'Slots belegt' : 'ab dem ersten Refactor')}
+      ${kpi('Projekte', fmt(labDone), 'im Labor abgeschlossen')}
+    </div></section>
+    <section class="panel accent">
+      <div class="panel-head"><div><div class="eyebrow">Aktuelle Runde</div><h3>${getIcon('flag')} ${escapeHtml(current.name)}</h3><div class="sub">${escapeHtml(current.desc)}</div></div>${current.rewardLabel ? `<span class="meta">Belohnung: ${escapeHtml(current.rewardLabel)}</span>` : ''}</div>
+      ${next && current.goals.length
+        ? `<p class="muted small" style="margin-bottom:10px">Erfülle alle Ziele, dann beginnt <strong>${escapeHtml(next.name)}</strong>.</p>${chapterGoalRows(current, { links: true })}`
+        : `<p class="muted small">Alle Runden geschafft. Im Labor warten Endlos-Projekte.</p>`}
+    </section>
+    ${renderLab()}
+    <section class="panel">
+      <div class="panel-head"><div><div class="eyebrow">Zeitleiste</div><h3>${getIcon('time')} Vom Keller an die Börse</h3></div><span class="meta">${idx}/${CHAPTERS.length - 1} abgeschlossen</span></div>
+      <div class="grid-auto-sm">${timeline}</div>
+    </section>`;
+}
+
+// Kompakte Karte im Büro: Runde, Zielstand, Labor
+function renderRoundCard() {
+  const current = currentChapter();
+  const next = nextChapter();
+  const doneGoals = current.goals.filter(g => { const [cur, target] = goalProgress(g); return cur >= target; }).length;
+  const ready = labReady().length;
+  const now = Date.now();
+  const running = (state.lab?.running || []).filter(r => r.endsAt > now);
+  const labText = !labUnlocked() ? 'Labor ab dem ersten Refactor'
+    : ready ? `${ready} Labor-Projekt${ready > 1 ? 'e' : ''} fertig`
+    : labFreeSlots() > 0 ? `${labFreeSlots()} Labor-Slot${labFreeSlots() > 1 ? 's' : ''} frei`
+    : `Labor fertig in ${fmtSec((Math.min(...running.map(r => r.endsAt)) - now) / 1000)}`;
+  const highlight = ready > 0 || (labUnlocked() && labFreeSlots() > 0);
+  return `<section class="panel">
+    <div class="row-between"><div class="eyebrow">Finanzierungsrunde · ${escapeHtml(current.name)}</div><span class="badge ${highlight ? 'accent' : ''}">${getIcon('research')} ${escapeHtml(labText)}</span></div>
+    <div class="row-between" style="margin-top:8px"><span class="muted small">${next && current.goals.length ? `Ziele für ${escapeHtml(next.name)}: ${doneGoals}/${current.goals.length}` : 'Alle Runden geschafft'}</span><button class="btn xs ${ready ? 'primary' : ''}" data-action="tab" data-tab="roadmap">Zur Roadmap</button></div>
+    ${next && current.goals.length ? progress(doneGoals, current.goals.length, 'thin') : ''}
+  </section>`;
 }
 
 // Tech-Stufe, die erst eine spätere Finanzierungsrunde freischaltet
@@ -593,7 +710,8 @@ function renderResearch() {
       const available = isTechUnlocked(tech);
       const cost = nextResearchCost(tech, b);
       const affordable = available && state.resources.research >= cost;
-      const missing = tech.prereq.filter(id => !hasTech(id)).map(id => getTech(id)?.name || id);
+      const roundLocked = techChapter(tech) > chapterIndex();
+      const missing = [...(roundLocked ? [`Finanzierungsrunde ${CHAPTERS[techChapter(tech)]?.name || '?'}`] : []), ...tech.prereq.filter(id => !hasTech(id)).map(id => getTech(id)?.name || id)];
       const eta = available && !affordable ? etaLabel({ research: cost }) : '';
       const isNew = available && !seenTechs.has(tech.id);
       return `<div class="t-row ${available ? '' : 'locked'} ${affordable ? 'affordable' : ''} ${isNew ? 'new' : ''}" ${tt(tech.name, tech.desc, { meta: `Stufe ${tier.tier} · ${tier.name}`, requirement: available ? '' : `Benötigt: ${missing.join(', ')}` })}>
@@ -635,7 +753,8 @@ function renderProjects() {
   const card = (project, locked) => {
     const cost = nextProjectCost(project, b);
     const affordable = !locked && canAfford(cost);
-    const missing = project.prereq.filter(id => !isProjectRequirementMet(id)).map(projectRequirementLabel);
+    const roundLocked = (project.chapter || 0) > chapterIndex();
+    const missing = [...(roundLocked ? [`Runde ${CHAPTERS[project.chapter]?.name || '?'}`] : []), ...project.prereq.filter(id => !isProjectRequirementMet(id)).map(projectRequirementLabel)];
     return `<article class="item ${locked ? 'locked' : ''} ${affordable ? 'affordable' : ''}" ${tt(project.name, project.desc, { meta: 'Release', sectionTitle: 'Kosten', sectionBody: ttCosts(cost), requirement: locked ? `Benötigt: ${missing.join(', ')}` : '' })}>
       <div class="item-head"><strong>${getIcon('rocket')} ${escapeHtml(project.name)}</strong>${locked ? `<span class="badge">${getIcon('lock')} ${escapeHtml(missing.join(', '))}</span>` : ''}</div>
       <p>${escapeHtml(project.desc)}</p>
@@ -821,7 +940,7 @@ function renderMarket() {
 
 // ═══════════════════════════ PRESTIGE ═══════════════════════════
 function renderMainframe() {
-  const slots = state.mainframeSlots || 3;
+  const slots = chipSlots();
   const equipped = state.equippedChips || [];
   const owned = state.ownedChips || [];
   const unequipped = owned.filter(id => !equipped.includes(id));
@@ -1172,6 +1291,7 @@ export function renderTabContent() {
     case 'expansion': return renderExpansion();
     case 'market': return renderMarket();
     case 'prestige': return renderPrestige();
+    case 'roadmap': return renderRoadmap();
     case 'codex': return renderCodex();
     case 'account': return renderAccount();
     case 'admin': return renderAdmin();

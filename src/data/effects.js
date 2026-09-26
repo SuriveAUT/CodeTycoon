@@ -40,7 +40,13 @@ export const BONUS_EFFECTS = {
   web3_blockchain: b => { b.researchMult *= 1.20; },
   generative_ai: b => { b.allMult *= 1.05; b.prestigeGainMult *= 1.25; },
   global_cdn: b => { b.expeditionPower += 0.20; b.expeditionSpeed *= 1.05; },
-  agi_completion: b => { b.prestigeGainMult *= 1.25; b.projectCostMult *= 0.97; }
+  agi_completion: b => { b.prestigeGainMult *= 1.25; b.projectCostMult *= 0.97; },
+  platform_apis: b => { b.allMult *= 1.05; },
+  marketplace_tech: b => { b.energyMult *= 1.2; },
+  edge_computing: b => { b.allMult *= 1.1; b.offlineCapHours += 2; },
+  quantum_computing: b => { b.researchMult *= 1.5; },
+  neural_interfaces: b => { b.scrapMult *= 1.25; b.clickRateFraction += 0.02; },
+  digital_twin: b => { b.prestigeGainMult *= 1.25; b.allMult *= 1.1; }
 };
 
 export const PROJECT_EFFECTS = {
@@ -53,7 +59,8 @@ export const PROJECT_EFFECTS = {
   metaverse_project: b => { b.colonyCap += 2; b.colonyOutputMult *= 1.12; },
   stackoverflow_clone: b => { b.autoResearch = true; b.researchCostMult *= 0.92; },
   operating_system: b => { b.allMult *= 1.50; },
-  internet_three: b => { b.prestigeGainMult *= 1.50; b.offlineCapHours += 4; }
+  internet_three: b => { b.prestigeGainMult *= 1.50; b.offlineCapHours += 4; },
+  super_app: b => { b.allMult *= 1.50; b.dataMult *= 1.25; b.influenceMult *= 1.25; }
 };
 
 export const ARTIFACT_EFFECTS = {

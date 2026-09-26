@@ -23,6 +23,9 @@ import { getSetting, toggleSetting } from '../lib/settings.js';
 import { claimStandup, useCoffee, rewardText } from '../engine/daily.js';
 import { startChallenge, abortChallenge, activeChallenge, challengeStatus } from '../engine/challenges.js';
 import { getChallenge, CHALLENGES } from '../data/challenges.js';
+import { startLab, claimLab } from '../engine/lab.js';
+import { getLabProject } from '../data/lab.js';
+import { CHAPTERS } from '../data/chapters.js';
 
 const FRESH_FLAG = 'codetycoon-fresh-start';
 
@@ -84,6 +87,40 @@ export default function App() {
   }
   function showDoctrineModal() {
     showModal('Core Values wählen', `<p class="muted small" style="margin-bottom:8px">Eine Doktrin pro Run. Sie gilt bis zum nächsten Hard Refactor.</p><div class="grid-auto-sm">${DOCTRINES.map(d => doctrineCard(d)).join('')}</div>`, [{ label: 'Später', action: 'cancel' }]);
+  }
+
+  // Neue Finanzierungsrunde feiern (auch nach Offline-Nachholen); die letzte Runde ist das Finale.
+  function maybeCelebrateRound() {
+    const chapter = state.roadmap?.chapter || 0;
+    if (chapter <= (state.roadmap?.seen ?? chapter) || modalVisible()) return;
+    setState('roadmap', 'seen', chapter);
+    if (chapter >= CHAPTERS.length - 1) { showFinaleModal(); return; }
+    const reached = CHAPTERS[chapter];
+    const finished = CHAPTERS[chapter - 1];
+    showModal(`Finanzierungsrunde ${escapeHtml(reached.name)}`,
+      `<p>${escapeHtml(reached.desc)}</p>
+       ${finished?.rewardLabel ? `<p style="margin-top:8px">Belohnung für ${escapeHtml(finished.name)}: <strong class="good">${escapeHtml(finished.rewardLabel)}</strong> – für immer.</p>` : ''}
+       <div class="tag-list" style="margin-top:10px">${(reached.unlocks || []).map(u => `<span class="badge">${escapeHtml(u)}</span>`).join('')}</div>`,
+      [{ label: 'Weiter', action: 'cancel' }, { label: 'Zur Roadmap', action: 'roadmap', cls: 'primary' }]
+    ).then(result => { if (result === 'roadmap') { setState('selectedTab', 'roadmap'); renderAll(true); } });
+  }
+
+  function showFinaleModal() {
+    const s = state.stats;
+    const days = Math.max(1, Math.round((Date.now() - (s.firstSeen || Date.now())) / 86400e3));
+    const reachedAt = state.roadmap?.reachedAt || [];
+    const rounds = CHAPTERS.slice(1).map((c, i) => reachedAt[i + 1] ? `<li>${escapeHtml(c.name)}: ${new Date(reachedAt[i + 1]).toLocaleDateString('de-AT')}</li>` : '').join('');
+    const labCount = (state.lab?.done || []).length + Object.values(state.lab?.levels || {}).reduce((a, n) => a + n, 0);
+    const rows = [
+      ['Hard Refactors', fmt(s.prestigeCount || 0)], ['XP verdient', fmt(s.xpEarned || 0)], ['Code geschrieben', fmt(s.total?.scrap || 0)],
+      ['Sprints', fmt((state.challengesDone || []).length)], ['Labor-Projekte', fmt(labCount)], ['Beste Standup-Streak', fmt(state.daily?.bestStreak || 0)]
+    ];
+    showModal('🔔 Börsengang!',
+      `<p>Die Glocke läutet: Deine Firma ist an der Börse. Vom Keller aufs Parkett in <strong>${days} Tag${days > 1 ? 'en' : ''}</strong>.</p>
+       <div class="stat-list" style="margin-top:10px">${rows.map(([k, v]) => `<div><span>${k}</span><strong>${v}</strong></div>`).join('')}</div>
+       ${rounds ? `<ul class="muted small" style="margin:10px 0 0 18px">${rounds}</ul>` : ''}
+       <p class="muted small" style="margin-top:10px">Gesamt ×3 für immer. Im Labor warten jetzt Endlos-Projekte: Legacy-Stiftung und Moonshot.</p>`,
+      [{ label: 'Weiterspielen', action: 'confirm', cls: 'primary' }]);
   }
 
   // passive = Engine-Benachrichtigung (Quests, Errungenschaften …); direkte Aktions-Rückmeldungen bleiben immer sichtbar
@@ -364,7 +401,18 @@ export default function App() {
       // ── Tages-Loop ──
       case 'daily-claim': {
         const info = claimStandup();
-        if (info) showToast(`Daily Standup, Tag ${info.streak}:${rewardText(info.reward)}${info.week ? ' + Retro-Bonus ×2' : ''}`, 'good', true);
+        if (info) showToast(`Daily Standup, Tag ${info.streak}:${rewardText(info.reward)}${info.week ? ' + Retro-Bonus ×2' : ''}${info.labSped ? ` · Labor ${info.week ? '2 h' : '30 min'} schneller` : ''}`, 'good', true);
+        done(); return;
+      }
+      // ── Labor ──
+      case 'lab-start': {
+        if (startLab(id)) showToast(`Labor: ${getLabProject(id)?.name} gestartet.`, 'good');
+        else showToast('Projekt kann gerade nicht starten (Slot oder Ressourcen).', 'warn');
+        done(); return;
+      }
+      case 'lab-claim': {
+        const def = getLabProject(id);
+        if (claimLab(id)) showToast(`Labor fertig: ${def?.name}${def?.label ? ` – ${def.label}` : ''}`, 'good', true);
         done(); return;
       }
       case 'coffee-use': {
@@ -757,7 +805,7 @@ export default function App() {
     processTick(dt, { silent: now - mountedAt < 2000, auto: true });
     if (!state.asteroidActive && Date.now() > (state.nextAsteroidAt || 0) && state.stats.lifetime > 60) spawnBug();
     if (now - lastCounterUpdate > 100) { updateResourceCounters(); lastCounterUpdate = now; }
-    if (now - lastRender > 1000) { renderAll(); lastRender = now; }
+    if (now - lastRender > 1000) { renderAll(); lastRender = now; maybeCelebrateRound(); }
     animationFrameId = requestAnimationFrame(gameLoop);
   }
 

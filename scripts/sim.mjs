@@ -64,7 +64,7 @@ async function runPool(items, limit, fn) {
 }
 
 function runChild(job, opts) {
-  const pass = ['hours', 'days', 'session', 'save', 'min-gain', 'grow'].flatMap(k => (opts[k] !== undefined ? [`--${k}`, String(opts[k])] : []));
+  const pass = ['hours', 'days', 'session', 'save', 'min-gain', 'grow', 'goals', 'hold'].flatMap(k => (opts[k] !== undefined ? [`--${k}`, String(opts[k])] : []));
   const childArgs = [fileURLToPath(import.meta.url), '--worker', '--model', job.model, '--seed', String(job.seed), ...pass];
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, childArgs, { env: { ...process.env, TZ: 'UTC' } });
@@ -125,13 +125,32 @@ async function runWorker(opts) {
   const { STOCKS } = await load('../src/data/stocks.js');
   const { QUESTS } = await load('../src/data/quests.js');
   const { CHAPTERS } = await load('../src/data/chapters.js');
+  // Kalibrierung (ändert nur die geladenen Daten im Speicher, keine Dateien):
+  //   --goals 1e4,2e6,…  XP-Ziele der Runden 0, 1, … (fehlende XP-Ziele werden ergänzt)
+  //   --hold N           Runde N nie abschließen, um dort die XP-Rate pro Tag zu messen
+  if (opts.goals) {
+    String(opts.goals).split(',').forEach((v, i) => {
+      const chapter = CHAPTERS[i];
+      if (!chapter || !chapter.goals.length || v === '') return;
+      const goal = chapter.goals.find(g => g.type === 'xpEarned');
+      if (goal) goal.value = Number(v);
+      else chapter.goals.unshift({ type: 'xpEarned', value: Number(v) });
+    });
+  }
+  if (opts.hold !== undefined && CHAPTERS[Number(opts.hold)]) CHAPTERS[Number(opts.hold)].goals.push({ type: 'xpEarned', value: Infinity });
+  const lab = await load('../src/engine/lab.js');
+  const { LAB_PROJECTS } = await load('../src/data/lab.js');
+  const roadmap = await load('../src/engine/roadmap.js');
 
   const CLICKS_PER_SEC = 2;
+  const FIRST_REFACTOR_GAIN = 40;  // Runde verlangt einen Refactor: ab 40 XP (ein Mensch wartet etwas länger als nötig)
   const BOT_EVERY = 5;             // Bot handelt alle 5 s
   const MIN_RUN_MIN = 10;          // Refactor frühestens nach 10 min Run
   const PRESTIGE_DROP = 0.8;       // … wenn XP/min unter 80 % des Run-Maximums fällt
   const MIN_GAIN = Number(opts['min-gain'] || 10);  // … und mindestens so viele XP bringt
-  const GROW = Number(opts.grow || 0.5);            // … und mindestens 50 % der bisher verdienten XP
+  // … und mindestens so viel Anteil der bisher verdienten XP: aktiv 50 %, ein täglicher Spieler kassiert
+  // eher bei jedem Besuch ein (20 %)
+  const GROW = Number(opts.grow || (model === 'active' ? 0.5 : 0.2));
   const EXCLUSIVE_SKIP = new Set(['enterprise_path']); // Entweder/Oder: der Bot nimmt Open Source
 
   const marks = {};
@@ -146,7 +165,7 @@ async function runWorker(opts) {
   }
 
   // Revenue pro Sekunde beim ersten Erreichen jeder Tech-Stufe (Kalibrierung der Aktienkurse)
-  const probes = { tierRevenue: {} };
+  const probes = { tierRevenue: {}, roundRates: {} };
 
   function checkMarks() {
     if (state.techs.length >= 1) mark('tech_first');
@@ -165,6 +184,15 @@ async function runWorker(opts) {
     if ((state.questIndex || 0) >= QUESTS.length) mark('quests_all');
     if (state.roadmap && Number.isFinite(state.roadmap.chapter)) {
       for (let c = 1; c <= state.roadmap.chapter; c++) mark(`round${c}`);
+      // Höchste Produktion innerhalb der aktuellen Runde (Kalibrierung der Laborkosten)
+      const c = state.roadmap.chapter;
+      const produced = bonusesMod.currentRates().__produced || {};
+      const prev = probes.roundRates[c] || { research: 0, influence: 0, relics: 0 };
+      probes.roundRates[c] = {
+        research: Math.max(prev.research, produced.research || 0),
+        influence: Math.max(prev.influence, produced.influence || 0),
+        relics: Math.max(prev.relics, produced.relics || 0)
+      };
     }
   }
 
@@ -284,7 +312,38 @@ async function runWorker(opts) {
 
   function dailyChores() {
     if (daily.dailyUnlocked() && daily.canClaimStandup()) daily.claimStandup();
-    if ((state.coffee?.beans || 0) > 0 && !state.boost && daily.coffeeUseAvailable('espresso')) daily.useCoffee('espresso');
+    // Kaffee: Überstunden fürs Labor, wenn ein Schlüsselprojekt läuft, sonst Espresso
+    const beans = state.coffee?.beans || 0;
+    const keyRunning = (state.lab?.running || []).some(r => LAB_PROJECTS.find(p => p.id === r.id)?.key);
+    if (beans > 0 && keyRunning && daily.coffeeUseAvailable('overtime')) daily.useCoffee('overtime');
+    else if (beans > 0 && !state.boost && daily.coffeeUseAvailable('espresso')) daily.useCoffee('espresso');
+  }
+
+  // Labor: Fertiges abholen, freie Slots füllen – Schlüsselprojekt der aktuellen Runde zuerst, dann nach Runde
+  const labStats = { slotSecondsUsed: 0, slotSecondsTotal: 0, started: 0 };
+  function manageLab() {
+    if (!lab.labUnlocked()) return;
+    for (const run of lab.labReady()) lab.claimLab(run.id);
+    const current = state.roadmap?.chapter || 0;
+    const isKey = (def) => Number(!!def.key && def.chapter === current);
+    const keyPending = lab.labAvailable().find(def => isKey(def));
+    const candidates = lab.labAvailable()
+      .sort((a, z) => isKey(z) - isKey(a) || Number(!!a.repeatable) - Number(!!z.repeatable) || a.chapter - z.chapter || a.hours - z.hours);
+    for (const def of candidates) {
+      if (lab.labFreeSlots() <= 0) break;
+      // Den letzten freien Slot für das Schlüsselprojekt der Runde freihalten (Rundenziel)
+      if (keyPending && def !== keyPending && lab.labFreeSlots() <= 1) break;
+      if (lab.startLab(def.id)) labStats.started++;
+    }
+  }
+
+  // Slot-Auslastung über das Zeitfenster [fromMs, toMs) – laufende Projekte zählen, bis sie fertig sind
+  function trackLabUsage(fromMs, toMs) {
+    if (!lab.labUnlocked() || toMs <= fromMs) return;
+    const slots = lab.labSlots();
+    labStats.slotSecondsTotal += slots * (toMs - fromMs) / 1000;
+    const used = (state.lab?.running || []).reduce((sum, r) => sum + Math.max(0, Math.min(r.endsAt, toMs) - Math.max(r.startedAt, fromMs)), 0) / 1000;
+    labStats.slotSecondsUsed += Math.min(slots * (toMs - fromMs) / 1000, used);
   }
 
   // XP, die der aktuellen Finanzierungsrunde bis zu ihrem XP-Ziel noch fehlen (Infinity = kein XP-Ziel)
@@ -295,8 +354,15 @@ async function runWorker(opts) {
     return goal ? Math.max(0, goal.value - chronicleTotal()) : Infinity;
   }
 
-  // Refactor, wenn der Gewinn das XP-Ziel der Runde deckt (so spielt ein Mensch mit sichtbarem Ziel),
-  // sonst sobald die XP/min fallen und sich der Refactor lohnt.
+  // Offene Rundenziele eines Typs (refactors, sprints …)
+  function pendingGoal(type) {
+    const chapter = CHAPTERS[state.roadmap?.chapter || 0];
+    if (!chapter || !CHAPTERS[(state.roadmap?.chapter || 0) + 1]) return false;
+    return chapter.goals.some(g => g.type === type && !roadmap.goalDone(g));
+  }
+
+  // Refactor, wenn der Gewinn das XP-Ziel der Runde deckt oder die Runde einen Refactor/Sprint verlangt
+  // (so spielt ein Mensch mit sichtbarem Ziel), sonst sobald die XP/min fallen und sich der Refactor lohnt.
   function maybePrestige() {
     if (state.challenge) return;
     const runMin = (clock - state.stats.runStartedAt) / 60000;
@@ -306,8 +372,10 @@ async function runWorker(opts) {
     const gain = actions.prestigeGain();
     const needed = xpNeededForRound();
     const reachesGoal = needed > 0 && gain >= needed && gain >= MIN_GAIN;
+    const refactorGoal = pendingGoal('refactors') && gain >= FIRST_REFACTOR_GAIN;
+    const sprintGoal = pendingGoal('sprints') && gain >= MIN_GAIN && CHALLENGES.some(c => challenges.challengeStatus(c) === 'ready');
     const ratePeaked = gain >= Math.max(MIN_GAIN, GROW * chronicleTotal()) && rate < PRESTIGE_DROP * peakRate;
-    if (runMin < MIN_RUN_MIN || !(reachesGoal || ratePeaked) || (actions.canPrestige && !actions.canPrestige())) return;
+    if (runMin < MIN_RUN_MIN || !(reachesGoal || refactorGoal || sprintGoal || ratePeaked) || !actions.canPrestige()) return;
     const sprint = CHALLENGES.find(c => challenges.challengeStatus(c) === 'ready');
     const runWall = runMin * 60;
     const ok = sprint ? challenges.startChallenge(sprint.id) : actions.doPrestigeReset();
@@ -318,6 +386,7 @@ async function runWorker(opts) {
   }
 
   function botAct() {
+    manageLab();
     dailyChores();
     if (!state.doctrine && bonuses().doctrineUnlock) actions.setDoctrine('efficiency');
     manageChips();
@@ -339,11 +408,12 @@ async function runWorker(opts) {
     click(CLICKS_PER_SEC);
     maybeBug();
     if (++tickCount % BOT_EVERY === 0) botAct();
+    trackLabUsage(clock, clock + 1000);
     clock += 1000;
     activeSec += 1;
   }
 
-  const finaleReached = () => marks['rel:internet_three'] || marks['rel:ipo'];
+  const finaleReached = () => marks['rel:ipo'];
 
   setState('cache', 'bonuses', bonusesMod.computeBonuses());
   setState('cache', 'rates', bonusesMod.estimateRatesSnapshot());
@@ -360,6 +430,7 @@ async function runWorker(opts) {
     let first = true;
     for (let slot = nextSlot(clock); slot < endAt && !finaleReached(); slot = nextSlot(clock + 1)) {
       const gap = (slot - lastLeave) / 1000;
+      trackLabUsage(lastLeave, slot);
       clock = slot;
       // Wie App.jsx beim Laden: Cache auffrischen, dann Abwesenheit nachholen
       setState('cache', 'bonuses', bonusesMod.computeBonuses());
@@ -405,6 +476,10 @@ async function runWorker(opts) {
     model, seed,
     simulated: { wall: wall(), active: activeSec },
     marks, refactors, perDay, probes,
+    lab: {
+      started: labStats.started,
+      idleShare: labStats.slotSecondsTotal ? 1 - labStats.slotSecondsUsed / labStats.slotSecondsTotal : null
+    },
     final: {
       prestigeCount: state.stats.prestigeCount || 0,
       xpEarned: chronicleTotal(),
@@ -471,7 +546,7 @@ function report(model, runs) {
     const range = `${fmtDuration(Math.min(...vals), model)} – ${fmtDuration(Math.max(...vals), model)}`;
     console.log(name.padEnd(24) + fmtDuration(median(vals), model).padEnd(14) + range.padEnd(26) + `${vals.length}/${runs.length}`);
   }
-  const reached = runs.filter(r => r.marks['rel:internet_three'] || r.marks['rel:ipo']).length;
+  const reached = runs.filter(r => r.marks['rel:ipo']).length;
   console.log(`Finale erreicht: ${reached}/${runs.length} · simuliert: ${fmtDuration(median(runs.map(r => r.simulated.wall)), model)} (Median)`);
   const firstRuns = runs.map(r => r.refactors[0]).filter(Boolean);
   if (firstRuns.length) console.log(`Erster Refactor: ${median(firstRuns.map(r => r.gain))} XP nach ${fmtDuration(median(firstRuns.map(r => r.runWall)), 'active')} Run-Zeit (Median)`);
@@ -481,19 +556,32 @@ function report(model, runs) {
     const perDay = runs.flatMap(r => (r.perDay || []).filter(Boolean).slice(0, 14).map(d => d.refactors));
     if (perDay.length) console.log(`Refactors pro Tag (Tag 1–14): Median ${median(perDay)}, max ${Math.max(...perDay)}`);
   }
+  const idle = runs.map(r => r.lab?.idleShare).filter(v => v !== null && v !== undefined);
+  if (idle.length) console.log(`Labor: ${median(runs.map(r => r.lab.started))} Projekte gestartet, Slots ${Math.round(median(idle) * 100)} % ungenutzt (Median)`);
+  const rounds = [...new Set(runs.flatMap(r => Object.keys(r.probes?.roundRates || {})))].sort();
+  if (rounds.length) console.log(`Produktion/s beim Rundenwechsel (Ideas/Hype/Legacy): ${rounds.map(c => {
+    const pick = (k) => fmtNum(median(runs.map(r => r.probes.roundRates[c]?.[k]).filter(v => v !== undefined)));
+    return `R${c} ${pick('research')}/${pick('influence')}/${pick('relics')}`;
+  }).join(' · ')}`);
   const tiers = [...new Set(runs.flatMap(r => Object.keys(r.probes?.tierRevenue || {})))].sort();
   if (tiers.length) console.log(`Revenue/s beim Erreichen: ${tiers.map(t => `T${t} ${fmtNum(median(runs.map(r => r.probes.tierRevenue[t]).filter(v => v !== undefined)))}`).join(' · ')}`);
   console.log(`Ende: ${median(runs.map(r => r.final.prestigeCount))} Refactors, ${Math.round(median(runs.map(r => r.final.xpEarned)))} XP verdient, Quest ${median(runs.map(r => r.final.questIndex))}, ${median(runs.map(r => r.final.sprints))} Sprints (Median)`);
 }
 
 // Zielwerte aus dem Plan. Werte außerhalb → FAIL. Fehlende Meilensteine → n/a.
-// before: [a, b] → in jedem Lauf muss Meilenstein a vor b liegen (oder b fehlt)
+// mark + min/max → Median des Meilensteins; before: [a, b] → in jedem Lauf a vor b (oder b fehlt);
+// earliest → frühester Lauf; minGap + marks → Abstand aufeinanderfolgender Meilensteine in jedem Lauf;
+// labIdle → Median des ungenutzten Slot-Anteils
+const DAY = 86400;
 const TARGETS = [
   { model: 'active', mark: 'tech_first', max: 120, label: 'Erste Tech < 2 min' },
   { model: 'active', mark: 'tier2', max: 20 * 60, label: 'Tier 2 ≤ 20 min' },
-  { model: 'active', mark: 'refactor1', min: 90 * 60, max: 120 * 60, label: 'Erster Refactor nach 90–120 min' },
+  { model: 'active', mark: 'refactor1', min: 60 * 60, max: 120 * 60, label: 'Erster Refactor nach 60–120 min' },
   { model: 'active', before: ['refactor1', 'tier4'], label: 'Tier 4 erst nach dem ersten Refactor' },
-  { model: 'daily', mark: 'rel:internet_three', min: 16 * 86400, label: 'Finale (Internet 3.0) nicht vor Tag 16' }
+  { model: 'daily', mark: 'rel:ipo', min: 18 * DAY, max: 25 * DAY, label: 'Börsengang an Tag 18–25 (Median)' },
+  { model: 'daily', earliest: 'rel:ipo', min: 16 * DAY, label: 'Kein Lauf vor Tag 16 an der Börse' },
+  { model: 'daily', minGap: DAY, marks: ['round1', 'round2', 'round3', 'round4', 'round5'], label: 'Keine Runde kürzer als 1 Tag' },
+  { model: 'daily', labIdle: 0.3, label: 'Labor-Slots < 30 % ungenutzt' }
 ];
 
 function reportTargets(results) {
@@ -503,10 +591,30 @@ function reportTargets(results) {
   console.log('\n══ Zielwerte ══');
   for (const t of relevant) {
     const runs = results.filter(r => r.model === t.model);
+    const line = (ok, shown) => console.log(`${(ok === null ? 'n/a' : ok ? 'PASS' : 'FAIL').padEnd(6)}${t.label.padEnd(44)}${shown}`);
     if (t.before) {
       const [a, b] = t.before;
       const ok = runs.every(r => !r.marks[b] || (r.marks[a] && r.marks[a].wall <= r.marks[b].wall));
-      console.log(`${(ok ? 'PASS' : 'FAIL').padEnd(6)}${t.label.padEnd(44)}${runs.filter(r => r.marks[b]).length}/${runs.length} Läufe mit ${b}`);
+      line(ok, `${runs.filter(r => r.marks[b]).length}/${runs.length} Läufe mit ${b}`);
+      continue;
+    }
+    if (t.earliest) {
+      const vals = runs.map(r => r.marks[t.earliest]?.wall).filter(v => v !== undefined);
+      line(vals.length ? Math.min(...vals) >= t.min : null, vals.length ? `frühester ${fmtDuration(Math.min(...vals), t.model)}` : '–');
+      continue;
+    }
+    if (t.minGap) {
+      const gaps = runs.flatMap(r => t.marks.map((m, i) => {
+        const cur = r.marks[m]?.wall;
+        const prev = i === 0 ? 0 : r.marks[t.marks[i - 1]]?.wall;
+        return cur === undefined || prev === undefined ? null : cur - prev;
+      }).filter(g => g !== null));
+      line(gaps.length ? Math.min(...gaps) >= t.minGap : null, gaps.length ? `kürzeste ${(Math.min(...gaps) / DAY).toFixed(1)} Tage` : '–');
+      continue;
+    }
+    if (t.labIdle) {
+      const idle = runs.map(r => r.lab?.idleShare).filter(v => v !== null && v !== undefined);
+      line(idle.length ? median(idle) < t.labIdle : null, idle.length ? `${Math.round(median(idle) * 100)} % ungenutzt` : '–');
       continue;
     }
     const vals = runs.map(r => r.marks[t.mark]?.wall).filter(v => v !== undefined);

@@ -49,6 +49,9 @@ export const BUILDINGS = [
   { id: 'ten_x_dev', name: '10x Developer', category: 'Dev Team', type: 'producer', unlock: 'tech:agi_completion',
     cost: { scrap: 5e10, energy: 2e10 }, growth: 1.15, rate: 2.5e6, outputs: { scrap: 1 },
     desc: 'Mythologisches Wesen. Schreibt das Universum in C neu.' },
+  { id: 'platform_engineer', name: 'Platform Engineer', category: 'Dev Team', type: 'producer', unlock: 'tech:platform_apis',
+    cost: { scrap: 7e11, energy: 2.8e11 }, growth: 1.15, rate: 1.6e7, outputs: { scrap: 1 },
+    desc: 'Baut Werkzeuge, mit denen andere Werkzeuge bauen.' },
 
   // ───────────────────────── Sales & Ads (Revenue) ─────────────────────────
   { id: 'google_ads', name: 'Google Ads', category: 'Sales & Ads', type: 'producer', unlock: 'start',
@@ -81,6 +84,9 @@ export const BUILDINGS = [
   { id: 'tech_monopoly', name: 'Tech Monopol', category: 'Sales & Ads', type: 'producer', unlock: 'tech:agi_completion',
     cost: { scrap: 9e10, energy: 3.5e10 }, growth: 1.15, rate: 1.4e6, outputs: { energy: 1 },
     desc: 'Du besitzt das Internet. Alle zahlen Miete.' },
+  { id: 'marketplace', name: 'Marktplatz', category: 'Sales & Ads', type: 'producer', unlock: 'tech:marketplace_tech',
+    cost: { scrap: 1.2e12, energy: 5e11 }, growth: 1.15, rate: 9e6, outputs: { energy: 1 },
+    desc: 'Alle handeln bei dir. Du nimmst 30 % Gebühr.' },
 
   // ───────────────────────── QA & DevOps (Bugs → Module) ─────────────────────────
   { id: 'qa_tester', name: 'QA Tester', category: 'QA & DevOps', type: 'converter', unlock: 'tech:backend_node',
@@ -138,6 +144,12 @@ export const BUILDINGS = [
   { id: 'stackoverflow_api', name: 'Stack Overflow API', category: 'Social Media', type: 'converter', unlock: 'tech:dark_web_scraping',
     cost: { scrap: 5e8, energy: 2e8, data: 5e6, research: 2e6 }, growth: 1.15, rate: 40, inputs: { data: 2, energy: 3 }, outputs: { relics: 1 },
     desc: 'Kopiert Codefragmente aus 2011, die magisch alles fixen.' },
+  { id: 'hype_machine', name: 'Hype-Maschine', category: 'Social Media', type: 'converter', unlock: 'tech:quantum_computing',
+    cost: { scrap: 2e12, energy: 8e11, research: 5e9 }, growth: 1.15, rate: 5e5, inputs: { research: 0.3, energy: 0.8 }, outputs: { influence: 1 },
+    desc: 'Eine KI schreibt Pressemitteilungen, eine zweite KI teilt sie.' },
+  { id: 'legacy_datacenter', name: 'Legacy-Rechenzentrum', category: 'Social Media', type: 'converter', unlock: 'tech:neural_interfaces',
+    cost: { scrap: 4e12, energy: 1.6e12, data: 5e10, research: 2e10 }, growth: 1.15, rate: 5e3, inputs: { data: 2, energy: 3 }, outputs: { relics: 1 },
+    desc: 'Mainframes aus den 80ern, perfekt gekühlt. Sie laufen einfach weiter.' },
 
   // ───────────────────────── Management (Modifier) ─────────────────────────
   { id: 'freelance_portal', name: 'Freelance Portal', category: 'Management', type: 'modifier', unlock: 'tech:freelance_platform',
