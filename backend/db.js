@@ -30,6 +30,9 @@ const db = new sqlite3.Database(dbPath, (err) => {
         db.run('ALTER TABLE users ADD COLUMN server_last_save_at INTEGER DEFAULT 0', () => {});
         db.run('ALTER TABLE users ADD COLUMN flagged INTEGER DEFAULT 0', () => {});
         db.run('ALTER TABLE users ADD COLUMN flag_reason TEXT DEFAULT ""', () => {});
+        // Rangliste nach verdienten XP; Save-Format-Version gegen veraltete Tabs
+        db.run('ALTER TABLE users ADD COLUMN xp_earned REAL DEFAULT 0', () => {});
+        db.run('ALTER TABLE users ADD COLUMN save_version INTEGER DEFAULT 0', () => {});
 
         db.run(`CREATE TABLE IF NOT EXISTS chat_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -3,7 +3,17 @@ import { state, setState } from '../store/gameState.js';
 import { AstraforgeAPI } from '../lib/api-client.js';
 
 import { STOCKS, DIVIDEND_PER_SHARE, MAX_DIVIDEND_BONUS, dividendBonusForShares } from '../data/stocks.js';
+import { TECHS } from '../data/techs.js';
 export { STOCKS, DIVIDEND_PER_SHARE, MAX_DIVIDEND_BONUS };
+
+// Kurse skalieren mit der höchsten gelernten Tech-Stufe des Runs, damit der Dividenden-Cap mitten in jeder
+// Stufe etwa 30 Minuten Revenue kostet (kalibriert mit npm run sim). Der Server liefert Kurse auf Basisniveau.
+export const PRICE_SCALE_BY_TIER = [1, 1, 2, 500, 2e5, 4e7, 4e9];
+
+export function priceScale(s = state) {
+  const tier = (s.techs || []).reduce((m, id) => Math.max(m, TECHS.find(t => t.id === id)?.tier || 0), 0);
+  return PRICE_SCALE_BY_TIER[Math.min(tier, PRICE_SCALE_BY_TIER.length - 1)];
+}
 
 export const BROKER_FEE = 0.05;
 export const PRICE_UPDATE_INTERVAL = 5 * 60 * 1000; // Server tickt auch alle 5 Minuten
@@ -48,8 +58,14 @@ export function sharesToCap(stockId, s = state) {
   return Math.max(0, Math.ceil(MAX_DIVIDEND_BONUS / DIVIDEND_PER_SHARE) - owned);
 }
 
-export function getStockPrice(stockId) {
+// Kurs auf Basisniveau (wie vom Server, für Trend und Verlauf)
+export function rawStockPrice(stockId) {
   return state.stockMarket?.prices?.[stockId] || STOCKS.find(s => s.id === stockId)?.basePrice || 0;
+}
+
+// Handelskurs in Revenue
+export function getStockPrice(stockId) {
+  return rawStockPrice(stockId) * priceScale();
 }
 
 export function getOwnedShares(stockId) {

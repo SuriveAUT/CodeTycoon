@@ -175,6 +175,9 @@ function validateSave(data) {
   const totalScrap = data.stats?.total?.scrap;
   if (totalScrap !== undefined && (typeof totalScrap !== 'number' || !isFinite(totalScrap) || totalScrap < 0))
     return 'Ungültiger Gesamtwert.';
+  const xpEarned = data.stats?.xpEarned;
+  if (xpEarned !== undefined && (typeof xpEarned !== 'number' || !isFinite(xpEarned) || xpEarned < 0))
+    return 'Ungültige XP.';
   return null;
 }
 
@@ -233,9 +236,16 @@ router.post('/save', authenticateToken, limitSave, (req, res) => {
     return res.status(413).json({ error: 'Save-Datei zu groß.' });
 
   // Fetch current row for anti-cheat comparison
-  db.get('SELECT username, server_last_save_at, prestige_score, flagged, flag_reason FROM users WHERE id = ?', [userId], (err, row) => {
+  db.get('SELECT username, server_last_save_at, prestige_score, flagged, flag_reason, save_version FROM users WHERE id = ?', [userId], (err, row) => {
     if (err) return res.status(500).json({ error: 'DB error' });
     if (!row) return res.status(404).json({ error: 'User nicht gefunden.' });
+
+    // Ein veralteter Tab (älteres Save-Format) darf einen neueren Spielstand nicht überschreiben
+    const saveVersion = Number(gameData.version) || 0;
+    if (saveVersion < (row.save_version || 0)) {
+      return res.status(409).json({ error: 'Veraltete Spielversion – bitte die Seite neu laden.' });
+    }
+    const xpEarned = Number.isFinite(gameData.stats?.xpEarned) ? gameData.stats.xpEarned : null;
 
     const serverNow  = Date.now();
     const flags      = runAntiCheatChecks(gameData, row, serverNow);
@@ -252,9 +262,10 @@ router.post('/save', authenticateToken, limitSave, (req, res) => {
     db.run(
       `UPDATE users
        SET game_save = ?, prestige_score = ?, total_scrap = ?,
-           server_last_save_at = ?, flagged = ?, flag_reason = ?
+           server_last_save_at = ?, flagged = ?, flag_reason = ?,
+           xp_earned = COALESCE(?, xp_earned), save_version = ?
        WHERE id = ?`,
-      [gameDataStr, prestige, scrap, serverNow, newFlagged, newReason, userId],
+      [gameDataStr, prestige, scrap, serverNow, newFlagged, newReason, xpEarned, saveVersion, userId],
       function(err2) {
         if (err2) return res.status(500).json({ error: 'Failed to save game' });
         res.json({
@@ -287,9 +298,9 @@ router.get('/status', authenticateToken, (req, res) => {
 // Leaderboard — excludes flagged users
 router.get('/leaderboard', limitPublic, (req, res) => {
   db.all(
-    `SELECT username, prestige_score, total_scrap
+    `SELECT username, prestige_score, total_scrap, xp_earned
      FROM users WHERE flagged = 0
-     ORDER BY prestige_score DESC, total_scrap DESC LIMIT 100`,
+     ORDER BY xp_earned DESC, total_scrap DESC LIMIT 100`,
     [],
     (err, rows) => {
       if (err) return res.status(500).json({ error: 'Database error fetching leaderboard' });

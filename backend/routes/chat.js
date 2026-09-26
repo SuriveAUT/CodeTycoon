@@ -140,7 +140,7 @@ function handleChatCommand(cmd, args, username, isAdmin, isMod, res) {
     }
     case 'top': {
       db.all(
-        'SELECT username, prestige_score, total_scrap FROM users WHERE flagged = 0 ORDER BY prestige_score DESC, total_scrap DESC LIMIT 5',
+        'SELECT username, prestige_score, total_scrap, xp_earned FROM users WHERE flagged = 0 ORDER BY xp_earned DESC, total_scrap DESC LIMIT 5',
         [],
         (err, rows) => {
           if (err) return res.status(500).json({ error: 'DB-Fehler.' });

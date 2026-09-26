@@ -5,7 +5,8 @@
 
 import { state, buildingCount, totalBuildings, upgradeLevel } from './gameState.js';
 import { BUILDINGS, milestoneMult } from '../data/buildings.js';
-import { RESOURCES, WORLDS, FOCI, PROTOCOLS, PRESTIGE_MILESTONES, CHRONICLE_UPGRADES, COLONY_MAX_LEVEL, zeroResources } from '../data/misc.js';
+import { RESOURCES, WORLDS, FOCI, PROTOCOLS, PRESTIGE_MILESTONES, COLONY_MAX_LEVEL, zeroResources } from '../data/misc.js';
+export { chronicleCostFor } from '../data/misc.js';
 import { BONUS_EFFECTS, PROJECT_EFFECTS, ARTIFACT_EFFECTS, DOCTRINE_EFFECTS } from '../data/effects.js';
 import { CHIPS } from '../data/chips.js';
 import { STOCKS, dividendBonusForShares } from '../data/stocks.js';
@@ -95,7 +96,7 @@ export function computeBonuses(s = state) {
   const epoch = level('epoch'); if (epoch) b.prestigeGainMult *= Math.pow(1.10, epoch);
   const timeDilation = level('time_dilation'); if (timeDilation) b.offlineEfficiency = Math.min(0.9, 0.5 + timeDilation * 0.1);
   const infiniteSynergy = level('infinite_synergy'); if (infiniteSynergy) b.allMult *= Math.pow(1.15, infiniteSynergy);
-  const quantumClick = level('quantum_click'); if (quantumClick) b.clickPowerMult *= Math.pow(2, quantumClick);
+  const quantumClick = level('quantum_click'); if (quantumClick) b.clickRateFraction += 0.005 * Math.min(quantumClick, 10);
 
   (s.prestigeMilestones || []).forEach(id => {
     const m = PRESTIGE_MILESTONES.find(x => x.id === id);
@@ -156,8 +157,8 @@ export function computeBonuses(s = state) {
       else applyEffects(b, { [key]: value });
     });
   });
-  b.allMult *= 1 + colonyBonusSum;
-  b.allMult *= b.colonyOutputMult;
+  // Standort-Output (HR, Legal Team, Releases …) verstärkt nur den Standort-Bonus, nicht die ganze Produktion
+  b.allMult *= 1 + colonyBonusSum * b.colonyOutputMult;
 
   // Sprints: Belohnungen abgeschlossener Sprints (permanent), Handicap des laufenden
   doneChallenges.forEach(c => applyEffects(b, c.reward));
@@ -305,8 +306,3 @@ export function clickValue(b, rates) {
   return 1 * b.clickPowerMult + gross * b.clickRateFraction;
 }
 
-export function chronicleCostFor(id, lvl) {
-  const def = CHRONICLE_UPGRADES.find(x => x.id === id);
-  if (!def) return Infinity;
-  return Math.floor(def.base * Math.pow(1.32, lvl));
-}

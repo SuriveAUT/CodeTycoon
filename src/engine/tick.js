@@ -10,6 +10,7 @@ import { tickDecisions } from './decisions.js';
 import { tickTheme } from './themeEngine.js';
 import { tickDaily } from './daily.js';
 import { checkChallenge } from './challenges.js';
+import { checkRoadmap } from './roadmap.js';
 
 let lastChecksAt = 0;
 
@@ -32,6 +33,7 @@ export function runProgressChecks(silent) {
   checkAchievements(silent);
   checkPrestigeMilestones(silent);
   checkQuests(silent);
+  checkRoadmap(silent);
 }
 
 /**

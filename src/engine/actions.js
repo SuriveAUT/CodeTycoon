@@ -111,6 +111,14 @@ export function prestigeGain(s = state) {
   return Math.max(0, Math.floor(prestigeGainRaw(s)));
 }
 
+// Ein Refactor muss sich lohnen: mindestens 10 XP und 2 % der bisher verdienten XP (gegen Mini-Runs).
+export const PRESTIGE_MIN_XP = 10;
+export const PRESTIGE_MIN_SHARE = 0.02;
+export function minPrestigeGain(s = state) {
+  return Math.max(PRESTIGE_MIN_XP, Math.ceil((s.stats.xpEarned || 0) * PRESTIGE_MIN_SHARE));
+}
+export function canPrestige(s = state) { return prestigeGain(s) >= minPrestigeGain(s); }
+
 // Wie viel Code fehlt bis zum nächsten vollen XP-Punkt?
 export function scrapForNextXp(s = state) {
   const mult = prestigeStructBonus(s) * (currentBonuses(s).prestigeGainMult || 1);
@@ -120,23 +128,24 @@ export function scrapForNextXp(s = state) {
 }
 
 // Alles, was ein Hard Refactor zurücksetzt. Alle anderen Top-Level-Keys (Funde, Chips, Chronicle,
-// Aufgaben, Depot, Statistiken, Einstellungen, Log …) bleiben unverändert erhalten.
+// Aufgaben, Statistiken, Einstellungen, Log …) bleiben unverändert erhalten.
 const RUN_KEYS = [
-  'resources', 'buildings', 'techs', 'projects', 'colonies', 'expeditions', 'doctrine',
+  'resources', 'buildings', 'techs', 'projects', 'colonies', 'expeditions', 'doctrine', 'stocks',
   'operationsMode', 'activeProtocol', 'activeProtocolEndsAt', 'protocolCooldowns', 'converterThrottle',
   'event', 'eventEnds', 'nextEventAt', 'lastEventAt', 'asteroidActive', 'nextAsteroidAt',
   'cyberEvent', 'nextCyberEventAt', 'decision', 'nextDecisionAt'
 ];
 
-// allowZero: Sprint-Start setzt auch ohne XP-Gewinn zurück. Ein laufender Sprint endet dabei ohne Belohnung.
+// allowZero: Sprint-Start setzt auch ohne Mindest-XP zurück. Ein laufender Sprint endet dabei ohne Belohnung.
 export function doPrestigeReset({ allowZero = false } = {}) {
   const gain = prestigeGain();
-  if (gain <= 0 && !allowZero) return false;
+  if (!allowZero && !canPrestige()) return false;
   const prestigeCount = state.stats.prestigeCount + 1;
 
   const fresh = defaultState();
   for (const key of RUN_KEYS) setState(key, fresh[key]);
   setState('chronicle', state.chronicle + gain);
+  setState('stats', 'xpEarned', (state.stats.xpEarned || 0) + gain);
   setState('stats', 'prestigeCount', prestigeCount);
   setState('stats', 'totalAtLastPrestige', { ...state.stats.total });
   setState('stats', 'runStartedAt', Date.now());
