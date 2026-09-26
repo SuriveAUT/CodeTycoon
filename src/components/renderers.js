@@ -33,8 +33,6 @@ import { fmt, fmtSec, fmtRate, clamp } from '../lib/format.js';
 import { getIcon, resIcon, CATEGORY_ICONS } from '../lib/icons.js';
 import { escapeHtml } from '../lib/sanitize.js';
 
-export const ADMIN_USERNAME = 'Dominik';
-
 export const TABS = [
   { id: 'overview', label: 'Büro', icon: 'home', key: 'O', blurb: 'Klicken, Aufgaben, Überblick.' },
   { id: 'buildings', label: 'Team', icon: 'team', key: 'B', blurb: 'Mitarbeiter einstellen.' },
@@ -187,7 +185,7 @@ export function navBadges() {
 
 export function renderNav(mobile = false, badges = navBadges()) {
   const tabs = [...TABS];
-  if (AstraforgeAPI.username === ADMIN_USERNAME) tabs.push({ id: 'admin', label: 'Admin', icon: 'shield', blurb: 'Moderation.' });
+  if (AstraforgeAPI.isAdmin) tabs.push({ id: 'admin', label: 'Admin', icon: 'shield', blurb: 'Moderation.' });
   return tabs.map(tab => {
     const badge = badges[tab.id];
     const badgeHtml = badge === 'dot' ? '<span class="nav-badge dot"></span>' : badge ? `<span class="nav-badge">${badge > 9 ? '9+' : badge}</span>` : (tab.key && !mobile ? `<span class="nav-key">${tab.key}</span>` : '');

@@ -172,7 +172,8 @@ docker run -p 3005:3005 codetycoon
 | `VITE_API_TIMEOUT_MS` | `10000` | Request-Timeout in ms |
 | `JWT_SECRET` | `change_me` | Geheimnis für JWT-Signierung |
 | `PORT` | `3005` | Backend-Port |
-| `ADMIN_USERNAME` | — | Benutzername mit Admin-Rechten |
+| `ADMIN_USERNAME` | — | Benutzername mit Admin-Rechten; ohne Wert gibt es keinen Admin |
+| `MODERATOR_USERNAMES` | — | Kommagetrennte Chat-Moderatoren |
 | `ALLOWED_ORIGIN` | — | CORS-Origin in Produktion |
 
 ## Lizenz

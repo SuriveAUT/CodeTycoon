@@ -1,3 +1,6 @@
+// Load .env first: route modules read env vars (ADMIN_USERNAME, MODERATOR_USERNAMES) when required.
+require('dotenv').config();
+
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
@@ -7,8 +10,6 @@ const gameRoutes = require('./routes/game');
 const chatRoutes = require('./routes/chat');
 const stockRoutes = require('./routes/stocks');
 const { initMarket } = require('./lib/stockMarket');
-
-require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3005;
