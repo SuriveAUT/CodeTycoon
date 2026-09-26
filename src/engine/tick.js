@@ -1,5 +1,5 @@
 import { state, setState, log } from '../store/gameState.js';
-import { computeBonuses, simulateProduction, ratesFromSimulation } from '../store/bonuses.js';
+import { computeBonuses, simulateProduction, ratesFromSimulation, estimateRatesSnapshot } from '../store/bonuses.js';
 import { RESOURCES } from '../data/misc.js';
 import { rand } from '../lib/format.js';
 import { autoBuild, autoResearch, autoExpeditions, autoProjects } from './automation.js';
@@ -12,6 +12,19 @@ import { tickDaily } from './daily.js';
 import { checkChallenge } from './challenges.js';
 
 let lastChecksAt = 0;
+
+// Automation läuft AUTO_HZ-mal pro Sekunde Spielzeit – im Browser, beim Offline-Nachholen und in der
+// Balancing-Simulation gleich. Pro Aufruf höchstens AUTO_MAX_PASSES Durchgänge, damit große Schritte günstig bleiben.
+const AUTO_HZ = 4;
+const AUTO_MAX_PASSES = 4;
+let autoCredit = 0;
+
+function runAutomation(b) {
+  if (state.auto.build && b.autoBuild) autoBuild(b);
+  if (state.auto.research && b.autoResearch) autoResearch(b);
+  if (state.auto.expeditions && b.autoExpeditions) autoExpeditions(b);
+  if (state.auto.projects && b.autoProjects) autoProjects(b);
+}
 
 // Errungenschaften, Meilensteine und Aufgaben prüfen (monotone Schwellen – reicht 1×/s bzw. einmal nach Offline-Catchup).
 export function runProgressChecks(silent) {
@@ -89,12 +102,15 @@ export function processTick(dt, opts = {}) {
 
   if (!opts.skipLifetime) setState('stats', 'lifetime', state.stats.lifetime + dt);
 
-  // Automation läuft pro Schritt (Auto-Hire kauft je Aufruf höchstens 1 Stück pro Mitarbeiter-Typ).
+  // Auto-Hire kauft je Durchgang höchstens 1 Stück pro Mitarbeiter-Typ.
   if (auto) {
-    if (state.auto.build && b.autoBuild) autoBuild(b);
-    if (state.auto.research && b.autoResearch) autoResearch(b);
-    if (state.auto.expeditions && b.autoExpeditions) autoExpeditions(b);
-    if (state.auto.projects && b.autoProjects) autoProjects(b);
+    autoCredit = Math.min(AUTO_MAX_PASSES, autoCredit + dt * AUTO_HZ);
+    for (let pass = 0; autoCredit >= 1; pass++) {
+      autoCredit -= 1;
+      // Ab dem zweiten Durchgang Raten neu schätzen, damit Auto-Hire keine Konverter auf veralteten Raten kauft
+      if (pass > 0) setState('cache', 'rates', estimateRatesSnapshot(state, b));
+      runAutomation(b);
+    }
   }
 
   // Schwellen-Checks 1× pro Sekunde (oder pro großem Schritt), nicht pro Frame.
