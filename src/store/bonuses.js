@@ -11,6 +11,8 @@ import { BONUS_EFFECTS, PROJECT_EFFECTS, ARTIFACT_EFFECTS, DOCTRINE_EFFECTS } fr
 import { CHIPS } from '../data/chips.js';
 import { STOCKS, dividendBonusForShares } from '../data/stocks.js';
 import { getChallenge } from '../data/challenges.js';
+import { CHAPTERS } from '../data/chapters.js';
+import { getLabProject } from '../data/lab.js';
 import { clamp } from '../lib/format.js';
 
 export const MAX_COLONIES = 8;
@@ -30,8 +32,9 @@ const MULT_KEYS = new Set([
 ]);
 const ADD_KEYS = new Set([
   'relicChance', 'eventResist', 'expeditionRewardMult', 'perColonyMult',
-  'clickRateFraction', 'expeditionPower', 'expeditionSlots', 'colonyCap', 'offlineCapHours'
+  'clickRateFraction', 'expeditionPower', 'expeditionSlots', 'colonyCap', 'offlineCapHours', 'offlineEfficiency'
 ]);
+export const MAX_OFFLINE_EFFICIENCY = 0.95;
 
 // Statische Tabellen einmal vorbereiten (heißer Pfad: simulateProduction pro Frame)
 const OUTPUT_ENTRIES = new Map(BUILDINGS.map(d => [d.id, Object.entries(d.outputs || {})]));
@@ -84,18 +87,19 @@ export function computeBonuses(s = state) {
   // Errungenschaften: +1% pro Stück
   b.allMult *= 1 + (s.achievements?.length || 0) * 0.01;
 
-  // Chronicle-Upgrades (permanent)
+  // Chronicle-Upgrades (permanent). Produktions- und Kosten-Upgrades wirken additiv je Stufe: multiplikativ
+  // schaukelten sich XP → Produktion → XP exponentiell auf (npm run sim).
   const level = (id) => upgradeLevel(id, s);
-  const origin = level('origin'); if (origin) b.allMult *= Math.pow(1.08, origin);
-  const monument = level('monument'); if (monument) b.allMult *= Math.pow(1.025, monument);
+  const origin = level('origin'); if (origin) b.allMult *= 1 + 0.08 * origin;
+  const monument = level('monument'); if (monument) b.allMult *= 1 + 0.025 * monument;
   const deepTime = level('deep_time'); if (deepTime) b.offlineCapHours += deepTime * 1.5;
   const bureau = level('bureau'); if (bureau) b.autoBuildBoost *= Math.pow(1.10, bureau);
   const logistics = level('logistics'); if (logistics) b.colonyCap += Math.floor(logistics / 2);
-  const resonance = level('resonance'); if (resonance) { b.relicMult *= Math.pow(1.08, resonance); b.relicChance += 0.005 * resonance; }
-  const funds = level('funds'); if (funds) { b.buildingCostMult *= Math.pow(0.97, funds); b.projectCostMult *= Math.pow(0.97, funds); }
+  const resonance = level('resonance'); if (resonance) { b.relicMult *= 1 + 0.08 * resonance; b.relicChance += 0.005 * resonance; }
+  const funds = level('funds'); if (funds) { b.buildingCostMult /= 1 + 0.03 * funds; b.projectCostMult /= 1 + 0.03 * funds; }
   const epoch = level('epoch'); if (epoch) b.prestigeGainMult *= Math.pow(1.10, epoch);
-  const timeDilation = level('time_dilation'); if (timeDilation) b.offlineEfficiency = Math.min(0.9, 0.5 + timeDilation * 0.1);
-  const infiniteSynergy = level('infinite_synergy'); if (infiniteSynergy) b.allMult *= Math.pow(1.15, infiniteSynergy);
+  const timeDilation = level('time_dilation'); if (timeDilation) b.offlineEfficiency += Math.min(4, timeDilation) * 0.1;
+  const infiniteSynergy = level('infinite_synergy'); if (infiniteSynergy) b.allMult *= 1 + 0.15 * infiniteSynergy;
   const quantumClick = level('quantum_click'); if (quantumClick) b.clickRateFraction += 0.005 * Math.min(quantumClick, 10);
 
   (s.prestigeMilestones || []).forEach(id => {
@@ -160,6 +164,22 @@ export function computeBonuses(s = state) {
   // Standort-Output (HR, Legal Team, Releases …) verstärkt nur den Standort-Bonus, nicht die ganze Produktion
   b.allMult *= 1 + colonyBonusSum * b.colonyOutputMult;
 
+  // Finanzierungsrunden: Belohnungen abgeschlossener Runden (permanent; labSlots/chipSlots zählen engine/lab.js bzw. actions.js)
+  CHAPTERS.slice(0, s.roadmap?.chapter || 0).forEach(c => applyEffects(b, c.reward));
+
+  // Labor: abgeholte Projekte (permanent). „Onboarding-Doku“ schaltet Auto-Hire/Auto-Learn ab Run-Beginn ein.
+  (s.lab?.done || []).forEach(id => {
+    const project = getLabProject(id);
+    if (project?.effects) applyEffects(b, project.effects);
+    if (project?.flag === 'autoStart') { b.autoBuild = true; b.autoResearch = true; }
+  });
+  // Wiederholbare Projekte: Faktor 1 + Wert · Stufe (additiv je Stufe)
+  Object.entries(s.lab?.levels || {}).forEach(([id, lvl]) => {
+    const project = getLabProject(id);
+    if (!project?.perLevel || !(lvl > 0)) return;
+    Object.entries(project.perLevel).forEach(([key, per]) => { if (MULT_KEYS.has(key)) b[key] *= 1 + per * lvl; });
+  });
+
   // Sprints: Belohnungen abgeschlossener Sprints (permanent), Handicap des laufenden
   doneChallenges.forEach(c => applyEffects(b, c.reward));
   if (challenge) {
@@ -190,6 +210,7 @@ export function computeBonuses(s = state) {
 
   b.colonyCap = Math.min(MAX_COLONIES, Math.max(0, Math.floor(b.colonyCap)));
   b.offlineCapHours = Math.max(4, b.offlineCapHours);
+  b.offlineEfficiency = Math.min(MAX_OFFLINE_EFFICIENCY, b.offlineEfficiency);
   b.converterInputMult = Math.max(0.1, Number(b.converterInputMult || 1));
   return b;
 }

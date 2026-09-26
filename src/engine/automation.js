@@ -58,8 +58,9 @@ export function autoResearch(b) {
   if (purchaseTech(next.id, { quiet: true })) log(`Auto-Learn: ${next.name}.`);
 }
 
+// Releases mit `manual` (Börsengang) bleiben ein bewusster Klick
 export function autoProjects(b) {
-  const next = PROJECTS.find(p => !hasProject(p.id) && isProjectUnlocked(p));
+  const next = PROJECTS.find(p => !p.manual && !hasProject(p.id) && isProjectUnlocked(p));
   if (!next || !canAfford(nextProjectCost(next, b))) return;
   if (purchaseProject(next.id, { quiet: true })) log(`Auto-Deploy: ${next.name}.`);
 }

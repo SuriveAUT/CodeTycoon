@@ -21,7 +21,8 @@ export const COFFEE_MAX = 3;
 export const COFFEE_USES = [
   { id: 'espresso', name: 'Espresso', icon: 'zap', desc: '20 Minuten ×2 Gesamtproduktion.', boost: { name: 'Espresso', effects: { allMult: 2 }, duration: 20 * 60e3 } },
   { id: 'crunch', name: 'Crunch', icon: 'briefcase', desc: 'Alle laufenden Aufträge sofort abschließen.' },
-  { id: 'reroll', name: 'Neue Tickets', icon: 'settings', desc: 'Offene Tages-Tickets neu würfeln.' }
+  { id: 'reroll', name: 'Neue Tickets', icon: 'settings', desc: 'Offene Tages-Tickets neu würfeln.' },
+  { id: 'overtime', name: 'Überstunden', icon: 'time', desc: 'Alle laufenden Labor-Projekte 3 Stunden schneller.' }
 ];
 
 // Bonus, wenn alle drei Tickets eines Tages erledigt sind.

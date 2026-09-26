@@ -135,7 +135,13 @@ export const ACHIEVEMENTS = [
   { id: 'sprints_all', name: 'Marathon', desc: 'Alle Sprints abgeschlossen.' },
   { id: 'playtime_1d', name: 'All-Nighter', desc: '24 Stunden Uptime.' },
   { id: 'playtime_7d', name: 'Crunch Week', desc: '7 Tage Uptime.' },
-  { id: 'playtime_30d', name: 'Burnout', desc: '30 Tage Uptime.' }
+  { id: 'playtime_30d', name: 'Burnout', desc: '30 Tage Uptime.' },
+  { id: 'round_seed', name: 'Angel-Investment', desc: 'Finanzierungsrunde Seed erreicht.' },
+  { id: 'round_series_a', name: 'Wagniskapital', desc: 'Finanzierungsrunde Series A erreicht.' },
+  { id: 'round_series_b', name: 'Scale-up', desc: 'Finanzierungsrunde Series B erreicht.' },
+  { id: 'round_series_c', name: 'Unicorn', desc: 'Finanzierungsrunde Series C erreicht.' },
+  { id: 'round_public', name: 'Glocke geläutet', desc: 'Die Firma ist an der Börse.' },
+  { id: 'lab_10', name: 'Forschungsabteilung', desc: '10 Labor-Projekte abgeschlossen.' }
 ];
 
 // Chronicle-Upgrades: mit XP kaufbar, bleiben für immer. `max` optional.
@@ -147,13 +153,14 @@ export const CHRONICLE_UPGRADES = [
   { id: 'logistics', name: 'Remote-First', desc: 'Standort-Limit +1 alle zwei Stufen.', base: 15 },
   { id: 'resonance', name: 'Tech Debt Mastery', desc: 'Legacy Code +8% und Fundchance +0,5% pro Stufe.', base: 18 },
   { id: 'funds', name: 'Series A', desc: 'Gebäude und Releases 3% günstiger pro Stufe.', base: 25 },
-  { id: 'epoch', name: 'IPO', desc: 'XP-Gewinn +10% pro Stufe.', base: 30 },
+  { id: 'epoch', name: 'IPO', desc: 'XP-Gewinn +10% pro Stufe.', base: 30, max: 10 },
   { id: 'time_dilation', name: '4-Tage-Woche', desc: 'Offline-Effizienz +10% pro Stufe (50% → max. 90%).', base: 40, max: 4 },
   { id: 'infinite_synergy', name: 'Synergie-Effekte', desc: 'Gesamtproduktion +15% pro Stufe (endlos).', base: 80 },
   { id: 'quantum_click', name: '10x Typist', desc: 'Jeder Klick bringt zusätzlich 0,5% der Code-Produktion pro Sekunde, pro Stufe.', base: 100, max: 10 }
 ];
 
-export const CHRONICLE_COST_GROWTH = 1.32;
+// Kostenwachstum je Stufe. Bei 1.32 schaukelten sich XP → Produktion → XP gegenseitig auf (npm run sim).
+export const CHRONICLE_COST_GROWTH = 1.3;
 
 // XP-Kosten der Stufe `lvl` → `lvl + 1` eines Chronicle-Upgrades
 export function chronicleCostFor(id, lvl) {

@@ -152,6 +152,13 @@ export function checkAchievements(silent) {
   const sprints = (state.challengesDone || []).length;
   if (sprints >= 1) unlock('sprint_1');
   if (sprints >= CHALLENGES.length) unlock('sprints_all');
+  const round = state.roadmap?.chapter || 0;
+  if (round >= 1) unlock('round_seed');
+  if (round >= 2) unlock('round_series_a');
+  if (round >= 3) unlock('round_series_b');
+  if (round >= 4) unlock('round_series_c');
+  if (round >= 6) unlock('round_public');
+  if ((state.lab?.done || []).length >= 10) unlock('lab_10');
   if (state.stats.lifetime >= 86400) unlock('playtime_1d');
   if (state.stats.lifetime >= 604800) unlock('playtime_7d');
   if (state.stats.lifetime >= 2592000) unlock('playtime_30d');

@@ -11,11 +11,12 @@ import { COFFEE_INTERVAL_MS } from '../data/daily.js';
 import { CHALLENGES } from '../data/challenges.js';
 import { CHAPTERS } from '../data/chapters.js';
 import { MAX_DIVIDEND_BONUS, DIVIDEND_PER_SHARE } from '../data/stocks.js';
+import { LAB_PROJECTS } from '../data/lab.js';
 import { emitToast } from '../lib/toast.js';
 
 export const SAVE_KEY = 'dev-tycoon-save-v1';
 export const BUY_AMOUNTS = [1, 10, 100, 'max'];
-const VERSION = 8;
+const VERSION = 9;
 
 // Sehr alte Saves (Astraforge-Weltraum-Thema) auf die aktuellen IDs mappen.
 const ID_MAP = {
@@ -95,6 +96,7 @@ export function defaultState() {
       stockTrades: 0,
       sprintsDone: 0,
       xpEarned: 0,
+      releasedEver: [],
       runStartedAt: Date.now(),
       lastSave: Date.now(),
       firstSeen: Date.now()
@@ -106,8 +108,11 @@ export function defaultState() {
     // Sprints (engine/challenges.js)
     challenge: null,
     challengesDone: [],
-    // Finanzierungsrunden (engine/roadmap.js): aktuelle Runde, reachedAt[i] = Zeitpunkt, an dem Runde i begann
-    roadmap: { chapter: 0, reachedAt: [] },
+    // Finanzierungsrunden (engine/roadmap.js): aktuelle Runde, reachedAt[i] = Zeitpunkt, an dem Runde i begann,
+    // seen = zuletzt gefeierte Runde (App.jsx zeigt für jede neue Runde einen Dialog)
+    roadmap: { chapter: 0, reachedAt: [], seen: 0 },
+    // R&D-Labor (engine/lab.js): laufende Projekte mit Endzeit, abgeholte Projekte, Stufen endloser Projekte
+    lab: { running: [], done: [], levels: {} },
     event: null,
     eventEnds: 0,
     nextEventAt: Date.now() + rand(4 * 60e3, 8 * 60e3),
@@ -169,15 +174,32 @@ function migrateState(candidate) {
     candidate.questIndex = idx;
   }
   if ((candidate.version || 0) < 8) migrateToV8(candidate);
+  if ((candidate.version || 0) < 9) migrateToV9(candidate);
   return candidate;
+}
+
+// v8 → v9 (Runden mit Labor und Release-Zielen)
+function migrateToV9(candidate) {
+  // Releases, die schon einmal veröffentlicht wurden: aktuelle plus die, die Errungenschaften belegen
+  const achievements = candidate.achievements || [];
+  const ever = new Set(candidate.projects || []);
+  if (achievements.includes('world_engine')) ever.add('operating_system');
+  if (achievements.includes('singularity')) ever.add('internet_three');
+  candidate.stats = { ...(candidate.stats || {}), releasedEver: [...ever] };
+  // Bestehende Runden nicht nachträglich feiern
+  candidate.roadmap = { ...(candidate.roadmap || {}), seen: Number(candidate.roadmap?.chapter) || 0 };
 }
 
 // v7 → v8 (Finanzierungsrunden, XP-basierte Meilensteine, neuer 10x Typist)
 function migrateToV8(candidate) {
   const levels = { ...(candidate.chronicleUpgrades || {}) };
+  // Bis v7 kostete jede Stufe base · 1,32^Stufe – so viel XP wurden tatsächlich ausgegeben
+  const LEGACY_GROWTH = 1.32;
   const spentOn = (id) => {
+    const base = chronicleCostFor(id, 0);
+    if (!Number.isFinite(base)) return 0;
     let sum = 0;
-    for (let lvl = 0; lvl < (levels[id] || 0); lvl++) sum += chronicleCostFor(id, lvl);
+    for (let lvl = 0; lvl < (levels[id] || 0); lvl++) sum += Math.floor(base * Math.pow(LEGACY_GROWTH, lvl));
     return sum;
   };
   // Verdiente XP = Guthaben + alles, was in Chronicle-Upgrades steckt
@@ -224,6 +246,7 @@ export function normalizeState(candidate) {
     daily: { ...base.daily, ...(candidate.daily || {}) },
     coffee: { ...base.coffee, ...(candidate.coffee || {}) },
     roadmap: { ...base.roadmap, ...(candidate.roadmap || {}) },
+    lab: { ...base.lab, ...(candidate.lab || {}) },
     stats: {
       ...base.stats,
       ...(candidate.stats || {}),
@@ -263,6 +286,23 @@ export function normalizeState(candidate) {
   merged.stats.xpEarned = Math.max(0, asFiniteNumber(merged.stats.xpEarned, 0));
   merged.roadmap.chapter = Math.min(CHAPTERS.length - 1, Math.max(0, Math.floor(asFiniteNumber(merged.roadmap.chapter, 0))));
   merged.roadmap.reachedAt = Array.isArray(merged.roadmap.reachedAt) ? merged.roadmap.reachedAt.map(t => (t == null ? t : asFiniteNumber(t, 0))) : [];
+  merged.roadmap.seen = Math.min(merged.roadmap.chapter, Math.max(0, Math.floor(asFiniteNumber(merged.roadmap.seen, merged.roadmap.chapter))));
+  merged.stats.releasedEver = Array.isArray(merged.stats.releasedEver) ? merged.stats.releasedEver.filter(id => knownProj.has(id)) : [];
+  const knownLab = new Set(LAB_PROJECTS.map(p => p.id));
+  merged.lab.running = Array.isArray(merged.lab.running)
+    ? merged.lab.running.filter(r => r && knownLab.has(r.id) && Number.isFinite(r.endsAt)).map(r => ({ id: r.id, startedAt: asFiniteNumber(r.startedAt, 0), endsAt: r.endsAt }))
+    : [];
+  merged.lab.done = Array.isArray(merged.lab.done) ? [...new Set(merged.lab.done.filter(id => knownLab.has(id)))] : [];
+  const repeatable = new Set(LAB_PROJECTS.filter(p => p.repeatable).map(p => p.id));
+  // Jedes Projekt läuft höchstens einmal; ein schon abgeschlossenes Einmal-Projekt würde seinen Slot sonst für immer belegen
+  const runningIds = new Set();
+  merged.lab.running = merged.lab.running.filter(r => {
+    if (runningIds.has(r.id) || (!repeatable.has(r.id) && merged.lab.done.includes(r.id))) return false;
+    runningIds.add(r.id);
+    return true;
+  });
+  merged.lab.levels =Object.fromEntries(Object.entries(merged.lab.levels && typeof merged.lab.levels === 'object' ? merged.lab.levels : {})
+    .filter(([id]) => repeatable.has(id)).map(([id, lvl]) => [id, Math.max(0, Math.floor(asFiniteNumber(lvl, 0)))]));
   merged.stats.runStartedAt = asFiniteNumber(merged.stats.runStartedAt, Date.now());
   // Tages-Loop / Sprints
   merged.daily.tickets = Array.isArray(merged.daily.tickets) ? merged.daily.tickets.filter(t => t && typeof t.id === 'string') : [];

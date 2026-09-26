@@ -49,7 +49,15 @@ export const TECHS = [
   { id: 'web3_blockchain', name: 'Web3 / Blockchain', tier: 5, cost: 1.08e+10, prereq: ['dark_web_scraping'], desc: 'Viel Forschung, wenig Nutzen. Ideas +20%.' },
   { id: 'generative_ai', name: 'Generative AI', tier: 5, cost: 1.68e+10, prereq: ['web3_blockchain'], desc: 'Die KI schreibt nun die KI. Gesamt +5%, XP +25%. Schaltet Gov Contracts und Chaos Monkey frei.' },
   { id: 'global_cdn', name: 'Globales CDN', tier: 5, cost: 2.4e+10, prereq: ['generative_ai'], desc: 'Beschleunigt alle Freelance-Aufträge. Auftrags-Power +20%.' },
-  { id: 'agi_completion', name: 'AGI', tier: 5, cost: 3.84e+10, prereq: ['global_cdn'], desc: 'Das Endziel. Schaltet 10x Developer und Tech Monopol frei. Bereit für den ultimativen Refactor.' }
+  { id: 'agi_completion', name: 'AGI', tier: 5, cost: 3.84e+10, prereq: ['global_cdn'], desc: 'Das Endziel. Schaltet 10x Developer und Tech Monopol frei. Bereit für den ultimativen Refactor.' },
+
+  // ── Stufe 6: Plattform (erste Hälfte ab Series B, zweite Hälfte ab Series C) ──
+  { id: 'platform_apis', name: 'Plattform-APIs', tier: 6, cost: 6e+11, prereq: ['agi_completion'], desc: 'Andere bauen auf deinem Produkt. Gesamt +5%, schaltet Platform Engineers frei.' },
+  { id: 'marketplace_tech', name: 'Marktplatz', tier: 6, cost: 9e+11, prereq: ['platform_apis'], desc: 'Du kassierst bei jedem Geschäft mit. Revenue +20%, schaltet den Marktplatz und die Super-App frei.' },
+  { id: 'edge_computing', name: 'Edge Computing', tier: 6, cost: 1.4e+12, prereq: ['platform_apis'], desc: 'Rechenleistung direkt beim Nutzer. Gesamt +10%, Offline-Limit +2h.' },
+  { id: 'quantum_computing', name: 'Quantencomputing', tier: 6, chapter: 4, cost: 3e+12, prereq: ['edge_computing'], desc: 'Rechnet alle Möglichkeiten gleichzeitig. Ideas +50%, schaltet die Hype-Maschine frei.' },
+  { id: 'neural_interfaces', name: 'Neuro-Interfaces', tier: 6, chapter: 4, cost: 5e+12, prereq: ['quantum_computing'], desc: 'Code per Gedanke. Code +25%, jeder Klick bringt +2% der Code-Produktion. Schaltet das Legacy-Rechenzentrum frei.' },
+  { id: 'digital_twin', name: 'Digitaler Zwilling', tier: 6, chapter: 4, cost: 8e+12, prereq: ['neural_interfaces'], desc: 'Die ganze Firma als Simulation. Gesamt +10%, XP +25%. Schaltet den Börsengang frei.' }
 ];
 
 // chapter: ab welcher Finanzierungsrunde (data/chapters.js) die Stufe erforscht werden kann
@@ -58,5 +66,6 @@ export const TECH_TIERS = [
   { tier: 2, name: 'Startup', desc: 'Prozesse, Marketing und erste Aufträge.', chapter: 0 },
   { tier: 3, name: 'Scale-up', desc: 'Standorte, Automatisierung, Architektur.', chapter: 0 },
   { tier: 4, name: 'Konzern', desc: 'Daten, KI und Unternehmenskultur.', chapter: 1 },
-  { tier: 5, name: 'Singularität', desc: 'Das Ende des Internets.', chapter: 2 }
+  { tier: 5, name: 'Singularität', desc: 'Das Ende des Internets.', chapter: 2 },
+  { tier: 6, name: 'Plattform', desc: 'Aus dem Produkt wird ein Ökosystem.', chapter: 3 }
 ];

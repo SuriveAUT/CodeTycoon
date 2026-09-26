@@ -52,7 +52,7 @@ Ein browserbasiertes Idle-/Incremental-Game mit Startup-Thematik, Cloud-Save, gl
 | `influence` | Hype | Tech Blogger & Co. Für Standorte und große Releases. |
 | `relics` | Legacy Code | Archäologen und Aufträge. Selten, für Endgame-Releases. |
 
-### Team (42 Gebäude, 6 Kategorien)
+### Team (46 Gebäude, 6 Kategorien)
 - **Producer** (Dev Team, Sales & Ads) erzeugen Code bzw. Revenue.
 - **Konverter** (QA & DevOps, Marketing & R&D, Social Media) wandeln Ressourcen um und verbrauchen dabei echten Vorrat.
 - **Modifier** (Management) geben passive Boni (wirken bis 20 Stück).
@@ -80,8 +80,11 @@ Klick-Button, aktuelle Aufgabe, KPIs, Tages-Loop (Daily Standup, Tickets, Kaffee
 ### Prestige (Hard Refactor)
 XP = 6 · ∛(Code im Run / 10 Mio.) · Struktur-Bonus. Ein Refactor braucht mindestens 10 XP bzw. 2 % der bisher verdienten XP. Erhalten bleiben Funde, Chips, Errungenschaften, Chronicle-Upgrades (11), Meilensteine (14), Finanzierungsrunde, Aufgaben-Fortschritt, Daily-Streak, Kaffee und Sprint-Belohnungen. Mainframe-Chips (10) mit Tradeoffs.
 
-### Finanzierungsrunden
-Garage → Seed → Series A: Jede Runde schaltet neue Tech-Stufen frei (Stufe 4 ab Seed, Stufe 5 ab Series A). Die Ziele (Refactors, verdiente XP) stehen im Tech- und im Prestige-Tab.
+### Finanzierungsrunden (Tab Roadmap)
+Garage → Seed → Series A → Series B → Series C → IPO → Börsennotiert. Jede Runde schaltet Inhalte frei (Tech-Stufe 4 ab Seed, 5 ab Series A, Stufe 6 „Plattform“ ab Series B/C, neue Mitarbeiter und Releases bis zum Börsengang) und hat Ziele: verdiente XP, Sprints, Daily Standups, ein Release und das Schlüsselprojekt im Labor. Abgeschlossene Runden geben dauerhafte Boni (bis zu Gesamt ×2 je Runde, weitere Labor- und Chip-Slots). Ausgelegt auf 2–4 Wochen mit täglichem Reinschauen; der Börsengang ist das Finale.
+
+### R&D-Labor
+Ab dem ersten Refactor. Projekte laufen in Echtzeit (3–24 h), auch offline: vor dem Gehen starten, beim nächsten Besuch abholen. Kosten Hype und Legacy Code (Minuten Produktion, höchstens die Hälfte des Vorrats). Schlüsselprojekte je Runde, einmalige Upgrades (Offline-Limit, Auto-Start nach Refactor, Produktion, XP) und endlos wiederholbare Projekte. Daily Standup (−30 min, Tag 7: −2 h) und Kaffee „Überstunden“ (−3 h) beschleunigen.
 
 ### Ereignisse
 Zufallsereignisse, interaktive Cyber-Events (Ransomware, DDoS, Investor Call …) und der herumfliegende Bug 🐛 mit Sofort-Bonus.
