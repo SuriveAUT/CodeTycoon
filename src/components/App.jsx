@@ -23,7 +23,7 @@ import { getSetting, toggleSetting } from '../lib/settings.js';
 import { claimStandup, useCoffee, rewardText } from '../engine/daily.js';
 import { startChallenge, abortChallenge, activeChallenge, challengeStatus } from '../engine/challenges.js';
 import { getChallenge, CHALLENGES } from '../data/challenges.js';
-import { startLab, claimLab } from '../engine/lab.js';
+import { startLab, claimLab, queueLab, cancelQueuedLab } from '../engine/lab.js';
 import { getLabProject } from '../data/lab.js';
 import { CHAPTERS } from '../data/chapters.js';
 import { armDesktopNotify, disarmDesktopNotify, toggleDesktopNotify } from '../lib/desktopNotify.js';
@@ -417,6 +417,15 @@ export default function App() {
       case 'lab-claim': {
         const def = getLabProject(id);
         if (claimLab(id)) showToast(`Labor fertig: ${def?.name}${def?.label ? ` – ${def.label}` : ''}`, 'good', true);
+        done(); return;
+      }
+      case 'lab-queue': {
+        if (queueLab(id)) showToast(`Labor: ${getLabProject(id)?.name} eingeplant – startet, sobald ein Projekt fertig ist.`, 'good');
+        else showToast('Einplanen geht gerade nicht (Warteschlange voll oder Ressourcen).', 'warn');
+        done(); return;
+      }
+      case 'lab-unqueue': {
+        if (cancelQueuedLab(id)) showToast(`Labor: ${getLabProject(id)?.name} aus der Planung genommen, Kosten erstattet.`, 'info');
         done(); return;
       }
       case 'coffee-use': {

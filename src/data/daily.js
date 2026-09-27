@@ -25,7 +25,9 @@ export const COFFEE_USES = [
   { id: 'overtime', name: 'Überstunden', icon: 'time', desc: 'Alle laufenden Labor-Projekte 3 Stunden schneller.' }
 ];
 
-// Bonus, wenn alle drei Tickets eines Tages erledigt sind.
+// Jeden Tag gibt es TICKET_OFFERS Angebote. Jedes erledigte Ticket zahlt seine Belohnung; die ersten TICKETS_PER_DAY
+// bringen zusätzlich den Tages-Bonus. (Schlössen die übrigen danach, fehlten früh die wertvollen Belohnungen – Sim.)
+export const TICKET_OFFERS = 5;
 export const TICKETS_PER_DAY = 3;
 export const TICKETS_ALL_DONE_BOOST = { name: 'Tages-Bonus', effects: { allMult: 1.5 }, duration: 30 * 60e3 };
 
@@ -47,7 +49,7 @@ export const TICKET_COUNTERS = {
 // Bruttoproduktion von `res` (mindestens `min`) – so bleiben Tickets in jeder Spielphase relevant.
 export const TICKET_POOL = [
   { id: 't_clicks', counter: 'clicks', label: (n) => `Schreib ${n}× Code (Klick/Leertaste)`,
-    target: (s) => 150 + Math.min(350, Math.floor((s.stats.lifetime || 0) / 600)) * 1,
+    target: (s) => 100 + Math.min(100, Math.floor((s.stats.lifetime || 0) / 1200)),
     reward: (h) => ({ scrap: h.minutes('scrap', 10, 300) }) },
   { id: 't_hires', counter: 'hires', label: (n) => `Stell ${n} Mitarbeiter ein`,
     target: (s) => 15 + Math.min(45, Math.floor((s.stats.lifetime || 0) / 1200)),
@@ -60,7 +62,8 @@ export const TICKET_POOL = [
     target: (s, b, h) => h.minutes('research', 15, 100),
     reward: (h) => ({ scrap: h.minutes('scrap', 12, 400) }) },
   { id: 't_techs', counter: 'techs', label: (n) => `Lerne ${n} Technologie${n > 1 ? 'n' : ''}`,
-    target: (s) => (s.techs.length >= 8 ? 2 : 1),
+    available: (s, b, h) => h.learnableTechs >= 1,
+    target: (s, b, h) => Math.min(h.learnableTechs, s.techs.length >= 8 ? 2 : 1),
     reward: (h) => ({ research: h.minutes('research', 10, 80), scrap: h.minutes('scrap', 5, 100) }) },
   { id: 't_missions', counter: 'missions', label: (n) => `Schließ ${n} Freelance-Aufträge ab`,
     available: (s) => s.techs.includes('freelance_platform'),
@@ -73,10 +76,6 @@ export const TICKET_POOL = [
   { id: 't_bugs', counter: 'bugs', label: (n) => `Fang ${n} fliegende Bugs`,
     target: () => 2,
     reward: (h) => ({ scrap: h.minutes('scrap', 6, 150), energy: h.minutes('energy', 6, 60) }) },
-  { id: 't_trades', counter: 'trades', label: (n) => `Handle ${n}× an der Börse`,
-    available: (s) => s.techs.includes('freelance_platform'),
-    target: () => 3,
-    reward: (h) => ({ energy: h.minutes('energy', 15, 200) }) },
   { id: 't_quests', counter: 'quests', label: (n) => `Erledige ${n} Aufgaben`,
     available: (s, b, h) => h.questsLeft >= 2,
     target: () => 2,

@@ -1,12 +1,13 @@
-// daily.js – Tages-Loop: Daily Standup (Login-Streak), drei Tages-Tickets und Kaffee (reift in Echtzeit).
-import { state, setState, add, log } from '../store/gameState.js';
+// daily.js – Tages-Loop: Daily Standup (Login-Streak), Tages-Tickets (3 von 5) und Kaffee (reift in Echtzeit).
+import { state, setState, add, log, isTechUnlocked } from '../store/gameState.js';
 import { currentBonuses, currentRates } from '../store/bonuses.js';
 import { QUESTS } from '../data/quests.js';
 import { RESOURCE_LABELS } from '../data/misc.js';
 import {
   dayKey, STREAK_CYCLE, STANDUP_MINUTES, STANDUP_WEEK_RELICS, STANDUP_WEEK_BOOST,
-  COFFEE_INTERVAL_MS, COFFEE_MAX, COFFEE_USES, TICKETS_PER_DAY, TICKETS_ALL_DONE_BOOST, TICKET_COUNTERS, TICKET_POOL
+  COFFEE_INTERVAL_MS, COFFEE_MAX, COFFEE_USES, TICKET_OFFERS, TICKETS_PER_DAY, TICKETS_ALL_DONE_BOOST, TICKET_COUNTERS, TICKET_POOL
 } from '../data/daily.js';
+import { TECHS } from '../data/techs.js';
 import { STANDUP_LAB_SPEEDUP_MS, STANDUP_WEEK_LAB_SPEEDUP_MS, OVERTIME_LAB_SPEEDUP_MS } from '../data/lab.js';
 import { speedUpLab } from './lab.js';
 import { fmt } from '../lib/format.js';
@@ -31,9 +32,13 @@ function ticketHelpers(s = state) {
   return {
     gross,
     minutes: (res, m, min) => Math.max(min, Math.floor(gross(res) * 60 * m)),
-    questsLeft: Math.max(0, QUESTS.length - (s.questIndex || 0))
+    questsLeft: Math.max(0, QUESTS.length - (s.questIndex || 0)),
+    learnableTechs: TECHS.filter(t => !s.techs.includes(t.id) && isTechUnlocked(t)).length
   };
 }
+
+// Erledigte Tickets heute; ab TICKETS_PER_DAY ist das Tagesziel (Tages-Bonus) erreicht
+export function ticketsDoneToday(s = state) { return (s.daily?.tickets || []).filter(t => t.done).length; }
 
 export function rewardText(reward) {
   const parts = Object.entries(reward || {}).filter(([, v]) => v > 0).map(([res, amt]) => `+${fmt(amt)} ${RESOURCE_LABELS[res] || res}`);
@@ -89,7 +94,7 @@ function rollTickets(day, rerolls, count, exclude = []) {
 }
 
 function newDayTickets(day, silent) {
-  setState('daily', 'tickets', rollTickets(day, 0, TICKETS_PER_DAY));
+  setState('daily', 'tickets', rollTickets(day, 0, TICKET_OFFERS));
   setState('daily', 'ticketsDay', day);
   setState('daily', 'rerolls', 0);
   if (!silent) { log('📋 Neue Tages-Tickets liegen im Büro.'); emitToast('Neue Tages-Tickets im Büro', 'info'); }
@@ -105,6 +110,7 @@ export function tickDaily(now, silent) {
   if (!dailyUnlocked()) return;
   const today = dayKey(now);
   if (state.daily.ticketsDay !== today) newDayTickets(today, silent);
+  else if (toppedUpDay !== today) topUpTickets(today);
 
   // Kaffee reift in Echtzeit, auch offline
   const c = state.coffee;
@@ -119,8 +125,9 @@ export function tickDaily(now, silent) {
     }
   }
 
-  // Ticket-Fortschritt prüfen, Belohnung sofort gutschreiben
+  // Ticket-Fortschritt prüfen, Belohnung sofort gutschreiben; die ersten TICKETS_PER_DAY bringen den Tages-Bonus
   let anyDone = false;
+  let doneCount = ticketsDoneToday();
   state.daily.tickets.forEach((t, i) => {
     if (t.done) return;
     const [cur, target] = ticketProgress(t);
@@ -129,17 +136,31 @@ export function tickDaily(now, silent) {
     setState('daily', 'ticketsDone', (state.daily.ticketsDone || 0) + 1);
     Object.entries(t.reward || {}).forEach(([res, amt]) => { if (amt > 0) add(res, amt); });
     anyDone = true;
+    doneCount++;
     const txt = rewardText(t.reward);
     log(`✅ Ticket erledigt: ${ticketLabel(t)}.${txt}`);
     if (!silent) emitToast(`Ticket erledigt${txt}`, 'good');
   });
-  const tickets = state.daily.tickets;
-  if (anyDone && tickets.length >= TICKETS_PER_DAY && tickets.every(t => t.done) && state.daily.allDoneDay !== today) {
+  if (anyDone && doneCount >= TICKETS_PER_DAY && state.daily.allDoneDay !== today) {
     setState('daily', 'allDoneDay', today);
     const note = queuedNote(setBoost(TICKETS_ALL_DONE_BOOST, now));
-    log(`🏁 Alle Tickets erledigt: ${TICKETS_ALL_DONE_BOOST.name} ×1,5 für 30 min.${note}`);
-    if (!silent) emitToast(`Alle Tickets erledigt: Tages-Bonus ×1,5 für 30 min.${note}`, 'good');
+    log(`🏁 Tagesziel erreicht (${TICKETS_PER_DAY} Tickets): ${TICKETS_ALL_DONE_BOOST.name} ×1,5 für 30 min.${note}`);
+    if (!silent) emitToast(`Tagesziel erreicht: Tages-Bonus ×1,5 für 30 min.${note}`, 'good');
   }
+}
+
+// Spielstände von vor den 5 Angeboten haben heute nur 3 Tickets: einmal am Tag auf TICKET_OFFERS auffüllen.
+// Gestrichene Tickets (z. B. das Börsen-Ticket) fallen dabei weg, damit niemand an einem unerfüllbaren hängt.
+let toppedUpDay = -1;
+function topUpTickets(today) {
+  toppedUpDay = today;
+  const known = state.daily.tickets.filter(t => ticketDef(t.id));
+  if (known.length >= TICKET_OFFERS || known.filter(t => t.done).length >= TICKETS_PER_DAY) {
+    if (known.length !== state.daily.tickets.length) setState('daily', 'tickets', known);
+    return;
+  }
+  const extra = rollTickets(today, (state.daily.rerolls || 0) + 50, TICKET_OFFERS - known.length, known.map(t => t.id));
+  setState('daily', 'tickets', [...known, ...extra]);
 }
 
 // ── Daily Standup ──
@@ -211,7 +232,7 @@ export function useCoffee(id, now = Date.now()) {
     const open = state.daily.tickets.filter(t => !t.done);
     if (!open.length) return { ok: false, text: 'Alle Tickets sind schon erledigt.' };
     const rerolls = (state.daily.rerolls || 0) + 1;
-    setState('daily', 'tickets', [...keep, ...rollTickets(state.daily.ticketsDay, rerolls, TICKETS_PER_DAY - keep.length, state.daily.tickets.map(t => t.id))]);
+    setState('daily', 'tickets', [...keep, ...rollTickets(state.daily.ticketsDay, rerolls, TICKET_OFFERS - keep.length, state.daily.tickets.map(t => t.id))]);
     setState('daily', 'rerolls', rerolls);
     text = 'Neue Tickets gewürfelt.';
   }

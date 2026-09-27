@@ -64,7 +64,7 @@ async function runPool(items, limit, fn) {
 }
 
 function runChild(job, opts) {
-  const pass = ['hours', 'days', 'session', 'save', 'min-gain', 'grow', 'goals', 'hold'].flatMap(k => (opts[k] !== undefined ? [`--${k}`, String(opts[k])] : []));
+  const pass = ['hours', 'days', 'session', 'save', 'min-gain', 'grow', 'goals', 'hold'].flatMap(k => (opts[k] !== undefined ? [`--${k}`, String(opts[k])] : [])).concat(opts.noqueue ? ['--noqueue'] : []);
   const childArgs = [fileURLToPath(import.meta.url), '--worker', '--model', job.model, '--seed', String(job.seed), ...pass];
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, childArgs, { env: { ...process.env, TZ: 'UTC' } });
@@ -321,30 +321,47 @@ async function runWorker(opts) {
   }
 
   // Labor: Fertiges abholen, freie Slots füllen – Schlüsselprojekt der aktuellen Runde zuerst, dann nach Runde
-  const labStats = { slotSecondsUsed: 0, slotSecondsTotal: 0, started: 0 };
-  function manageLab() {
+  const labStats = { slotSecondsTotal: 0, started: 0, queued: 0 };
+  // planAhead: vor dem Gehen Folgeprojekte einplanen (wie ein Mensch am Session-Ende, nicht bei jeder Aktion)
+  function manageLab(planAhead = false) {
     if (!lab.labUnlocked()) return;
     for (const run of lab.labReady()) lab.claimLab(run.id);
     const current = state.roadmap?.chapter || 0;
     const isKey = (def) => Number(!!def.key && def.chapter === current);
+    const byPriority = (a, z) => isKey(z) - isKey(a) || Number(!!a.repeatable) - Number(!!z.repeatable) || a.chapter - z.chapter || a.hours - z.hours;
     const keyPending = lab.labAvailable().find(def => isKey(def));
-    const candidates = lab.labAvailable()
-      .sort((a, z) => isKey(z) - isKey(a) || Number(!!a.repeatable) - Number(!!z.repeatable) || a.chapter - z.chapter || a.hours - z.hours);
+    const candidates = lab.labAvailable().sort(byPriority);
     for (const def of candidates) {
       if (lab.labFreeSlots() <= 0) break;
       // Den letzten freien Slot für das Schlüsselprojekt der Runde freihalten (Rundenziel)
       if (keyPending && def !== keyPending && lab.labFreeSlots() <= 1) break;
       if (lab.startLab(def.id)) labStats.started++;
     }
+    // Alle Slots belegt: Folgeprojekte einplanen (starten zum Ende eines laufenden, auch offline);
+    // laufende wiederholbare Projekte „danach nochmal“
+    if (!planAhead) return;
+    const runningRepeatables = (state.lab?.running || []).map(r => LAB_PROJECTS.find(p => p.id === r.id)).filter(d => d?.repeatable);
+    for (const def of [...lab.labAvailable().sort(byPriority), ...runningRepeatables]) {
+      if (lab.labFreeSlots() > 0 || lab.labQueueFree() <= 0) break;
+      if (lab.queueLab(def.id)) labStats.queued++;
+    }
   }
 
-  // Slot-Auslastung über das Zeitfenster [fromMs, toMs) – laufende Projekte zählen, bis sie fertig sind
+  // Slot-Kapazität über das Zeitfenster [fromMs, toMs); die Nutzung kommt aus den Laufzeiten (recordLabRuns)
   function trackLabUsage(fromMs, toMs) {
     if (!lab.labUnlocked() || toMs <= fromMs) return;
-    const slots = lab.labSlots();
-    labStats.slotSecondsTotal += slots * (toMs - fromMs) / 1000;
-    const used = (state.lab?.running || []).reduce((sum, r) => sum + Math.max(0, Math.min(r.endsAt, toMs) - Math.max(r.startedAt, fromMs)), 0) / 1000;
-    labStats.slotSecondsUsed += Math.min(slots * (toMs - fromMs) / 1000, used);
+    labStats.slotSecondsTotal += lab.labSlots() * (toMs - fromMs) / 1000;
+  }
+
+  // Laufzeiten aller Laborprojekte, auch eingeplanter, die rückwirkend zum Ende des Vorgängers starten
+  const labRuns = new Map();
+  function recordLabRuns() {
+    for (const r of state.lab?.running || []) labRuns.set(`${r.id}:${r.startedAt}`, [r.startedAt, r.endsAt]);
+  }
+  function labSecondsUsed(untilMs) {
+    let used = 0;
+    for (const [from, to] of labRuns.values()) used += Math.max(0, Math.min(to, untilMs) - from);
+    return used / 1000;
   }
 
   // XP, die der aktuellen Finanzierungsrunde bis zu ihrem XP-Ziel noch fehlen (Infinity = kein XP-Ziel)
@@ -409,6 +426,7 @@ async function runWorker(opts) {
     click(CLICKS_PER_SEC);
     maybeBug();
     if (++tickCount % BOT_EVERY === 0) botAct();
+    recordLabRuns();
     trackLabUsage(clock, clock + 1000);
     clock += 1000;
     activeSec += 1;
@@ -437,11 +455,14 @@ async function runWorker(opts) {
       setState('cache', 'bonuses', bonusesMod.computeBonuses());
       setState('cache', 'rates', bonusesMod.estimateRatesSnapshot());
       if (!first || saveJson) simulateOffline(gap);
+      recordLabRuns();
       first = false;
       setState('cache', 'rates', bonusesMod.estimateRatesSnapshot());
       checkMarks();
       for (let s = 0; s < sessionSec && !finaleReached(); s++) activeSecond();
       botAct();
+      if (!opts.noqueue) manageLab(true);  // --noqueue: Vergleich ohne Labor-Warteschlange
+      recordLabRuns();
       lastLeave = clock;
       const day = Math.floor((clock - start) / 86400e3);
       perDay[day] = { refactors: refactors.filter(r => Math.floor(r.wall / 86400) === day).length, chronicleTotal: chronicleTotal() };
@@ -479,7 +500,8 @@ async function runWorker(opts) {
     marks, refactors, perDay, probes,
     lab: {
       started: labStats.started,
-      idleShare: labStats.slotSecondsTotal ? 1 - labStats.slotSecondsUsed / labStats.slotSecondsTotal : null
+      queued: labStats.queued,
+      idleShare: labStats.slotSecondsTotal ? Math.max(0, 1 - labSecondsUsed(clock) / labStats.slotSecondsTotal) : null
     },
     final: {
       prestigeCount: state.stats.prestigeCount || 0,
@@ -558,7 +580,7 @@ function report(model, runs) {
     if (perDay.length) console.log(`Refactors pro Tag (Tag 1–14): Median ${median(perDay)}, max ${Math.max(...perDay)}`);
   }
   const idle = runs.map(r => r.lab?.idleShare).filter(v => v !== null && v !== undefined);
-  if (idle.length) console.log(`Labor: ${median(runs.map(r => r.lab.started))} Projekte gestartet, Slots ${(median(idle) * 100).toFixed(1)} % ungenutzt (Median)`);
+  if (idle.length) console.log(`Labor: ${median(runs.map(r => r.lab.started))} Projekte gestartet, ${median(runs.map(r => r.lab.queued || 0))} eingeplant, Slots ${(median(idle) * 100).toFixed(1)} % ungenutzt (Median)`);
   const rounds = [...new Set(runs.flatMap(r => Object.keys(r.probes?.roundRates || {})))].sort();
   if (rounds.length) console.log(`Produktion/s beim Rundenwechsel (Ideas/Hype/Legacy): ${rounds.map(c => {
     const pick = (k) => fmtNum(median(runs.map(r => r.probes.roundRates[c]?.[k]).filter(v => v !== undefined)));
