@@ -79,6 +79,34 @@ export const CHIPS = [
     rarity: 'epic',
     effects: { relicChance: 0.06, relicMult: 1.20 },
     tradeoffs: { researchMult: 0.85 }
+  },
+  // Belohnungen der Vorstandsmandate (data/mandates.js): kommen nicht aus Aufträgen, sondern beim ersten Abschluss
+  {
+    id: 'edge_node',
+    mandate: 'sovereign_cloud',
+    name: 'Edge-Knoten',
+    desc: '+10% Offline-Effizienz, aber -5% Gesamtproduktion.',
+    rarity: 'epic',
+    effects: { offlineEfficiency: 0.10 },
+    tradeoffs: { allMult: 0.95 }
+  },
+  {
+    id: 'community_mesh',
+    mandate: 'open_infrastructure',
+    name: 'Community-Mesh',
+    desc: '+50% Ticket-Belohnungen, aber -10% Ideas.',
+    rarity: 'epic',
+    effects: { ticketRewardMult: 1.5 },
+    tradeoffs: { researchMult: 0.9 }
+  },
+  {
+    id: 'agi_core',
+    mandate: 'moonshot',
+    name: 'AGI-Kern',
+    desc: '+15% XP-Gewinn, aber Klick-Kraft halbiert.',
+    rarity: 'epic',
+    effects: { prestigeGainMult: 1.15 },
+    tradeoffs: { clickPowerMult: 0.5 }
   }
 ];
 

@@ -34,6 +34,24 @@ export const CHALLENGES = [
     goal: { type: 'scrap', value: 1e7 }, reward: { prestigeGainMult: 1.15 }, rewardLabel: 'XP-Gewinn +15%' }
 ];
 
+// Vorstands-Sprints der Mandate (data/mandates.js): nur während ihres Mandats startbar. Ziel ist ein Anteil des
+// Rekord-Runs, festgelegt beim Übernehmen des Mandats (state.mandates.sprintGoals). Kein eigener Dauerbonus –
+// der Abschluss zählt als Schritt des Mandats und nicht zu challengesDone.
+export const MANDATE_SPRINTS = [
+  { id: 'ms_sovereign', name: 'Datensouveränität', icon: 'shield', mandate: 'sovereign_cloud',
+    desc: 'Keine Automatisierung, Konverter brauchen doppelt so viel Input. Alles aus eigener Kraft.',
+    mods: { noAuto: true, converterInputMult: 2 }, modLabel: 'Keine Automatisierung · Konverter-Input ×2',
+    goal: { type: 'scrap', mandate: true }, rewardLabel: 'Schritt des Mandats „Souveräne Cloud“' },
+  { id: 'ms_community', name: 'Community-Build', icon: 'team', mandate: 'open_infrastructure',
+    desc: 'Keine Team-Synergie, Mitarbeiter kosten das Doppelte. Jeder Beitrag zählt einzeln.',
+    mods: { noSynergy: true, buildingCostMult: 2 }, modLabel: 'Team-Synergie aus · Mitarbeiter ×2 teurer',
+    goal: { type: 'scrap', mandate: true }, rewardLabel: 'Schritt des Mandats „Öffentliche Infrastruktur“' },
+  { id: 'ms_moonshot', name: 'Skunkworks', icon: 'zap', mandate: 'moonshot',
+    desc: 'Ideas-Produktion auf ein Viertel, Mitarbeiter kosten das Doppelte. Ein kleines Team gegen alle Wahrscheinlichkeit.',
+    mods: { researchMult: 0.25, buildingCostMult: 2 }, modLabel: 'Ideas ×0,25 · Mitarbeiter ×2 teurer',
+    goal: { type: 'scrap', mandate: true }, rewardLabel: 'Schritt des Mandats „Moonshot“' }
+];
+
 export function getChallenge(id) {
-  return CHALLENGES.find(c => c.id === id) || null;
+  return CHALLENGES.find(c => c.id === id) || MANDATE_SPRINTS.find(c => c.id === id) || null;
 }

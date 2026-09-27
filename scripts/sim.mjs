@@ -64,7 +64,7 @@ async function runPool(items, limit, fn) {
 }
 
 function runChild(job, opts) {
-  const pass = ['hours', 'days', 'session', 'save', 'min-gain', 'grow', 'goals', 'hold'].flatMap(k => (opts[k] !== undefined ? [`--${k}`, String(opts[k])] : [])).concat(opts.noqueue ? ['--noqueue'] : []);
+  const pass = ['hours', 'days', 'session', 'save', 'min-gain', 'grow', 'goals', 'hold', 'postgame', 'budget'].flatMap(k => (opts[k] !== undefined ? [`--${k}`, String(opts[k])] : [])).concat(opts.noqueue ? ['--noqueue'] : []);
   const childArgs = [fileURLToPath(import.meta.url), '--worker', '--model', job.model, '--seed', String(job.seed), ...pass];
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, childArgs, { env: { ...process.env, TZ: 'UTC' } });
@@ -121,7 +121,7 @@ async function runWorker(opts) {
   const { TECHS } = await load('../src/data/techs.js');
   const { PROJECTS } = await load('../src/data/projects.js');
   const { PROTOCOLS, CHRONICLE_UPGRADES } = await load('../src/data/misc.js');
-  const { CHALLENGES } = await load('../src/data/challenges.js');
+  const { CHALLENGES, getChallenge } = await load('../src/data/challenges.js');
   const { STOCKS } = await load('../src/data/stocks.js');
   const { QUESTS } = await load('../src/data/quests.js');
   const { CHAPTERS } = await load('../src/data/chapters.js');
@@ -141,6 +141,10 @@ async function runWorker(opts) {
   const lab = await load('../src/engine/lab.js');
   const { LAB_PROJECTS } = await load('../src/data/lab.js');
   const roadmap = await load('../src/engine/roadmap.js');
+  const mandates = await load('../src/engine/mandates.js');
+  const { MANDATES, MANDATE_BUDGET } = await load('../src/data/mandates.js');
+  //   --budget h,l       Release-Budget der Mandate (Hype, Legacy) für die Kalibrierung
+  if (opts.budget) { const [inf, rel] = String(opts.budget).split(',').map(Number); MANDATE_BUDGET.influence = inf; MANDATE_BUDGET.relics = rel; }
 
   const CLICKS_PER_SEC = 2;
   const FIRST_REFACTOR_GAIN = 40;  // Runde verlangt einen Refactor: ab 40 XP (ein Mensch wartet etwas länger als nötig)
@@ -165,7 +169,7 @@ async function runWorker(opts) {
   }
 
   // Revenue pro Sekunde beim ersten Erreichen jeder Tech-Stufe (Kalibrierung der Aktienkurse)
-  const probes = { tierRevenue: {}, roundRates: {} };
+  const probes = { tierRevenue: {}, roundRates: {}, dayMaxStock: {} };
 
   function checkMarks() {
     if (state.techs.length >= 1) mark('tech_first');
@@ -183,6 +187,9 @@ async function runWorker(opts) {
     const sprints = (state.challengesDone || []).length;
     for (let n = 1; n <= sprints; n++) mark(`sprints${n}`);
     if ((state.questIndex || 0) >= QUESTS.length) mark('quests_all');
+    for (let n = 1; n <= mandates.mandatesCompleted(); n++) mark(`mandate${n}`);
+    const am = mandates.activeMandate();
+    if (am) ['lab', 'sprint', 'release'].forEach(st => { if (mandates.mandateStepDone(am.id, st)) mark(`m${mandates.mandatesCompleted() + 1}:${st}`); });
     if (state.roadmap && Number.isFinite(state.roadmap.chapter)) {
       for (let c = 1; c <= state.roadmap.chapter; c++) mark(`round${c}`);
       // Höchste Produktion innerhalb der aktuellen Runde (Kalibrierung der Laborkosten)
@@ -327,7 +334,7 @@ async function runWorker(opts) {
     if (!lab.labUnlocked()) return;
     for (const run of lab.labReady()) lab.claimLab(run.id);
     const current = state.roadmap?.chapter || 0;
-    const isKey = (def) => Number(!!def.key && def.chapter === current);
+    const isKey = (def) => Number((!!def.key && def.chapter === current) || !!def.mandate);  // Mandats-Labor wie ein Schlüsselprojekt
     const byPriority = (a, z) => isKey(z) - isKey(a) || Number(!!a.repeatable) - Number(!!z.repeatable) || a.chapter - z.chapter || a.hours - z.hours;
     const keyPending = lab.labAvailable().find(def => isKey(def));
     const candidates = lab.labAvailable().sort(byPriority);
@@ -393,8 +400,10 @@ async function runWorker(opts) {
     const refactorGoal = pendingGoal('refactors') && gain >= FIRST_REFACTOR_GAIN;
     const sprintGoal = pendingGoal('sprints') && gain >= MIN_GAIN && CHALLENGES.some(c => challenges.challengeStatus(c) === 'ready');
     const ratePeaked = gain >= Math.max(MIN_GAIN, GROW * chronicleTotal()) && rate < PRESTIGE_DROP * peakRate;
-    if (runMin < MIN_RUN_MIN || !(reachesGoal || refactorGoal || sprintGoal || ratePeaked) || !actions.canPrestige()) return;
-    const sprint = CHALLENGES.find(c => challenges.challengeStatus(c) === 'ready');
+    const msprint = mandateSprint();
+    const mandateGoal = !!msprint && gain >= MIN_GAIN;
+    if (runMin < MIN_RUN_MIN || !(reachesGoal || refactorGoal || sprintGoal || mandateGoal || ratePeaked) || !actions.canPrestige()) return;
+    const sprint = msprint || CHALLENGES.find(c => challenges.challengeStatus(c) === 'ready');
     const runWall = runMin * 60;
     const ok = sprint ? challenges.startChallenge(sprint.id) : actions.doPrestigeReset();
     if (!ok) return;
@@ -403,7 +412,28 @@ async function runWorker(opts) {
     spendXp();
   }
 
+  // Aufsichtsrat: das erste verfügbare Mandat übernehmen (Reihenfolge wie in data/mandates.js)
+  function manageMandates() {
+    if (!mandates.mandatesUnlocked() || mandates.activeMandate()) return;
+    const next = MANDATES.find(m => mandates.mandateAvailable(m.id));
+    if (next) mandates.selectMandate(next.id);
+  }
+
+  // Vor dem Gehen einmal „Einzahlen“ (höchstens die Hälfte des Vorrats); beim Refactor zahlt das Spiel selbst ein
+  function depositMandateBudget() {
+    const m = mandates.activeMandate();
+    if (m) mandates.depositMandate(m.id, true);
+  }
+
+  // Vorstands-Sprint des aktiven Mandats, falls er noch aussteht
+  function mandateSprint() {
+    const m = mandates.activeMandate();
+    const def = m && getChallenge(m.sprint);
+    return def && challenges.challengeStatus(def) === 'ready' ? def : null;
+  }
+
   function botAct() {
+    manageMandates();
     manageLab();
     dailyChores();
     if (!state.doctrine && bonuses().doctrineUnlock) actions.setDoctrine('efficiency');
@@ -428,11 +458,18 @@ async function runWorker(opts) {
     if (++tickCount % BOT_EVERY === 0) botAct();
     recordLabRuns();
     trackLabUsage(clock, clock + 1000);
+    // Höchster Hype-/Legacy-Vorrat je Tag (Kalibrierung der Mandats-Releases)
+    const dayIdx = Math.floor((clock - start) / 86400e3);
+    const dm = probes.dayMaxStock[dayIdx] || (probes.dayMaxStock[dayIdx] = { influence: 0, relics: 0 });
+    dm.influence = Math.max(dm.influence, state.resources.influence || 0);
+    dm.relics = Math.max(dm.relics, state.resources.relics || 0);
     clock += 1000;
     activeSec += 1;
   }
 
-  const finaleReached = () => marks['rel:ipo'];
+  // Mit --postgame N läuft die Sim nach dem Börsengang N Tage weiter (Vorstandsmandate)
+  const POSTGAME_SEC = Number(opts.postgame || 0) * 86400;
+  const finaleReached = () => marks['rel:ipo'] && (!POSTGAME_SEC || wall() - marks['rel:ipo'].wall >= POSTGAME_SEC);
 
   setState('cache', 'bonuses', bonusesMod.computeBonuses());
   setState('cache', 'rates', bonusesMod.estimateRatesSnapshot());
@@ -441,7 +478,7 @@ async function runWorker(opts) {
     const limit = Number(opts.hours || 12) * 3600;
     while (activeSec < limit && !finaleReached()) activeSecond();
   } else {
-    const days = Number(opts.days || 30);
+    const days = Number(opts.days || (30 + Number(opts.postgame || 0)));
     const sessionSec = Number(opts.session || 20) * 60;
     const endAt = start + days * 86400e3;
     const perDay = [];
@@ -462,6 +499,7 @@ async function runWorker(opts) {
       for (let s = 0; s < sessionSec && !finaleReached(); s++) activeSecond();
       botAct();
       if (!opts.noqueue) manageLab(true);  // --noqueue: Vergleich ohne Labor-Warteschlange
+      depositMandateBudget();
       recordLabRuns();
       lastLeave = clock;
       const day = Math.floor((clock - start) / 86400e3);
@@ -504,6 +542,8 @@ async function runWorker(opts) {
       idleShare: labStats.slotSecondsTotal ? Math.max(0, 1 - labSecondsUsed(clock) / labStats.slotSecondsTotal) : null
     },
     final: {
+      mandates: JSON.parse(JSON.stringify(state.mandates || {})),
+      challenge: state.challenge || null,
       prestigeCount: state.stats.prestigeCount || 0,
       xpEarned: chronicleTotal(),
       techs: state.techs.length,
@@ -536,6 +576,15 @@ const MARK_ORDER = [
   'round1', 'round2', 'round3', 'round4', 'round5',
   'rel:operating_system', 'rel:internet_three', 'rel:ipo', 'quests_all'
 ];
+
+// Sekunden je Vorstandsmandat: #1 ab dem Börsengang, #n ab Mandat n−1 (nur Läufe mit beiden Messpunkten)
+function mandateGaps(runs, max = 6) {
+  return Array.from({ length: max }, (_, i) => runs.map(r => {
+    const cur = r.marks[`mandate${i + 1}`]?.wall;
+    const prev = r.marks[i === 0 ? 'rel:ipo' : `mandate${i}`]?.wall;
+    return cur !== undefined && prev !== undefined ? cur - prev : null;
+  }).filter(v => v !== null));
+}
 
 function median(xs) {
   const s = [...xs].sort((a, z) => a - z);
@@ -571,6 +620,10 @@ function report(model, runs) {
   }
   const reached = runs.filter(r => r.marks['rel:ipo']).length;
   console.log(`Finale erreicht: ${reached}/${runs.length} · simuliert: ${fmtDuration(median(runs.map(r => r.simulated.wall)), model)} (Median)`);
+  const gaps = mandateGaps(runs);
+  if (gaps.some(g => g.length)) {
+    console.log(`Vorstandsmandate, Tage je Mandat (Median): ${gaps.filter(g => g.length).map((g, i) => `#${i + 1} ${(median(g) / 86400).toFixed(1)} (${g.length}/${runs.length})`).join(' · ')}`);
+  }
   const firstRuns = runs.map(r => r.refactors[0]).filter(Boolean);
   if (firstRuns.length) console.log(`Erster Refactor: ${median(firstRuns.map(r => r.gain))} XP nach ${fmtDuration(median(firstRuns.map(r => r.runWall)), 'active')} Run-Zeit (Median)`);
   const runLens = runs.flatMap(r => r.refactors.slice(1, 8).map(x => x.runWall));
@@ -604,7 +657,9 @@ const TARGETS = [
   { model: 'daily', mark: 'rel:ipo', min: 18 * DAY, max: 25 * DAY, label: 'Börsengang an Tag 18–25 (Median)' },
   { model: 'daily', earliest: 'rel:ipo', min: 16 * DAY, label: 'Kein Lauf vor Tag 16 an der Börse' },
   { model: 'daily', minGap: DAY, marks: ['round1', 'round2', 'round3', 'round4', 'round5'], label: 'Keine Runde kürzer als 1 Tag' },
-  { model: 'daily', labIdle: 0.3, label: 'Labor-Slots < 30 % ungenutzt' }
+  { model: 'daily', labIdle: 0.3, label: 'Labor-Slots < 30 % ungenutzt' },
+  // nur mit --postgame (sonst keine Mandats-Messpunkte)
+  { model: 'daily', mandateDays: [5, 9], label: 'Vorstandsmandat je 5–9 Tage (Median)' }
 ];
 
 function reportTargets(results) {
@@ -633,6 +688,12 @@ function reportTargets(results) {
         return cur === undefined || prev === undefined ? null : cur - prev;
       }).filter(g => g !== null));
       line(gaps.length ? Math.min(...gaps) >= t.minGap : null, gaps.length ? `kürzeste ${(Math.min(...gaps) / DAY).toFixed(1)} Tage` : '–');
+      continue;
+    }
+    if (t.mandateDays) {
+      const medians = mandateGaps(runs).filter(g => g.length).map(g => median(g) / 86400);
+      if (!medians.length) continue;
+      line(medians.every(d => d >= t.mandateDays[0] && d <= t.mandateDays[1]), medians.map(d => d.toFixed(1)).join(' / ') + ' Tage');
       continue;
     }
     if (t.labIdle) {

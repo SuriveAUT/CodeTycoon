@@ -12,6 +12,7 @@ import { CHALLENGES } from '../data/challenges.js';
 import { CHAPTERS } from '../data/chapters.js';
 import { MAX_DIVIDEND_BONUS, DIVIDEND_PER_SHARE } from '../data/stocks.js';
 import { LAB_PROJECTS } from '../data/lab.js';
+import { MANDATES, MANDATE_STEPS } from '../data/mandates.js';
 import { emitToast } from '../lib/toast.js';
 
 export const SAVE_KEY = 'dev-tycoon-save-v1';
@@ -97,6 +98,8 @@ export function defaultState() {
       sprintsDone: 0,
       xpEarned: 0,
       releasedEver: [],
+      // Code des besten Runs (beim Refactor festgehalten) – Maßstab für die Vorstands-Sprints
+      bestRunScrap: 0,
       runStartedAt: Date.now(),
       lastSave: Date.now(),
       firstSeen: Date.now()
@@ -114,6 +117,9 @@ export function defaultState() {
     // seen = zuletzt gefeierte Runde (App.jsx zeigt für jede neue Runde einen Dialog),
     // startXp = verdiente XP beim Eintritt in die aktuelle Runde (Startpunkt des logarithmischen XP-Balkens)
     roadmap: { chapter: 0, reachedAt: [], seen: 0, startXp: 0 },
+    // Vorstandsmandate (engine/mandates.js): aktives Mandat, erfüllte Durchgänge je Mandat, Schritte des laufenden
+    // Durchgangs, Sprint-Ziel beim Übernehmen, zuletzt gefeierte Abschlüsse (App.jsx)
+    mandates: { active: null, levels: {}, progress: {}, sprintGoals: {}, budget: {}, seen: 0, last: null },
     // R&D-Labor (engine/lab.js): laufende Projekte mit Endzeit, abgeholte Projekte, Stufen endloser Projekte,
     // eingeplante (vorab bezahlte) Folgeprojekte
     lab: { running: [], done: [], levels: {}, queued: [] },
@@ -294,6 +300,23 @@ export function normalizeState(candidate) {
   // Ältere Saves kennen startXp nicht: dann das XP-Ziel der Vorrunde, höchstens der aktuelle Stand
   const prevXpGoal = CHAPTERS[merged.roadmap.chapter - 1]?.goals.find(g => g.type === 'xpEarned')?.value || 0;
   merged.roadmap.startXp = Math.min(merged.stats.xpEarned, Math.max(0, asFiniteNumber(candidate.roadmap?.startXp, prevXpGoal)));
+  // Vorstandsmandate: nur bekannte Mandate und Schritte, Zahlen endlich
+  const knownMandates = new Set(MANDATES.map(m => m.id));
+  const md = merged.mandates && typeof merged.mandates === 'object' ? merged.mandates : {};
+  const byMandate = (obj, fn) => Object.fromEntries(Object.entries(obj && typeof obj === 'object' ? obj : {})
+    .filter(([id]) => knownMandates.has(id)).map(([id, v]) => [id, fn(v)]));
+  const mandateLevels = byMandate(md.levels, v => Math.max(0, Math.floor(asFiniteNumber(v, 0))));
+  merged.mandates = {
+    active: knownMandates.has(md.active) ? md.active : null,
+    levels: mandateLevels,
+    progress: byMandate(md.progress, v => Object.fromEntries(MANDATE_STEPS.filter(st => v && v[st] === true).map(st => [st, true]))),
+    sprintGoals: byMandate(md.sprintGoals, v => Math.max(0, asFiniteNumber(v, 0))),
+    budget: byMandate(md.budget, v => Object.fromEntries(Object.entries(v && typeof v === 'object' ? v : {})
+      .filter(([res]) => res === 'influence' || res === 'relics').map(([res, n]) => [res, Math.max(0, asFiniteNumber(n, 0))]))),
+    seen: Math.min(Object.values(mandateLevels).reduce((a, n) => a + n, 0), Math.max(0, Math.floor(asFiniteNumber(md.seen, 0)))),
+    last: knownMandates.has(md.last) ? md.last : null
+  };
+  merged.stats.bestRunScrap = Math.max(0, asFiniteNumber(merged.stats.bestRunScrap, 0));
   merged.stats.releasedEver = Array.isArray(merged.stats.releasedEver) ? merged.stats.releasedEver.filter(id => knownProj.has(id)) : [];
   const knownLab = new Set(LAB_PROJECTS.map(p => p.id));
   merged.lab.running = Array.isArray(merged.lab.running)

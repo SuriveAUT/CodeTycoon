@@ -13,6 +13,7 @@ import { STOCKS, dividendBonusForShares } from '../data/stocks.js';
 import { getChallenge } from '../data/challenges.js';
 import { CHAPTERS } from '../data/chapters.js';
 import { getLabProject } from '../data/lab.js';
+import { MANDATE_REPEAT_BONUS } from '../data/mandates.js';
 import { clamp } from '../lib/format.js';
 
 export const MAX_COLONIES = 8;
@@ -28,13 +29,17 @@ const MULT_KEYS = new Set([
   'allMult', 'scrapMult', 'energyMult', 'alloyMult', 'componentsMult',
   'dataMult', 'researchMult', 'influenceMult', 'relicMult',
   'buildingCostMult', 'researchCostMult', 'projectCostMult',
-  'clickPowerMult', 'expeditionSpeed', 'autoBuildBoost', 'converterInputMult', 'prestigeGainMult'
+  'clickPowerMult', 'expeditionSpeed', 'autoBuildBoost', 'converterInputMult', 'prestigeGainMult',
+  'ticketRewardMult', 'standupRewardMult'
 ]);
 const ADD_KEYS = new Set([
   'relicChance', 'eventResist', 'expeditionRewardMult', 'perColonyMult',
-  'clickRateFraction', 'expeditionPower', 'expeditionSlots', 'colonyCap', 'offlineCapHours', 'offlineEfficiency'
+  'clickRateFraction', 'expeditionPower', 'expeditionSlots', 'colonyCap', 'offlineCapHours', 'offlineEfficiency',
+  'buildingCarryover'
 ]);
 export const MAX_OFFLINE_EFFICIENCY = 0.95;
+// Übernahme-Team (Mandat Moonshot): höchstens 20 % der Mitarbeiter bleiben über den Refactor
+export const MAX_BUILDING_CARRYOVER = 0.2;
 
 // Statische Tabellen einmal vorbereiten (heißer Pfad: simulateProduction pro Frame)
 const OUTPUT_ENTRIES = new Map(BUILDINGS.map(d => [d.id, Object.entries(d.outputs || {})]));
@@ -79,7 +84,9 @@ export function computeBonuses(s = state) {
     autoResearch: false, autoExpeditions: false, autoBuild: false, autoProjects: false,
     doctrineUnlock: false, expeditionSpeed: 1, perColonyMult: 0,
     clickPowerMult: 1, clickRateFraction: 0.01,
-    buildingMults: {}, converterInputMult: 1
+    buildingMults: {}, converterInputMult: 1,
+    // Vorstandsmandate: Tages-Loop-Belohnungen, Mitarbeiter-Übernahme beim Refactor (engine/actions.js)
+    ticketRewardMult: 1, standupRewardMult: 1, buildingCarryover: 0
   };
 
   if ((s.stats?.prestigeCount || 0) > 0) b.doctrineUnlock = true;
@@ -173,12 +180,20 @@ export function computeBonuses(s = state) {
     if (project?.effects) applyEffects(b, project.effects);
     if (project?.flag === 'autoStart') { b.autoBuild = true; b.autoResearch = true; }
   });
-  // Wiederholbare Projekte: Faktor 1 + Wert · Stufe (additiv je Stufe)
+  // Wiederholbare Projekte: Faktor 1 + Wert · Stufe (additiv je Stufe); additive Keys (Offline-Stunden …) + Wert · Stufe
   Object.entries(s.lab?.levels || {}).forEach(([id, lvl]) => {
     const project = getLabProject(id);
     if (!project?.perLevel || !(lvl > 0)) return;
-    Object.entries(project.perLevel).forEach(([key, per]) => { if (MULT_KEYS.has(key)) b[key] *= 1 + per * lvl; });
+    Object.entries(project.perLevel).forEach(([key, per]) => {
+      if (MULT_KEYS.has(key)) b[key] *= 1 + per * lvl;
+      else if (ADD_KEYS.has(key)) b[key] += per * lvl;
+    });
   });
+
+  // Vorstandsmandate: ab der zweiten Stufe je erfülltem Mandat Gesamt ×1,15 (Freischaltungen wirken über
+  // Doktrinen, Chips, Labor-Slots und Endlos-Projekte)
+  const mandateRepeats = Object.values(s.mandates?.levels || {}).reduce((sum, lvl) => sum + Math.max(0, lvl - 1), 0);
+  if (mandateRepeats > 0) b.allMult *= Math.pow(MANDATE_REPEAT_BONUS, mandateRepeats);
 
   // Sprints: Belohnungen abgeschlossener Sprints (permanent), Handicap des laufenden
   doneChallenges.forEach(c => applyEffects(b, c.reward));
@@ -211,6 +226,7 @@ export function computeBonuses(s = state) {
   b.colonyCap = Math.min(MAX_COLONIES, Math.max(0, Math.floor(b.colonyCap)));
   b.offlineCapHours = Math.max(4, b.offlineCapHours);
   b.offlineEfficiency = Math.min(MAX_OFFLINE_EFFICIENCY, b.offlineEfficiency);
+  b.buildingCarryover = Math.min(MAX_BUILDING_CARRYOVER, b.buildingCarryover);
   b.converterInputMult = Math.max(0.1, Number(b.converterInputMult || 1));
   return b;
 }

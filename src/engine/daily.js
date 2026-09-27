@@ -40,6 +40,11 @@ function ticketHelpers(s = state) {
 // Erledigte Tickets heute; ab TICKETS_PER_DAY ist das Tagesziel (Tages-Bonus) erreicht
 export function ticketsDoneToday(s = state) { return (s.daily?.tickets || []).filter(t => t.done).length; }
 
+function scaleReward(reward, mult = 1) {
+  if (!(mult > 0) || mult === 1) return { ...(reward || {}) };
+  return Object.fromEntries(Object.entries(reward || {}).map(([res, amt]) => [res, Math.floor(amt * mult)]));
+}
+
 export function rewardText(reward) {
   const parts = Object.entries(reward || {}).filter(([, v]) => v > 0).map(([res, amt]) => `+${fmt(amt)} ${RESOURCE_LABELS[res] || res}`);
   return parts.length ? ' ' + parts.join(', ') : '';
@@ -134,10 +139,12 @@ export function tickDaily(now, silent) {
     if (cur < target) return;
     setState('daily', 'tickets', i, 'done', true);
     setState('daily', 'ticketsDone', (state.daily.ticketsDone || 0) + 1);
-    Object.entries(t.reward || {}).forEach(([res, amt]) => { if (amt > 0) add(res, amt); });
+    // Community-Programm, Core Value „Community First“, Chip „Community-Mesh“ (ticketRewardMult)
+    const paid = scaleReward(t.reward, currentBonuses().ticketRewardMult);
+    Object.entries(paid).forEach(([res, amt]) => { if (amt > 0) add(res, amt); });
     anyDone = true;
     doneCount++;
-    const txt = rewardText(t.reward);
+    const txt = rewardText(paid);
     log(`✅ Ticket erledigt: ${ticketLabel(t)}.${txt}`);
     if (!silent) emitToast(`Ticket erledigt${txt}`, 'good');
   });
@@ -180,8 +187,8 @@ export function standupReward(s = state, now = Date.now()) {
   const dayIdx = (Math.max(1, streak) - 1) % STREAK_CYCLE;
   const m = STANDUP_MINUTES[dayIdx];
   const h = ticketHelpers(s);
-  const reward = { scrap: h.minutes('scrap', m, 50 * m), energy: h.minutes('energy', m, 10 * m) };
-  if (h.gross('research') > 0) reward.research = h.minutes('research', m, 0);
+  const reward = scaleReward({ scrap: h.minutes('scrap', m, 50 * m), energy: h.minutes('energy', m, 10 * m) }, currentBonuses(s).standupRewardMult);
+  if (h.gross('research') > 0) reward.research = Math.floor(h.minutes('research', m, 0) * (currentBonuses(s).standupRewardMult || 1));
   const week = dayIdx === STREAK_CYCLE - 1;
   if (week) reward.relics = STANDUP_WEEK_RELICS * Math.min(10, Math.ceil(streak / STREAK_CYCLE));
   return { streak, dayIdx, minutes: m, reward, week };

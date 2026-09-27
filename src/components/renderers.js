@@ -8,20 +8,25 @@ import { currentBonuses as bonuses, currentRates as rates, buildingOutputPerSeco
 import {
   nextResearchCost, nextProjectCost, chronicleCost, colonyFoundCost, canFoundColony, colonyUpgradeCost, COLONY_MAX_LEVEL,
   prestigeGain, prestigeGainRaw, scrapForNextXp, runScrap, missionPowerReq, prestigeStructBonus, PRESTIGE_XP_BASE, canPrestige, minPrestigeGain,
-  chipSlots
+  chipSlots, availableDoctrines
 } from '../engine/actions.js';
 import { currentQuest, questProgress } from '../engine/quests.js';
 import { chapterIndex, currentChapter, nextChapter, goalProgress, goalFraction, goalLabel, goalTab } from '../engine/roadmap.js';
 import { CHAPTERS } from '../data/chapters.js';
 import { labUnlocked, labSlots, labFreeSlots, labRunning, labReady, labLevel, labDurationMs, labCost, labStatus, canStartLab, labQueue, labQueued, labQueueFree, labQueueCost, canQueueLab } from '../engine/lab.js';
-import { LAB_PROJECTS } from '../data/lab.js';
+import { LAB_PROJECTS, getLabProject } from '../data/lab.js';
+import { MANDATES, MANDATE_STEPS, MANDATE_STEP_LABELS } from '../data/mandates.js';
+import {
+  mandatesUnlocked, mandateLevel, mandatesCompleted, mandateAvailable, mandateUnlocked, mandateStepDone, mandateSprintGoal, activeMandate,
+  mandateBudgetTarget, mandateBudget, mandateDepositPreview, canDepositMandate
+} from '../engine/mandates.js';
 import { bestInvestmentId } from '../engine/advisor.js';
 import { missionSuccessChance, getDynamicMissionRewards } from '../engine/events.js';
 import { currentDecisionDef } from '../engine/decisions.js';
 import { dailyUnlocked, canClaimStandup, standupReward, ticketProgress, ticketLabel, coffeeUseAvailable, ticketsDoneToday } from '../engine/daily.js';
 import { activeChallenge, challengeStatus, challengeProgress, challengeTimeLeft, challengesDone } from '../engine/challenges.js';
 import { COFFEE_USES, COFFEE_MAX, STREAK_CYCLE, STANDUP_MINUTES, TICKETS_PER_DAY, TICKET_OFFERS } from '../data/daily.js';
-import { CHALLENGES } from '../data/challenges.js';
+import { CHALLENGES, getChallenge } from '../data/challenges.js';
 import { getSetting } from '../lib/settings.js';
 import { desktopNotifyOn } from '../lib/desktopNotify.js';
 import { BUILDINGS, CATEGORIES, milestoneMult, nextMilestone } from '../data/buildings.js';
@@ -640,13 +645,80 @@ function renderLab() {
   const cur = chapterIndex();
   const order = { ready: 0, running: 1, queued: 2, available: 3, locked: 4 };
   const visible = LAB_PROJECTS
-    .filter(def => { const st = labStatus(def); return st !== 'done' && st !== 'skipped' && (st !== 'locked' || def.chapter === cur + 1); })
+    .filter(def => { const st = labStatus(def); return st !== 'done' && st !== 'skipped' && (st !== 'locked' || (def.chapter === cur + 1 && !def.mandate && !def.unlockMandate)); })
     .sort((a, z) => order[labStatus(a)] - order[labStatus(z)] || Number(!!z.key) - Number(!!a.key) || a.chapter - z.chapter);
   const done = LAB_PROJECTS.filter(def => labStatus(def) === 'done');
   return `<section class="panel">
     <div class="panel-head"><div><div class="eyebrow">R&amp;D-Labor</div><h3>${getIcon('research')} Projekte</h3><div class="sub">Projekte laufen in Echtzeit weiter, auch offline. Starte sie, bevor du gehst, und hol sie beim nächsten Besuch ab. Sind alle Slots belegt, plane je Slot ein Folgeprojekt ein – es startet automatisch, sobald eins fertig ist. Daily Standup und Kaffee „Überstunden“ machen sie schneller. Kosten: Minuten deiner Produktion, höchstens die Hälfte des Vorrats.</div></div><span class="meta">${(state.lab?.running || []).length}/${labSlots()} Slots belegt${labQueue().length ? ` · ${labQueue().length} geplant` : ""}</span></div>
     <div class="grid-auto-sm">${visible.map(labCard).join('')}</div>
     ${done.length ? `<div class="eyebrow" style="margin-top:14px">Abgeschlossen</div><div class="tag-list">${done.map(def => `<span class="chip done" ${tt(def.name, def.label || def.desc)}>${getIcon('check')} ${escapeHtml(def.name)}</span>`).join('')}</div>` : ''}
+  </section>`;
+}
+
+// ═══════════════════════════ AUFSICHTSRAT (Vorstandsmandate) ═══════════════════════════
+function mandateStepRow(def, step) {
+  const done = mandateStepDone(def.id, step);
+  let detail = 'erledigt';
+  let action = '';
+  if (!done && step === 'lab') {
+    const lp = getLabProject(def.lab);
+    const st = labStatus(lp);
+    const run = labRunning(lp.id);
+    detail = st === 'running' ? `läuft, noch ${fmtSec((run.endsAt - Date.now()) / 1000)}` : st === 'ready' ? 'fertig, unten im Labor abholen'
+      : st === 'queued' ? 'im Labor eingeplant' : `${lp.name} · ${fmtHours(labDurationMs(lp))} im Labor (unten)`;
+  } else if (!done && step === 'sprint') {
+    const sp = getChallenge(def.sprint);
+    const status = challengeStatus(sp);
+    const [cur, target] = challengeProgress(sp);
+    detail = status === 'active' ? `läuft: ${fmt(cur)} / ${fmt(target)} Code` : `${sp.name}: ${fmt(mandateSprintGoal(def.id))} Code · ${sp.modLabel}`;
+    if (status === 'ready') action = `<button class="btn xs primary" data-action="sprint-start" data-id="${sp.id}">Sprint starten</button>`;
+    if (status === 'busy') action = '<span class="muted small">erst den laufenden Sprint beenden</span>';
+  } else if (!done && step === 'release') {
+    // Budget: überlebt Refactors, Einzahlung höchstens die Hälfte des Vorrats
+    const target = mandateBudgetTarget();
+    const paid = mandateBudget(def.id);
+    const pay = mandateDepositPreview(def.id);
+    detail = `${def.release.name} · Budget ${Object.entries(target).map(([res, amt]) => `${fmt(paid[res] || 0)} / ${fmt(amt)} ${RESOURCE_LABELS[res] || res}`).join(' · ')}`;
+    const can = canDepositMandate(def.id);
+    action = `<button class="btn xs ${can ? 'primary' : ''}" data-action="mandate-deposit" data-id="${def.id}" ${can ? '' : 'disabled'} ${tt('Einzahlen', `Zahlt höchstens die Hälfte deines Vorrats ein, jetzt: ${fmtCost(pay)}. Bei jedem Refactor fließt der übrige Hype und Legacy Code automatisch ins Budget. Es bleibt über Refactors erhalten; ist es voll, steht das Release.`)}>Einzahlen</button>`;
+  }
+  const bar = !done && step === 'release'
+    ? progress(Object.entries(mandateBudgetTarget()).reduce((sum, [res, amt]) => sum + Math.min(1, (mandateBudget(def.id)[res] || 0) / amt), 0), Object.keys(mandateBudgetTarget()).length, 'thin')
+    : '';
+  return `<div><div class="row-between"><span>${getIcon(done ? 'check' : 'flag')} ${escapeHtml(MANDATE_STEP_LABELS[step])} <span class="muted small">${escapeHtml(detail)}</span></span><span>${action}</span></div>${bar}</div>`;
+}
+
+function mandateCard(def) {
+  const active = state.mandates?.active === def.id;
+  const avail = mandateAvailable(def.id);
+  const sprintRunning = !!getChallenge(state.challenge)?.mandate;
+  const stepsDone = MANDATE_STEPS.filter(st => mandateStepDone(def.id, st)).length;
+  const reward = mandateUnlocked(def.id) ? 'Gesamt ×1,15 für immer' : def.rewardLabel;
+  const foot = active ? '<span class="badge accent">Aktiv</span>'
+    : avail ? `<button class="btn sm primary" data-action="mandate-select" data-id="${def.id}" ${sprintRunning ? `disabled ${tt('Mandat wechseln', 'Erst den laufenden Vorstands-Sprint beenden.')}` : ''}>${activeMandate() ? 'Wechseln' : 'Übernehmen'}</button>`
+    : `<span class="badge">${getIcon('lock')} Erst alle Mandate dieser Stufe</span>`;
+  return `<article class="item ${active ? 'affordable' : ''} ${!avail && !active ? 'locked' : ''}">
+    <div class="item-head"><strong>${getIcon(def.icon)} ${escapeHtml(def.name)}</strong><span class="badge">Stufe ${mandateLevel(def.id) + 1}</span></div>
+    <p>${escapeHtml(def.desc)}</p>
+    <div class="tag-list"><span class="badge good">${escapeHtml(reward)}</span></div>
+    ${active ? `<div class="stack" style="gap:6px;margin-top:8px">${MANDATE_STEPS.map(st => mandateStepRow(def, st)).join('')}</div>` : `<p class="muted small">${stepsDone}/${MANDATE_STEPS.length} Schritte</p>`}
+    <div class="item-foot"><span></span>${foot}</div>
+  </article>`;
+}
+
+// Kurzstatus für die Rundenkarte im Büro
+function boardStatusText() {
+  if (!mandatesUnlocked()) return 'Alle Runden geschafft';
+  const m = activeMandate();
+  if (!m) return 'Aufsichtsrat: Mandat wählen (Roadmap)';
+  return `Mandat ${m.name}: ${MANDATE_STEPS.filter(st => mandateStepDone(m.id, st)).length}/${MANDATE_STEPS.length} Schritte`;
+}
+
+function renderBoard() {
+  if (!mandatesUnlocked()) return '';
+  return `<section class="panel">
+    <div class="panel-head"><div><div class="eyebrow">Aufsichtsrat</div><h3>${getIcon('flag')} Vorstandsmandate</h3><div class="sub">Immer ein Mandat aktiv, die Reihenfolge wählst du. Jedes Mandat: ein Labor-Projekt, ein Vorstands-Sprint (Ziel: ein Teil deines Rekord-Runs) und ein Release. Wechseln geht jederzeit, der Fortschritt bleibt. Sind alle drei erfüllt, kommen sie als nächste Stufe wieder.</div></div><span class="meta">${mandatesCompleted()} erfüllt</span></div>
+    <div class="grid-auto-sm">${MANDATES.map(mandateCard).join('')}</div>
   </section>`;
 }
 
@@ -676,8 +748,9 @@ function renderRoadmap() {
       <div class="panel-head"><div><div class="eyebrow">Aktuelle Runde</div><h3>${getIcon('flag')} ${escapeHtml(current.name)}</h3><div class="sub">${escapeHtml(current.desc)}</div></div>${current.rewardLabel ? `<span class="meta">Belohnung: ${escapeHtml(current.rewardLabel)}</span>` : ''}</div>
       ${next && current.goals.length
         ? `<p class="muted small" style="margin-bottom:10px">Erfülle alle Ziele, dann beginnt <strong>${escapeHtml(next.name)}</strong>.</p>${chapterGoalRows(current, { links: true })}`
-        : `<p class="muted small">Alle Runden geschafft. Im Labor warten Endlos-Projekte.</p>`}
+        : `<p class="muted small">Alle Runden geschafft. Der Aufsichtsrat wartet mit drei Vorstandsmandaten.</p>`}
     </section>
+    ${renderBoard()}
     ${renderLab()}
     <section class="panel">
       <div class="panel-head"><div><div class="eyebrow">Zeitleiste</div><h3>${getIcon('time')} Vom Keller an die Börse</h3></div><span class="meta">${idx}/${CHAPTERS.length - 1} abgeschlossen</span></div>
@@ -700,7 +773,7 @@ function renderRoundCard() {
   const highlight = ready > 0 || (labUnlocked() && labFreeSlots() > 0);
   return `<section class="panel">
     <div class="row-between"><div class="eyebrow">Finanzierungsrunde · ${escapeHtml(current.name)}</div><span class="badge ${highlight ? 'accent' : ''}">${getIcon('research')} ${escapeHtml(labText)}</span></div>
-    <div class="row-between" style="margin-top:8px"><span class="muted small">${next && current.goals.length ? `Ziele für ${escapeHtml(next.name)}: ${doneGoals}/${current.goals.length}` : 'Alle Runden geschafft'}</span><button class="btn xs ${ready ? 'primary' : ''}" data-action="tab" data-tab="roadmap">Zur Roadmap</button></div>
+    <div class="row-between" style="margin-top:8px"><span class="muted small">${next && current.goals.length ? `Ziele für ${escapeHtml(next.name)}: ${doneGoals}/${current.goals.length}` : boardStatusText()}</span><button class="btn xs ${ready ? 'primary' : ''}" data-action="tab" data-tab="roadmap">Zur Roadmap</button></div>
     ${next && current.goals.length ? progress(doneGoals, current.goals.length, 'thin') : ''}
   </section>`;
 }
@@ -901,7 +974,7 @@ function renderDoctrine(b) {
   const active = DOCTRINES.find(d => d.id === state.doctrine) || null;
   return `<section class="panel">
     <div class="panel-head"><div><div class="eyebrow">Kultur</div><h3>${getIcon('flag')} Core Values</h3><div class="sub">Eine Doktrin pro Run. Gilt bis zum nächsten Hard Refactor.</div></div>${active ? '<span class="badge good">Aktiv</span>' : ''}</div>
-    <div class="grid-auto-sm">${DOCTRINES.map(d => doctrineCard(d, active)).join('')}</div>
+    <div class="grid-auto-sm">${availableDoctrines().map(d => doctrineCard(d, active)).join('')}</div>
   </section>`;
 }
 
@@ -997,6 +1070,7 @@ function renderMainframe() {
 }
 
 export function challengeGoalText(def) {
+  if (def.goal.mandate) return `${fmt(mandateSprintGoal(def.mandate))} Code im Run`;
   return def.goal.type === 'techs' ? `${def.goal.value} Techs im Run` : `${fmt(def.goal.value)} Code im Run`;
 }
 

@@ -3,7 +3,7 @@ import {
   calcBuildingCost, calcNextBuildingCost, maxAffordable, isBuildingUnlocked, upgradeLevel, colonyCount,
   techCount, projectCount, getTech, getProject, isTechUnlocked, isProjectUnlocked, defaultState
 } from '../store/gameState.js';
-import { computeBonuses, currentBonuses, currentRates, clickValue, chronicleCostFor } from '../store/bonuses.js';
+import { computeBonuses, currentBonuses, currentRates, clickValue, chronicleCostFor, MAX_BUILDING_CARRYOVER } from '../store/bonuses.js';
 import { MISSIONS, WORLDS, FOCI, DOCTRINES, CHRONICLE_UPGRADES, OPERATIONS_MODES, PROTOCOLS, COLONY_MAX_LEVEL } from '../data/misc.js';
 import { getChip } from '../data/chips.js';
 import { clamp } from '../lib/format.js';
@@ -11,6 +11,7 @@ import { checkAchievements } from './events.js';
 import { milestoneMult } from '../data/buildings.js';
 import { emitToast } from '../lib/toast.js';
 import { roundRewardSum } from './roadmap.js';
+import { mandateUnlocked, depositOnRefactor } from './mandates.js';
 
 export { COLONY_MAX_LEVEL };
 
@@ -143,6 +144,11 @@ export function doPrestigeReset({ allowZero = false } = {}) {
   const gain = prestigeGain();
   if (!allowZero && !canPrestige()) return false;
   const prestigeCount = state.stats.prestigeCount + 1;
+  // Rekord-Run festhalten (Maßstab der Vorstands-Sprints); Übernahme-Team: ein Teil der Mitarbeiter bleibt
+  setState('stats', 'bestRunScrap', Math.max(state.stats.bestRunScrap || 0, runScrap()));
+  depositOnRefactor();  // übriger Hype/Legacy ins Budget des aktiven Vorstandsmandats
+  const carry = Math.min(MAX_BUILDING_CARRYOVER, currentBonuses().buildingCarryover || 0);
+  const kept = carry > 0 ? Object.entries(state.buildings).map(([id, n]) => [id, Math.floor((n || 0) * carry)]).filter(([, n]) => n > 0) : [];
 
   const fresh = defaultState();
   for (const key of RUN_KEYS) setState(key, fresh[key]);
@@ -160,6 +166,7 @@ export function doPrestigeReset({ allowZero = false } = {}) {
   setState('resources', 'energy', 20 + mon * 40);
   setState('buildings', 'intern', 1 + mon * 2);
   setState('buildings', 'google_ads', 1 + mon);
+  kept.forEach(([id, n]) => { if (n > (state.buildings[id] || 0)) setState('buildings', id, n); });
 
   log(`🔁 Hard Refactor #${prestigeCount}: +${gain} XP.`);
   return true;
@@ -290,9 +297,15 @@ export function launchMission(missionId) {
 }
 
 // ── Kultur / Modi / Protokolle ──
+// Wählbare Core Values: die Mandats-Doktrinen erst nach dem ersten Abschluss ihres Vorstandsmandats
+export function availableDoctrines(s = state) {
+  return DOCTRINES.filter(d => !d.mandate || mandateUnlocked(d.mandate, s));
+}
+
 export function setDoctrine(id) {
   if (state.doctrine) return false;
-  if (!DOCTRINES.find(d => d.id === id)) return false;
+  const def = DOCTRINES.find(d => d.id === id);
+  if (!def || (def.mandate && !mandateUnlocked(def.mandate))) return false;
   setState('doctrine', id);
   if (!state.achievements.includes('doctrine')) setState('achievements', [...state.achievements, 'doctrine']);
   log(`Core Values: ${DOCTRINES.find(d => d.id === id)?.name}.`);

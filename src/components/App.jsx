@@ -6,14 +6,14 @@ import { simulateOffline } from '../engine/offline.js';
 import {
   purchaseBuilding, sellBuilding, purchaseTech, purchaseProject, doPrestigeReset, buyChronicle, foundColony, upgradeColony,
   upgradeAllColonies, setColonyFocus, launchMission, setDoctrine, setOperationsMode, activateProtocol, prestigeGain,
-  handleManualClick, equipChip, unequipChip, canPrestige
+  handleManualClick, equipChip, unequipChip, canPrestige, availableDoctrines
 } from '../engine/actions.js';
 import { clickAnomaly } from '../engine/events.js';
 import { autoExpeditions } from '../engine/automation.js';
 import { clickCyberEvent } from '../engine/cyberEvents.js';
 import { renderTabContent, renderNav, renderTopbar, renderSidebarFoot, renderCyberEventOverlay, renderKeepReset, doctrineCard, challengeGoalText, setAdminUsers, setAdminSelectedUser, collectAdminSaveEdits, TABS, VALID_TABS, navBadges } from './renderers.js';
 import { AstraforgeAPI } from '../lib/api-client.js';
-import { RESOURCES, RESOURCE_LABELS, DOCTRINES } from '../data/misc.js';
+import { RESOURCES, RESOURCE_LABELS } from '../data/misc.js';
 import { fmt, fmtSec, fmtRate, rand } from '../lib/format.js';
 import { escapeHtml } from '../lib/sanitize.js';
 import { onToast } from '../lib/toast.js';
@@ -26,6 +26,8 @@ import { getChallenge, CHALLENGES } from '../data/challenges.js';
 import { startLab, claimLab, queueLab, cancelQueuedLab } from '../engine/lab.js';
 import { getLabProject } from '../data/lab.js';
 import { CHAPTERS } from '../data/chapters.js';
+import { MANDATES, getMandate } from '../data/mandates.js';
+import { selectMandate, depositMandate, mandatesCompleted, mandateLevel, mandateRound } from '../engine/mandates.js';
 import { armDesktopNotify, disarmDesktopNotify, toggleDesktopNotify } from '../lib/desktopNotify.js';
 
 const FRESH_FLAG = 'codetycoon-fresh-start';
@@ -87,7 +89,7 @@ export default function App() {
     showModal(title, `<p>${escapeHtml(String(err))}</p>`, [{ label: 'Ok', action: 'cancel' }]);
   }
   function showDoctrineModal() {
-    showModal('Core Values wählen', `<p class="muted small" style="margin-bottom:8px">Eine Doktrin pro Run. Sie gilt bis zum nächsten Hard Refactor.</p><div class="grid-auto-sm">${DOCTRINES.map(d => doctrineCard(d)).join('')}</div>`, [{ label: 'Später', action: 'cancel' }]);
+    showModal('Core Values wählen', `<p class="muted small" style="margin-bottom:8px">Eine Doktrin pro Run. Sie gilt bis zum nächsten Hard Refactor.</p><div class="grid-auto-sm">${availableDoctrines().map(d => doctrineCard(d)).join('')}</div>`, [{ label: 'Später', action: 'cancel' }]);
   }
 
   // Neue Finanzierungsrunde feiern (auch nach Offline-Nachholen); die letzte Runde ist das Finale.
@@ -106,6 +108,25 @@ export default function App() {
     ).then(result => { if (result === 'roadmap') { setState('selectedTab', 'roadmap'); renderAll(true); } });
   }
 
+  // Erfülltes Vorstandsmandat feiern (auch nach Offline-Nachholen)
+  function maybeCelebrateMandate() {
+    const total = mandatesCompleted();
+    if (total <= (state.mandates?.seen || 0) || modalVisible()) return;
+    setState('mandates', 'seen', total);
+    const def = getMandate(state.mandates?.last);
+    if (!def) return;
+    const first = mandateLevel(def.id) === 1;
+    const next = mandateRound() > 0 && MANDATES.every(m => mandateLevel(m.id) === mandateRound())
+      ? `Alle drei erfüllt – die Mandate kommen jetzt als Stufe ${mandateRound() + 1} wieder.`
+      : 'Wähle im Roadmap-Tab das nächste Mandat.';
+    showModal(`🏛️ Mandat erfüllt: ${escapeHtml(def.name)}`,
+      `<p>Der Aufsichtsrat ist zufrieden.</p>
+       <p style="margin-top:8px">Belohnung: <strong class="good">${escapeHtml(first ? def.rewardLabel : 'Gesamt ×1,15 für immer')}</strong></p>
+       <p class="muted small" style="margin-top:8px">${escapeHtml(next)}</p>`,
+      [{ label: 'Weiter', action: 'cancel' }, { label: 'Zur Roadmap', action: 'roadmap', cls: 'primary' }]
+    ).then(result => { if (result === 'roadmap') { setState('selectedTab', 'roadmap'); renderAll(true); } });
+  }
+
   function showFinaleModal() {
     const s = state.stats;
     const days = Math.max(1, Math.round((Date.now() - (s.firstSeen || Date.now())) / 86400e3));
@@ -120,7 +141,7 @@ export default function App() {
       `<p>Die Glocke läutet: Deine Firma ist an der Börse. Vom Keller aufs Parkett in <strong>${days} Tag${days > 1 ? 'en' : ''}</strong>.</p>
        <div class="stat-list" style="margin-top:10px">${rows.map(([k, v]) => `<div><span>${k}</span><strong>${v}</strong></div>`).join('')}</div>
        ${rounds ? `<ul class="muted small" style="margin:10px 0 0 18px">${rounds}</ul>` : ''}
-       <p class="muted small" style="margin-top:10px">Gesamt ×3 für immer. Im Labor warten jetzt Endlos-Projekte: Legacy-Stiftung und Moonshot.</p>`,
+       <p class="muted small" style="margin-top:10px">Gesamt ×3 für immer. Jetzt wartet der Aufsichtsrat mit drei Vorstandsmandaten – im Roadmap-Tab.</p>`,
       [{ label: 'Weiterspielen', action: 'confirm', cls: 'primary' }]);
   }
 
@@ -428,6 +449,18 @@ export default function App() {
         if (cancelQueuedLab(id)) showToast(`Labor: ${getLabProject(id)?.name} aus der Planung genommen, Kosten erstattet.`, 'info');
         done(); return;
       }
+      // ── Aufsichtsrat ──
+      case 'mandate-select': {
+        if (selectMandate(id)) showToast(`Vorstandsmandat übernommen: ${getMandate(id)?.name}`, 'good');
+        else showToast('Das Mandat kann gerade nicht übernommen werden.', 'warn');
+        done(); return;
+      }
+      case 'mandate-deposit': {
+        const paid = depositMandate(id);
+        if (paid) showToast(`Budget „${getMandate(id)?.release.name}“:${rewardText(paid)} eingezahlt`, 'good');
+        else showToast('Gerade nichts einzuzahlen.', 'warn');
+        done(); return;
+      }
       case 'coffee-use': {
         const result = useCoffee(id);
         showToast(result.text, result.ok ? 'good' : 'warn');
@@ -440,7 +473,7 @@ export default function App() {
         const gain = prestigeGain();
         confirmModal(`Sprint: ${escapeHtml(def.name)}`,
           `<p>Startet einen neuen Run wie ein Hard Refactor${gain > 0 ? ` (<strong class="good">+${fmt(gain)} XP</strong>)` : ' (aktuell 0 XP)'}.</p>
-           <ul class="muted small" style="margin:8px 0 0 18px"><li>Handicap: ${escapeHtml(def.modLabel)}</li><li>Ziel: ${escapeHtml(challengeGoalText(def))}${def.timeLimit ? ` in ${fmtSec(def.timeLimit / 1000)}` : ''}</li><li>Belohnung: ${escapeHtml(def.rewardLabel)} (permanent)</li></ul>
+           <ul class="muted small" style="margin:8px 0 0 18px"><li>Handicap: ${escapeHtml(def.modLabel)}</li><li>Ziel: ${escapeHtml(challengeGoalText(def))}${def.timeLimit ? ` in ${fmtSec(def.timeLimit / 1000)}` : ''}</li><li>Belohnung: ${escapeHtml(def.rewardLabel)}${def.mandate ? '' : ' (permanent)'}</li></ul>
            <div style="margin-top:12px">${renderKeepReset()}</div>`,
           'Sprint starten'
         ).then(ok => {
@@ -820,7 +853,7 @@ export default function App() {
     processTick(dt, { silent: now - mountedAt < 2000, auto: true });
     if (!state.asteroidActive && Date.now() > (state.nextAsteroidAt || 0) && state.stats.lifetime > 60) spawnBug();
     if (now - lastCounterUpdate > 100) { updateResourceCounters(); lastCounterUpdate = now; }
-    if (now - lastRender > 1000) { renderAll(); lastRender = now; maybeCelebrateRound(); }
+    if (now - lastRender > 1000) { renderAll(); lastRender = now; maybeCelebrateRound(); maybeCelebrateMandate(); }
     animationFrameId = requestAnimationFrame(gameLoop);
   }
 

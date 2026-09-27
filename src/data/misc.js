@@ -42,7 +42,11 @@ export const DOCTRINES = [
   { id: 'efficiency', name: 'Move Fast & Break Things', desc: 'Produktivität hoch, Kosten runter.', effects: ['+6% Gesamtproduktion', '−3% Gebäudekosten'] },
   { id: 'expansion', name: 'Hypergrowth', desc: 'Standorte und Freelancer werden stärker.', effects: ['+2% Gesamtproduktion', '+8% Auftrags-Power', '+1 Standort-Limit'] },
   { id: 'insight', name: 'Engineering Excellence', desc: 'Lernen und Legacy Code profitieren.', effects: ['+12% Ideas', '+10% Legacy Code', '+2% Fundchance'] },
-  { id: 'dominion', name: 'Monopol', desc: 'Hype, Releases und Stressresistenz.', effects: ['+12% Hype', '−5% Release-Kosten', '+3% Event-Resistenz'] }
+  { id: 'dominion', name: 'Monopol', desc: 'Hype, Releases und Stressresistenz.', effects: ['+12% Hype', '−5% Release-Kosten', '+3% Event-Resistenz'] },
+  // Nach dem ersten Abschluss des jeweiligen Vorstandsmandats (data/mandates.js) wählbar
+  { id: 'sovereign', mandate: 'sovereign_cloud', name: 'Souverän', desc: 'Die Firma läuft auch ohne dich.', effects: ['Offline-Effizienz +15%', 'Offline-Limit +6 h', 'Klick-Kraft ×0,5'] },
+  { id: 'community_first', mandate: 'open_infrastructure', name: 'Community First', desc: 'Jeden Tag ein bisschen besser.', effects: ['Ticket-Belohnungen ×2', 'Standup-Belohnung ×1,5', '−5% Gesamtproduktion'] },
+  { id: 'moonshot_mindset', mandate: 'moonshot', name: 'Moonshot Mindset', desc: 'Groß denken, oft neu anfangen.', effects: ['+25% XP-Gewinn', '−15% Gesamtproduktion'] }
 ];
 
 export const OPERATIONS_MODES = [
@@ -141,7 +145,9 @@ export const ACHIEVEMENTS = [
   { id: 'round_series_b', name: 'Scale-up', desc: 'Finanzierungsrunde Series B erreicht.' },
   { id: 'round_series_c', name: 'Unicorn', desc: 'Finanzierungsrunde Series C erreicht.' },
   { id: 'round_public', name: 'Glocke geläutet', desc: 'Die Firma ist an der Börse.' },
-  { id: 'lab_10', name: 'Forschungsabteilung', desc: '10 Labor-Projekte abgeschlossen.' }
+  { id: 'lab_10', name: 'Forschungsabteilung', desc: '10 Labor-Projekte abgeschlossen.' },
+  { id: 'mandate_first', name: 'Im Auftrag des Aufsichtsrats', desc: 'Das erste Vorstandsmandat erfüllt.' },
+  { id: 'mandate_all', name: 'Vorstandsvorsitz', desc: 'Alle drei Vorstandsmandate erfüllt.' }
 ];
 
 // Chronicle-Upgrades: mit XP kaufbar, bleiben für immer. `max` optional.
