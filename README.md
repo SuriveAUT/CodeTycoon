@@ -73,7 +73,7 @@ Klick-Button, aktuelle Aufgabe, KPIs, Tages-Loop (Daily Standup, Tickets, Kaffee
 
 ### Tages-Loop & Sprints
 - **Daily Standup**: einmal pro Tag im Büro abholen – Minuten deiner aktuellen Produktion, steigend mit der Streak (5 → 30 min). Tag 7 gibt Legacy Code und einen ×2-Boost; ein verpasster Tag setzt die Streak zurück.
-- **Tages-Tickets**: drei Aufgaben pro Tag aus einem Pool von zehn (Klicks, Einstellungen, Aufträge, Techs, Börse, Bugs …), Belohnung skaliert mit der Produktion. Alle drei → 30 min ×1,5.
+- **Tages-Tickets**: fünf Angebote pro Tag aus einem Pool von neun (Klicks, Einstellungen, Aufträge, Techs, Bugs …), jedes mit Belohnung (skaliert mit der Produktion). Die ersten drei erledigten → zusätzlich 30 min ×1,5.
 - **Kaffee**: reift alle 6 h in Echtzeit (auch offline, max. 3). Espresso (×2 für 20 min), Crunch (laufende Aufträge sofort fertig), Überstunden (Labor −3 h) oder neue Tickets würfeln.
 - **Boosts** (Tages-Bonus, Retro-Bonus, Espresso) laufen nacheinander: Kommt einer dazu, während ein anderer läuft, wartet er und startet danach – nach einer Abwesenheit erst beim Zurückkommen.
 - **Desktop-Hinweise** (Account-Tab, optional): Labor fertig, Kaffee reif, neuer Tag (ab 8 Uhr) und Aufträge fertig, solange der Tab im Hintergrund offen ist.
@@ -86,7 +86,7 @@ XP = 6 · ∛(Code im Run / 10 Mio.) · Struktur-Bonus. Ein Refactor braucht min
 Garage → Seed → Series A → Series B → Series C → IPO → Börsennotiert. Jede Runde schaltet Inhalte frei (Tech-Stufe 4 ab Seed, 5 ab Series A, Stufe 6 „Plattform“ ab Series B/C, neue Mitarbeiter und Releases bis zum Börsengang) und hat Ziele: verdiente XP, Sprints, Daily Standups, ein Release und das Schlüsselprojekt im Labor. Abgeschlossene Runden geben dauerhafte Boni (bis zu Gesamt ×2 je Runde, weitere Labor- und Chip-Slots). Ausgelegt auf 2–4 Wochen mit täglichem Reinschauen; der Börsengang ist das Finale.
 
 ### R&D-Labor
-Ab dem ersten Refactor. Projekte laufen in Echtzeit (3–24 h), auch offline: vor dem Gehen starten, beim nächsten Besuch abholen. Kosten Hype und Legacy Code (Minuten Produktion, höchstens die Hälfte des Vorrats). Schlüsselprojekte je Runde, einmalige Upgrades (Offline-Limit, Auto-Start nach Refactor, Produktion, XP) und endlos wiederholbare Projekte. Daily Standup (−30 min, Tag 7: −2 h) und Kaffee „Überstunden“ (−3 h) beschleunigen.
+Ab dem ersten Refactor. Projekte laufen in Echtzeit (3–24 h), auch offline: vor dem Gehen starten, beim nächsten Besuch abholen. Kosten Hype und Legacy Code (Minuten Produktion, höchstens die Hälfte des Vorrats). Schlüsselprojekte je Runde, einmalige Upgrades (Offline-Limit, Auto-Start nach Refactor, Produktion, XP) und endlos wiederholbare Projekte. Sind alle Slots belegt, lässt sich je Slot ein Folgeprojekt vorab bezahlt einplanen: Es startet automatisch zum Ende des laufenden (auch offline, das fertige wird dabei abgeholt); wiederholbare Projekte gehen auch „danach nochmal“. Abbrechen erstattet die Kosten. Daily Standup (−30 min, Tag 7: −2 h) und Kaffee „Überstunden“ (−3 h) beschleunigen.
 
 ### Ereignisse
 Zufallsereignisse, interaktive Cyber-Events (Ransomware, DDoS, Investor Call …) und der herumfliegende Bug 🐛 mit Sofort-Bonus.

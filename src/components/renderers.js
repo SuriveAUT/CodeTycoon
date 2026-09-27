@@ -13,14 +13,14 @@ import {
 import { currentQuest, questProgress } from '../engine/quests.js';
 import { chapterIndex, currentChapter, nextChapter, goalProgress, goalFraction, goalLabel, goalTab } from '../engine/roadmap.js';
 import { CHAPTERS } from '../data/chapters.js';
-import { labUnlocked, labSlots, labFreeSlots, labRunning, labReady, labLevel, labDurationMs, labCost, labStatus, canStartLab } from '../engine/lab.js';
+import { labUnlocked, labSlots, labFreeSlots, labRunning, labReady, labLevel, labDurationMs, labCost, labStatus, canStartLab, labQueue, labQueued, labQueueFree, labQueueCost, canQueueLab } from '../engine/lab.js';
 import { LAB_PROJECTS } from '../data/lab.js';
 import { bestInvestmentId } from '../engine/advisor.js';
 import { missionSuccessChance, getDynamicMissionRewards } from '../engine/events.js';
 import { currentDecisionDef } from '../engine/decisions.js';
-import { dailyUnlocked, canClaimStandup, standupReward, ticketProgress, ticketLabel, coffeeUseAvailable } from '../engine/daily.js';
+import { dailyUnlocked, canClaimStandup, standupReward, ticketProgress, ticketLabel, coffeeUseAvailable, ticketsDoneToday } from '../engine/daily.js';
 import { activeChallenge, challengeStatus, challengeProgress, challengeTimeLeft, challengesDone } from '../engine/challenges.js';
-import { COFFEE_USES, COFFEE_MAX, STREAK_CYCLE, STANDUP_MINUTES } from '../data/daily.js';
+import { COFFEE_USES, COFFEE_MAX, STREAK_CYCLE, STANDUP_MINUTES, TICKETS_PER_DAY, TICKET_OFFERS } from '../data/daily.js';
 import { CHALLENGES } from '../data/challenges.js';
 import { getSetting } from '../lib/settings.js';
 import { desktopNotifyOn } from '../lib/desktopNotify.js';
@@ -98,6 +98,11 @@ function costChips(cost) {
     const ok = (state.resources[res] || 0) >= amt;
     return `<span class="cost ${ok ? 'ok' : 'no'}" ${tt(RESOURCE_LABELS[res] || res, `Vorrat: ${fmt(state.resources[res] || 0)}`)}>${resIcon(res)}${fmt(amt)}</span>`;
   }).join('')}</div>`;
+}
+
+// Kosten als Text (Tooltips): „1.20 B Hype, 3.40 M Legacy Code“
+function fmtCost(cost) {
+  return Object.entries(cost).map(([res, amt]) => `${fmt(amt)} ${RESOURCE_LABELS[res] || res}`).join(', ');
 }
 
 function rewardChips(rewards) {
@@ -311,6 +316,8 @@ function renderDaily() {
   const claimRow = claimable
     ? `<div class="row-between"><div class="row" style="flex-wrap:wrap"><span class="muted small">Belohnung:</span>${rewardChips(info.reward)}${info.week ? '<span class="badge good">+ Retro-Bonus ×2</span>' : ''}</div><button class="btn primary" data-action="daily-claim" ${tt('Daily Standup', `${info.minutes} Minuten deiner aktuellen Produktion geschenkt. Streak-Tag ${info.streak}.`)}>${getIcon('check')} Standup abhalten · Tag ${info.streak}</button></div>`
     : `<div class="row-between"><span class="badge good">${getIcon('check')} Heute erledigt</span><span class="muted small">Morgen: Tag ${d.streak + 1} · ${STANDUP_MINUTES[d.streak % STREAK_CYCLE]} min Produktion${(d.streak + 1) % STREAK_CYCLE === 0 ? ' + Retro-Bonus' : ''}</span></div>`;
+  const doneCount = ticketsDoneToday();
+  const allDone = doneCount >= TICKETS_PER_DAY;
   const tickets = d.tickets.map(t => {
     const [cur, target] = ticketProgress(t);
     return `<div class="ticket ${t.done ? 'done' : ''}">
@@ -320,7 +327,6 @@ function renderDaily() {
       <span class="num muted">${t.done ? 'erledigt' : `${fmt(Math.min(cur, target))} / ${fmt(target)}`}</span>
     </div>`;
   }).join('');
-  const allDone = d.tickets.length > 0 && d.tickets.every(t => t.done);
   const c = state.coffee;
   const beans = `${'☕'.repeat(c.beans)}<span class="muted">${'○'.repeat(Math.max(0, COFFEE_MAX - c.beans))}</span>`;
   const nextIn = c.beans >= COFFEE_MAX ? 'Vorrat voll' : `nächste Bohne in ${fmtSec(Math.max(0, (c.nextBeanAt - now) / 1000))}`;
@@ -330,7 +336,7 @@ function renderDaily() {
       <div class="panel-head"><div><div class="eyebrow">Daily Standup</div><h3>${getIcon('time')} Tages-Loop</h3><div class="sub">Einmal am Tag vorbeischauen lohnt sich: Standup, Tickets, Kaffee.</div></div><span class="badge ${d.streak > 0 ? 'accent' : ''}" ${tt('Streak', 'Tage in Folge mit Standup. Ein verpasster Tag setzt die Streak auf 0. Tag 7 gibt den großen Bonus.')}>${getIcon('zap')} Streak ${d.streak}${d.bestStreak > d.streak ? ` · Best ${d.bestStreak}` : ''}</span></div>
       <div class="streak">${dots}</div>
       <div style="margin-top:10px">${claimRow}</div>
-      <div class="row-between" style="margin-top:14px;margin-bottom:6px"><div class="eyebrow" style="margin:0">Tages-Tickets</div>${allDone ? '<span class="badge good">Alle erledigt · Tages-Bonus ×1,5</span>' : '<span class="muted small">Alle drei → 30 min ×1,5 Produktion</span>'}</div>
+      <div class="row-between" style="margin-top:14px;margin-bottom:6px"><div class="eyebrow" style="margin:0">Tages-Tickets</div>${allDone ? '<span class="badge good">Tagesziel erreicht · Tages-Bonus ×1,5</span>' : `<span class="muted small" ${tt('Tages-Tickets', `Jeden Tag ${TICKET_OFFERS} Angebote, jedes mit Belohnung. Die ersten ${TICKETS_PER_DAY} erledigten bringen zusätzlich 30 min ×1,5 Produktion.`)}>Beliebige ${TICKETS_PER_DAY} von ${d.tickets.length} · ${doneCount}/${TICKETS_PER_DAY} → 30 min ×1,5</span>`}</div>
       <div class="stack">${tickets || '<span class="muted small">Tickets werden gerade verteilt…</span>'}</div>
       <div class="row-between" style="margin-top:14px"><div><div class="eyebrow" ${tt('Kaffee', 'Reift alle 6 Stunden in Echtzeit – auch wenn du nicht spielst. Maximal 3 auf Vorrat.')}>Kaffee</div><div class="coffee">${beans}<span class="muted small" style="letter-spacing:0">${nextIn}</span></div></div><div class="toggle-row">${uses}</div></div>
     </section>`;
@@ -589,17 +595,36 @@ function labCard(def) {
     def.repeatable ? `<span class="badge">Stufe ${labLevel(def.id)}</span>` : '',
     def.label ? `<span class="badge good">${escapeHtml(def.label)}</span>` : ''
   ].join('');
+  const queueTip = 'Startet automatisch, sobald ein laufendes Projekt fertig ist – auch offline. Das fertige wird dabei abgeholt. Bezahlt wird jetzt, Abbrechen erstattet alles.';
+  // „Danach nochmal“ für laufende wiederholbare Projekte (nächste Stufe)
+  const againBtn = () => {
+    if (!def.repeatable || labQueued(def.id)) return '';
+    const can = canQueueLab(def.id);
+    return `<button class="btn xs" data-action="lab-queue" data-id="${def.id}" ${can ? '' : 'disabled'} ${tt('Danach nochmal', `${queueTip} Kosten: ${fmtCost(labQueueCost(def))}.`)}>Danach nochmal</button>`;
+  };
+  const queuedBadge = () => {
+    const i = labQueue().findIndex(q => q.id === def.id);
+    return i < 0 ? '' : `<span class="badge accent">${getIcon('time')} Geplant · Platz ${i + 1}</span><button class="btn xs" data-action="lab-unqueue" data-id="${def.id}" ${tt('Aus der Planung nehmen', 'Die Kosten werden voll erstattet.')}>Abbrechen</button>`;
+  };
   let foot;
   if (status === 'ready') {
-    foot = `<span class="badge good">${getIcon('check')} Fertig</span><button class="btn sm primary" data-action="lab-claim" data-id="${def.id}">Abholen</button>`;
+    foot = `<span class="badge good">${getIcon('check')} Fertig</span>${queuedBadge()}<button class="btn sm primary" data-action="lab-claim" data-id="${def.id}">Abholen</button>`;
   } else if (status === 'running') {
-    foot = `<div class="sprint-progress">${progress(now - run.startedAt, run.endsAt - run.startedAt, 'good')}<div class="row-between"><span class="muted small mono">noch ${fmtSec((run.endsAt - now) / 1000)}</span></div></div>`;
+    foot = `<div class="sprint-progress">${progress(now - run.startedAt, run.endsAt - run.startedAt, 'good')}<div class="row-between"><span class="muted small mono">noch ${fmtSec((run.endsAt - now) / 1000)}</span><span class="row">${queuedBadge() || againBtn()}</span></div></div>`;
+  } else if (status === 'queued') {
+    foot = `<div class="row-between" style="width:100%">${queuedBadge()}</div>`;
   } else if (status === 'locked') {
     foot = `<span class="badge">${getIcon('lock')} Ab ${escapeHtml(CHAPTERS[def.chapter]?.name || '?')}</span>`;
+  } else if (labFreeSlots() <= 0) {
+    // Alle Slots belegt: einplanen statt starten
+    const cost = labQueueCost(def);
+    const can = canQueueLab(def.id);
+    const reason = labQueueFree() <= 0 ? 'Warteschlange voll – je Slot ein Folgeprojekt.' : !canAfford(cost) ? 'Nicht genug Hype bzw. Legacy Code.' : queueTip;
+    foot = `<div class="stack" style="gap:6px;width:100%">${costChips(cost)}<div class="row-between"><span class="muted small">${getIcon('time')} ${fmtHours(labDurationMs(def))}</span><button class="btn sm ${can ? 'primary' : ''}" data-action="lab-queue" data-id="${def.id}" ${can ? '' : 'disabled'} ${tt('Einplanen', reason)}>Einplanen</button></div></div>`;
   } else {
     const cost = labCost(def);
     const can = canStartLab(def.id);
-    const reason = labFreeSlots() <= 0 ? 'Kein Slot frei – warte, bis ein Projekt fertig ist.' : !canAfford(cost) ? 'Nicht genug Hype bzw. Legacy Code.' : '';
+    const reason = !canAfford(cost) ? 'Nicht genug Hype bzw. Legacy Code.' : '';
     foot = `<div class="stack" style="gap:6px;width:100%">${costChips(cost)}<div class="row-between"><span class="muted small">${getIcon('time')} ${fmtHours(labDurationMs(def))}</span><button class="btn sm ${can ? 'primary' : ''}" data-action="lab-start" data-id="${def.id}" ${can ? '' : 'disabled'} ${reason ? tt('Labor', reason) : ''}>Starten</button></div></div>`;
   }
   return `<article class="item ${status === 'ready' ? 'affordable' : ''} ${status === 'locked' ? 'locked' : ''}">
@@ -613,13 +638,13 @@ function labCard(def) {
 function renderLab() {
   if (!labUnlocked()) return `<section class="panel">${emptyState('lock', 'Labor gesperrt', 'Das R&D-Labor öffnet mit deinem ersten Hard Refactor.')}</section>`;
   const cur = chapterIndex();
-  const order = { ready: 0, running: 1, available: 2, locked: 3 };
+  const order = { ready: 0, running: 1, queued: 2, available: 3, locked: 4 };
   const visible = LAB_PROJECTS
     .filter(def => { const st = labStatus(def); return st !== 'done' && st !== 'skipped' && (st !== 'locked' || def.chapter === cur + 1); })
     .sort((a, z) => order[labStatus(a)] - order[labStatus(z)] || Number(!!z.key) - Number(!!a.key) || a.chapter - z.chapter);
   const done = LAB_PROJECTS.filter(def => labStatus(def) === 'done');
   return `<section class="panel">
-    <div class="panel-head"><div><div class="eyebrow">R&amp;D-Labor</div><h3>${getIcon('research')} Projekte</h3><div class="sub">Projekte laufen in Echtzeit weiter, auch offline. Starte sie, bevor du gehst, und hol sie beim nächsten Besuch ab. Daily Standup und Kaffee „Überstunden“ machen sie schneller. Kosten: Minuten deiner Produktion, höchstens die Hälfte des Vorrats.</div></div><span class="meta">${(state.lab?.running || []).length}/${labSlots()} Slots belegt</span></div>
+    <div class="panel-head"><div><div class="eyebrow">R&amp;D-Labor</div><h3>${getIcon('research')} Projekte</h3><div class="sub">Projekte laufen in Echtzeit weiter, auch offline. Starte sie, bevor du gehst, und hol sie beim nächsten Besuch ab. Sind alle Slots belegt, plane je Slot ein Folgeprojekt ein – es startet automatisch, sobald eins fertig ist. Daily Standup und Kaffee „Überstunden“ machen sie schneller. Kosten: Minuten deiner Produktion, höchstens die Hälfte des Vorrats.</div></div><span class="meta">${(state.lab?.running || []).length}/${labSlots()} Slots belegt${labQueue().length ? ` · ${labQueue().length} geplant` : ""}</span></div>
     <div class="grid-auto-sm">${visible.map(labCard).join('')}</div>
     ${done.length ? `<div class="eyebrow" style="margin-top:14px">Abgeschlossen</div><div class="tag-list">${done.map(def => `<span class="chip done" ${tt(def.name, def.label || def.desc)}>${getIcon('check')} ${escapeHtml(def.name)}</span>`).join('')}</div>` : ''}
   </section>`;
@@ -1076,7 +1101,7 @@ function renderCodex() {
     ['Prestige', `Ein Hard Refactor gibt XP = ${PRESTIGE_XP_BASE}·∛(Run-Code/10 Mio.). XP kauft permanente Chronicle-Upgrades. Ab ~10 XP lohnt es sich.`],
     ['Offline', 'Bis zum Offline-Limit (Standard 12h) wird mit 50% Effizienz weitergerechnet. Chronicle-Upgrades erhöhen beides.'],
     ['Daily Standup', 'Einmal pro Tag im Büro abholen: Minuten deiner Produktion geschenkt, steigend mit der Streak. Tag 7 gibt Legacy Code und einen ×2-Boost. Ein verpasster Tag setzt die Streak zurück.'],
-    ['Tickets & Kaffee', 'Drei Tages-Tickets mit Belohnung; alle drei → 30 min ×1,5. Kaffee reift alle 6h in Echtzeit (max. 3): Espresso (×2 für 20 min), Crunch (Aufträge sofort fertig) oder neue Tickets.'],
+    ['Tickets & Kaffee', 'Fünf Tages-Tickets, jedes mit Belohnung; die ersten drei erledigten bringen zusätzlich 30 min ×1,5. Kaffee reift alle 6h in Echtzeit (max. 3): Espresso (×2 für 20 min), Crunch (Aufträge sofort fertig) oder neue Tickets.'],
     ['Sprints', 'Ab dem ersten Refactor: Runs mit Handicap (Tab Prestige). Wer das Ziel erreicht, bekommt einen permanenten Bonus – Klick ×2, günstigere Mitarbeiter, mehr Synergie, mehr XP.']
   ];
   const keys = [

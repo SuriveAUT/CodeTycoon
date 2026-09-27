@@ -114,8 +114,9 @@ export function defaultState() {
     // seen = zuletzt gefeierte Runde (App.jsx zeigt für jede neue Runde einen Dialog),
     // startXp = verdiente XP beim Eintritt in die aktuelle Runde (Startpunkt des logarithmischen XP-Balkens)
     roadmap: { chapter: 0, reachedAt: [], seen: 0, startXp: 0 },
-    // R&D-Labor (engine/lab.js): laufende Projekte mit Endzeit, abgeholte Projekte, Stufen endloser Projekte
-    lab: { running: [], done: [], levels: {} },
+    // R&D-Labor (engine/lab.js): laufende Projekte mit Endzeit, abgeholte Projekte, Stufen endloser Projekte,
+    // eingeplante (vorab bezahlte) Folgeprojekte
+    lab: { running: [], done: [], levels: {}, queued: [] },
     event: null,
     eventEnds: 0,
     nextEventAt: Date.now() + rand(4 * 60e3, 8 * 60e3),
@@ -307,8 +308,18 @@ export function normalizeState(candidate) {
     runningIds.add(r.id);
     return true;
   });
-  merged.lab.levels =Object.fromEntries(Object.entries(merged.lab.levels && typeof merged.lab.levels === 'object' ? merged.lab.levels : {})
+  merged.lab.levels = Object.fromEntries(Object.entries(merged.lab.levels && typeof merged.lab.levels === 'object' ? merged.lab.levels : {})
     .filter(([id]) => repeatable.has(id)).map(([id, lvl]) => [id, Math.max(0, Math.floor(asFiniteNumber(lvl, 0)))]));
+  // Eingeplante Folgeprojekte (engine/lab.js): je ID höchstens einmal, höchstens so viele wie Slots möglich (3)
+  const queuedIds = new Set();
+  merged.lab.queued = (Array.isArray(merged.lab.queued) ? merged.lab.queued : [])
+    .filter(q => q && knownLab.has(q.id) && !queuedIds.has(q.id) && queuedIds.add(q.id))
+    .slice(0, 3)
+    .map(q => ({
+      id: q.id,
+      queuedAt: asFiniteNumber(q.queuedAt, 0),
+      cost: Object.fromEntries(Object.entries(q.cost && typeof q.cost === 'object' ? q.cost : {}).filter(([, v]) => Number.isFinite(v) && v >= 0))
+    }));
   merged.stats.runStartedAt = asFiniteNumber(merged.stats.runStartedAt, Date.now());
   // Tages-Loop / Sprints
   merged.daily.tickets = Array.isArray(merged.daily.tickets) ? merged.daily.tickets.filter(t => t && typeof t.id === 'string') : [];
