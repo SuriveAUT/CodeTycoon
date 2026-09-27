@@ -109,8 +109,9 @@ export function defaultState() {
     challenge: null,
     challengesDone: [],
     // Finanzierungsrunden (engine/roadmap.js): aktuelle Runde, reachedAt[i] = Zeitpunkt, an dem Runde i begann,
-    // seen = zuletzt gefeierte Runde (App.jsx zeigt für jede neue Runde einen Dialog)
-    roadmap: { chapter: 0, reachedAt: [], seen: 0 },
+    // seen = zuletzt gefeierte Runde (App.jsx zeigt für jede neue Runde einen Dialog),
+    // startXp = verdiente XP beim Eintritt in die aktuelle Runde (Startpunkt des logarithmischen XP-Balkens)
+    roadmap: { chapter: 0, reachedAt: [], seen: 0, startXp: 0 },
     // R&D-Labor (engine/lab.js): laufende Projekte mit Endzeit, abgeholte Projekte, Stufen endloser Projekte
     lab: { running: [], done: [], levels: {} },
     event: null,
@@ -287,6 +288,9 @@ export function normalizeState(candidate) {
   merged.roadmap.chapter = Math.min(CHAPTERS.length - 1, Math.max(0, Math.floor(asFiniteNumber(merged.roadmap.chapter, 0))));
   merged.roadmap.reachedAt = Array.isArray(merged.roadmap.reachedAt) ? merged.roadmap.reachedAt.map(t => (t == null ? t : asFiniteNumber(t, 0))) : [];
   merged.roadmap.seen = Math.min(merged.roadmap.chapter, Math.max(0, Math.floor(asFiniteNumber(merged.roadmap.seen, merged.roadmap.chapter))));
+  // Ältere Saves kennen startXp nicht: dann das XP-Ziel der Vorrunde, höchstens der aktuelle Stand
+  const prevXpGoal = CHAPTERS[merged.roadmap.chapter - 1]?.goals.find(g => g.type === 'xpEarned')?.value || 0;
+  merged.roadmap.startXp = Math.min(merged.stats.xpEarned, Math.max(0, asFiniteNumber(candidate.roadmap?.startXp, prevXpGoal)));
   merged.stats.releasedEver = Array.isArray(merged.stats.releasedEver) ? merged.stats.releasedEver.filter(id => knownProj.has(id)) : [];
   const knownLab = new Set(LAB_PROJECTS.map(p => p.id));
   merged.lab.running = Array.isArray(merged.lab.running)
