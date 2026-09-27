@@ -11,7 +11,7 @@ import {
   chipSlots
 } from '../engine/actions.js';
 import { currentQuest, questProgress } from '../engine/quests.js';
-import { chapterIndex, currentChapter, nextChapter, goalProgress, goalLabel, goalTab } from '../engine/roadmap.js';
+import { chapterIndex, currentChapter, nextChapter, goalProgress, goalFraction, goalLabel, goalTab } from '../engine/roadmap.js';
 import { CHAPTERS } from '../data/chapters.js';
 import { labUnlocked, labSlots, labFreeSlots, labRunning, labReady, labLevel, labDurationMs, labCost, labStatus, canStartLab } from '../engine/lab.js';
 import { LAB_PROJECTS } from '../data/lab.js';
@@ -550,15 +550,24 @@ function techUnlockChips(techId) {
   return chips.join('');
 }
 
+// Faktor bis zum Ziel: ×2,5 · ×36 · ×1.950
+function fmtFactor(f) {
+  return f < 10 ? (Math.ceil(f * 10) / 10).toLocaleString('de-DE') : Math.ceil(f).toLocaleString('de-DE');
+}
+
 // Ziele einer Finanzierungsrunde als Fortschrittszeilen (Tech-, Prestige- und Roadmap-Tab).
 // links: offene Ziele bekommen einen Button zum Tab, in dem man sie vorantreibt.
+// XP-Ziele: Balken in Größenordnungen (goalFraction), dazu der Faktor, der noch fehlt.
 function chapterGoalRows(chapter, { links = false } = {}) {
   return `<div class="stack" style="gap:8px">${chapter.goals.map(g => {
     const [cur, target] = goalProgress(g);
     const done = cur >= target;
     const tab = goalTab(g);
     const link = links && !done && tab !== state.selectedTab ? ` <button class="btn xs" data-action="tab" data-tab="${tab}">Zum Tab</button>` : '';
-    return `<div><div class="row-between"><span>${getIcon(done ? 'check' : 'flag')} ${escapeHtml(goalLabel(g))}</span><span class="muted small mono">${fmt(Math.min(cur, target))} / ${fmt(target)}${link}</span></div>${progress(Math.min(cur, target), target, done ? 'thin good' : 'thin')}</div>`;
+    const factor = g.type === 'xpEarned' && !done && cur > 0
+      ? ` · <span ${tt('Noch nötig', 'XP wachsen mit jedem Refactor um ein Vielfaches. Der Balken zählt deshalb Größenordnungen ab Rundenbeginn: Jede Verdopplung füllt gleich viel.')}>noch ×${fmtFactor(target / cur)}</span>`
+      : '';
+    return `<div><div class="row-between"><span>${getIcon(done ? 'check' : 'flag')} ${escapeHtml(goalLabel(g))}</span><span class="muted small mono">${fmt(Math.min(cur, target))} / ${fmt(target)}${factor}${link}</span></div>${progress(goalFraction(g), 1, done ? 'thin good' : 'thin')}</div>`;
   }).join('')}</div>`;
 }
 

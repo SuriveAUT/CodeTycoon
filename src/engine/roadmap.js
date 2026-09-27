@@ -61,6 +61,17 @@ export function goalDone(goal, s = state) {
   return cur >= target;
 }
 
+// Füllstand 0–1 des Fortschrittsbalkens. XP wachsen pro Refactor um ein Vielfaches, linear stünde der Balken tagelang
+// fast leer: Das XP-Ziel zählt deshalb Größenordnungen, logarithmisch vom Stand beim Rundenbeginn (roadmap.startXp).
+export function goalFraction(goal, s = state) {
+  const [cur, target] = goalProgress(goal, s);
+  if (cur >= target) return 1;
+  if (goal.type !== 'xpEarned') return target > 0 ? cur / target : 0;
+  const start = Math.min(cur, s.roadmap?.startXp || 0);
+  const span = Math.log1p(target) - Math.log1p(start);
+  return span > 0 ? Math.max(0, (Math.log1p(cur) - Math.log1p(start)) / span) : 0;
+}
+
 // Läuft in runProgressChecks (1×/s): alle Ziele der aktuellen Runde erfüllt → nächste Runde.
 export function checkRoadmap(silent) {
   for (let guard = 0; guard < CHAPTERS.length; guard++) {
@@ -70,6 +81,7 @@ export function checkRoadmap(silent) {
     if (!chapter || !next || !chapter.goals.length || !chapter.goals.every(g => goalDone(g))) return;
     setState('roadmap', 'chapter', idx + 1);
     setState('roadmap', 'reachedAt', idx + 1, Date.now());
+    setState('roadmap', 'startXp', state.stats.xpEarned || 0);
     log(`🚀 Finanzierungsrunde ${next.name} erreicht${chapter.rewardLabel ? ` – ${chapter.rewardLabel}` : ''}.`);
     if (!silent) emitToast(`Finanzierungsrunde ${next.name} erreicht`, 'good');
   }
