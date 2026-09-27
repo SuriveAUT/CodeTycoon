@@ -28,6 +28,7 @@ import { getLabProject } from '../data/lab.js';
 import { CHAPTERS } from '../data/chapters.js';
 import { MANDATES, getMandate } from '../data/mandates.js';
 import { selectMandate, depositMandate, mandatesCompleted, mandateLevel, mandateRound } from '../engine/mandates.js';
+import { answerMail, markMailsRead } from '../engine/mail.js';
 import { armDesktopNotify, disarmDesktopNotify, toggleDesktopNotify } from '../lib/desktopNotify.js';
 
 const FRESH_FLAG = 'codetycoon-fresh-start';
@@ -179,6 +180,8 @@ export default function App() {
     const elapsed = elapsedSec ?? Math.max(0, (Date.now() - last) / 1000);
     if (elapsed < 10) return;
     const { sim, cap, efficiency, gains: gainsByRes } = simulateOffline(elapsed);
+    // Mehr als ein Tag weg: zählt für die „Willkommen zurück“-Mail (kommt beim nächsten Tick mit Toast)
+    if (elapsed >= 86400) setState('stats', 'longAbsences', (state.stats.longAbsences || 0) + 1);
     const gains = RESOURCES.map(r => [r, gainsByRes[r]]).filter(([, d]) => d >= 0.5).sort((a, z) => z[1] - a[1]).slice(0, 4);
     const summary = gains.length ? gains.map(([r, d]) => `+${fmt(d)} ${RESOURCE_LABELS[r]}`).join(', ') : 'nichts Nennenswertes';
     gameLog(`Offline ${fmtSec(sim)} (${Math.round(efficiency * 100)}%): ${summary}.`);
@@ -323,6 +326,8 @@ export default function App() {
 
   function selectTab(tab) {
     if (!VALID_TABS.has(tab)) return;
+    // Postfach verlassen: gelesen (beim Öffnen sieht man noch, was neu ist)
+    if (state.selectedTab === 'mail' && tab !== 'mail') markMailsRead();
     setState('selectedTab', tab);
     renderAll(true);
     window.scrollTo({ top: 0 });
@@ -453,6 +458,12 @@ export default function App() {
       case 'mandate-select': {
         if (selectMandate(id)) showToast(`Vorstandsmandat übernommen: ${getMandate(id)?.name}`, 'good');
         else showToast('Das Mandat kann gerade nicht übernommen werden.', 'warn');
+        done(); return;
+      }
+      // ── Postfach ──
+      case 'mail-answer': {
+        const parts = answerMail(id, Number(btn.dataset.index || 0));
+        if (parts) showToast(`Antwort gesendet${parts.length ? `: ${parts.join(', ')}` : ''}`, 'good');
         done(); return;
       }
       case 'mandate-deposit': {

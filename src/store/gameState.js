@@ -13,6 +13,7 @@ import { CHAPTERS } from '../data/chapters.js';
 import { MAX_DIVIDEND_BONUS, DIVIDEND_PER_SHARE } from '../data/stocks.js';
 import { LAB_PROJECTS } from '../data/lab.js';
 import { MANDATES, MANDATE_STEPS } from '../data/mandates.js';
+import { getMail } from '../data/mails.js';
 import { emitToast } from '../lib/toast.js';
 
 export const SAVE_KEY = 'dev-tycoon-save-v1';
@@ -100,6 +101,8 @@ export function defaultState() {
       releasedEver: [],
       // Code des besten Runs (beim Refactor festgehalten) – Maßstab für die Vorstands-Sprints
       bestRunScrap: 0,
+      // Rückkehr nach mehr als 24 h Pause (App.jsx, Offline-Nachholen) – für die „Willkommen zurück“-Mail
+      longAbsences: 0,
       runStartedAt: Date.now(),
       lastSave: Date.now(),
       firstSeen: Date.now()
@@ -120,6 +123,8 @@ export function defaultState() {
     // Vorstandsmandate (engine/mandates.js): aktives Mandat, erfüllte Durchgänge je Mandat, Schritte des laufenden
     // Durchgangs, Sprint-Ziel beim Übernehmen, zuletzt gefeierte Abschlüsse (App.jsx)
     mandates: { active: null, levels: {}, progress: {}, sprintGoals: {}, budget: {}, seen: 0, last: null },
+    // Story-Postfach (engine/mail.js): zugestellte Mails { id, at, read, choice }
+    mail: { inbox: [], initialized: false },
     // R&D-Labor (engine/lab.js): laufende Projekte mit Endzeit, abgeholte Projekte, Stufen endloser Projekte,
     // eingeplante (vorab bezahlte) Folgeprojekte
     lab: { running: [], done: [], levels: {}, queued: [] },
@@ -317,6 +322,20 @@ export function normalizeState(candidate) {
     last: knownMandates.has(md.last) ? md.last : null
   };
   merged.stats.bestRunScrap = Math.max(0, asFiniteNumber(merged.stats.bestRunScrap, 0));
+  merged.stats.longAbsences = Math.max(0, Math.floor(asFiniteNumber(merged.stats.longAbsences, 0)));
+  // Story-Postfach: nur bekannte Mails, jede einmal, Antwort-Index nur wenn die Mail Antworten hat
+  const mailIds = new Set();
+  const mb = merged.mail && typeof merged.mail === 'object' ? merged.mail : {};
+  merged.mail = {
+    initialized: mb.initialized === true,
+    inbox: (Array.isArray(mb.inbox) ? mb.inbox : [])
+      .filter(m => m && getMail(m.id) && !mailIds.has(m.id) && mailIds.add(m.id))
+      .map(m => {
+        const choices = getMail(m.id).choices?.length || 0;
+        const choice = Number.isInteger(m.choice) && m.choice >= 0 && m.choice < choices ? m.choice : null;
+        return { id: m.id, at: asFiniteNumber(m.at, 0), read: m.read === true, choice };
+      })
+  };
   merged.stats.releasedEver = Array.isArray(merged.stats.releasedEver) ? merged.stats.releasedEver.filter(id => knownProj.has(id)) : [];
   const knownLab = new Set(LAB_PROJECTS.map(p => p.id));
   merged.lab.running = Array.isArray(merged.lab.running)
