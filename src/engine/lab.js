@@ -7,6 +7,7 @@ import { currentRates } from '../store/bonuses.js';
 import { LAB_PROJECTS, LAB_MIN_COST, LAB_MAX_STOCK_SHARE, getLabProject } from '../data/lab.js';
 import { roundRewardSum, chapterIndex } from './roadmap.js';
 import { emitToast } from '../lib/toast.js';
+import { mandateUnlockSum, mandateUnlocked, mandateStepDone, mandateLabHours, completeMandateStep } from './mandates.js';
 
 const HOUR_MS = 3600e3;
 
@@ -15,14 +16,15 @@ export function labUnlocked(s = state) {
   return (s.stats.prestigeCount || 0) > 0 || (s.lab?.done || []).length > 0;
 }
 
-// Ein Slot, dazu Rundenbelohnungen (Seed, Series B)
-export function labSlots(s = state) { return 1 + roundRewardSum('labSlots', s); }
+// Ein Slot, dazu Rundenbelohnungen (Seed, Series B) und das Mandat „Souveräne Cloud“
+export function labSlots(s = state) { return 1 + roundRewardSum('labSlots', s) + mandateUnlockSum('labSlots', s); }
 export function labFreeSlots(s = state) { return Math.max(0, labSlots(s) - (s.lab?.running || []).length); }
 export function labRunning(id, s = state) { return (s.lab?.running || []).find(r => r.id === id) || null; }
 export function labReady(s = state, now = Date.now()) { return (s.lab?.running || []).filter(r => r.endsAt <= now); }
 export function labLevel(id, s = state) { return s.lab?.levels?.[id] || 0; }
 
 export function labDurationMs(def, s = state) {
+  if (def.mandate) return mandateLabHours(def, s) * HOUR_MS;
   if (!def.repeatable) return def.hours * HOUR_MS;
   return Math.min(def.maxHours || 24, def.hours + (def.hoursPerLevel || 0) * labLevel(def.id, s)) * HOUR_MS;
 }
@@ -43,12 +45,16 @@ export function labCost(def, s = state, extraLevels = 0) {
 
 // 'done' | 'ready' (fertig, abholen) | 'running' | 'queued' (eingeplant) | 'locked' (spätere Runde) | 'skipped' | 'available'
 // skipped: Schlüsselprojekt einer Runde, die schon hinter dem Spieler liegt (z. B. per Migration) – ohne Wirkung
+// Mandats-Projekte nur während ihres Mandats (bis der Schritt erledigt ist), Endlos-Projekte der Mandate erst danach
 export function labStatus(def, s = state, now = Date.now()) {
   if (!def.repeatable && (s.lab?.done || []).includes(def.id)) return 'done';
+  if (def.repeatable && def.maxLevel && labLevel(def.id, s) >= def.maxLevel) return 'done';
   const run = labRunning(def.id, s);
   if (run) return run.endsAt <= now ? 'ready' : 'running';
   if (labQueued(def.id, s)) return 'queued';
   if (def.chapter > chapterIndex(s)) return 'locked';
+  if (def.mandate && (s.mandates?.active !== def.mandate || mandateStepDone(def.mandate, 'lab', s))) return 'locked';
+  if (def.unlockMandate && !mandateUnlocked(def.unlockMandate, s)) return 'locked';
   if (def.key && def.chapter < chapterIndex(s)) return 'skipped';
   return 'available';
 }
@@ -73,12 +79,14 @@ export function startLab(id, now = Date.now()) {
   return true;
 }
 
-export function claimLab(id, now = Date.now()) {
+// Mandats-Projekte landen nicht in lab.done: Sie zählen als Schritt ihres Mandats und kommen in der nächsten Stufe wieder
+export function claimLab(id, now = Date.now(), silent = false) {
   const run = labRunning(id);
   if (!run || run.endsAt > now) return false;
   const def = getLabProject(id);
   setState('lab', 'running', state.lab.running.filter(r => r.id !== id));
-  if (def?.repeatable) setState('lab', 'levels', id, labLevel(id) + 1);
+  if (def?.mandate) completeMandateStep(def.mandate, 'lab', silent);
+  else if (def?.repeatable) setState('lab', 'levels', id, labLevel(id) + 1);
   else setState('lab', 'done', [...state.lab.done, id]);
   log(`🧪 Labor fertig: ${def?.name || id}${def?.repeatable ? ` Stufe ${labLevel(id)}` : ''}${def?.label ? ` – ${def.label}` : ''}.`);
   return true;
@@ -144,7 +152,7 @@ export function processLabQueue(now = Date.now(), silent = false) {
     const next = labQueue().find(q => !labRunning(q.id) || q.id === finished?.id);
     if (!next) return;
     const finishedName = finished ? getLabProject(finished.id)?.name : null;
-    if (finished) claimLab(finished.id, now);
+    if (finished) claimLab(finished.id, now, silent);
     setState('lab', 'queued', labQueue().filter(q => q.id !== next.id));
     const def = getLabProject(next.id);
     if (!def || (!def.repeatable && state.lab.done.includes(def.id))) { refundCost(next.cost); continue; }

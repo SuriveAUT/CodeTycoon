@@ -3,12 +3,19 @@ import { state, setState, log, techCount } from '../store/gameState.js';
 import { getChallenge } from '../data/challenges.js';
 import { runScrap, doPrestigeReset } from './actions.js';
 import { emitToast } from '../lib/toast.js';
+import { mandateStepDone, mandateSprintGoal, completeMandateStep } from './mandates.js';
 
 export function activeChallenge(s = state) { return s.challenge ? getChallenge(s.challenge) : null; }
 export function challengesDone(s = state) { return s.challengesDone || []; }
 
 // 'done' | 'active' | 'locked' | 'busy' (anderer Sprint läuft) | 'ready'
+// Vorstands-Sprints (def.mandate) nur während ihres Mandats und bis ihr Schritt erledigt ist
 export function challengeStatus(def, s = state) {
+  if (def.mandate) {
+    if (s.challenge === def.id) return 'active';
+    if (s.mandates?.active !== def.mandate || mandateStepDone(def.mandate, 'sprint', s)) return 'locked';
+    return s.challenge ? 'busy' : 'ready';
+  }
   if (challengesDone(s).includes(def.id)) return 'done';
   if (s.challenge === def.id) return 'active';
   if ((s.stats.prestigeCount || 0) < 1 || challengesDone(s).length < def.requires) return 'locked';
@@ -16,6 +23,7 @@ export function challengeStatus(def, s = state) {
 }
 
 export function challengeProgress(def, s = state) {
+  if (def.goal.mandate) return [runScrap(s), mandateSprintGoal(def.mandate, s) || Infinity];
   if (def.goal.type === 'techs') return [techCount(s), def.goal.value];
   return [runScrap(s), def.goal.value];
 }
@@ -55,6 +63,14 @@ export function checkChallenge(silent, now = Date.now()) {
     return;
   }
   const [cur, target] = challengeProgress(def);
+  if (cur >= target && def.mandate) {
+    // Vorstands-Sprint: Schritt des Mandats statt Dauerbonus, zählt nicht zu challengesDone
+    setState('challenge', null);
+    setState('stats', 'sprintsDone', (state.stats.sprintsDone || 0) + 1);
+    log(`🏆 Vorstands-Sprint geschafft: ${def.name}.`);
+    completeMandateStep(def.mandate, 'sprint', silent);
+    return;
+  }
   if (cur >= target) {
     setState('challengesDone', [...challengesDone(), def.id]);
     setState('challenge', null);

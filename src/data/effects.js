@@ -82,5 +82,9 @@ export const DOCTRINE_EFFECTS = {
   efficiency: b => { b.allMult *= 1.06; b.buildingCostMult *= 0.97; },
   expansion: b => { b.allMult *= 1.02; b.expeditionPower += 0.08; b.colonyCap += 1; },
   insight: b => { b.researchMult *= 1.12; b.relicMult *= 1.10; b.relicChance += 0.02; },
-  dominion: b => { b.influenceMult *= 1.12; b.projectCostMult *= 0.95; b.eventResist += 0.03; }
+  dominion: b => { b.influenceMult *= 1.12; b.projectCostMult *= 0.95; b.eventResist += 0.03; },
+  // Core Values aus den Vorstandsmandaten
+  sovereign: b => { b.offlineEfficiency += 0.15; b.offlineCapHours += 6; b.clickPowerMult *= 0.5; },
+  community_first: b => { b.ticketRewardMult *= 2; b.standupRewardMult *= 1.5; b.allMult *= 0.95; },
+  moonshot_mindset: b => { b.prestigeGainMult *= 1.25; b.allMult *= 0.85; }
 };

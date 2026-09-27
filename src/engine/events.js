@@ -66,7 +66,7 @@ export function completeMission(mission, b, silent) {
 
   const chipRoll = (missionDef.relicChance || 0) * 0.5 + b.relicChance * 0.3;
   if (Math.random() < chipRoll) {
-    const unownedChips = CHIPS.filter(c => !(state.ownedChips || []).includes(c.id));
+    const unownedChips = CHIPS.filter(c => !c.mandate && !(state.ownedChips || []).includes(c.id));  // Mandats-Chips gibt es nur als Belohnung
     if (unownedChips.length) {
       const weighted = unownedChips.filter(c => {
         if (c.rarity === 'epic') return Math.random() < 0.2;
@@ -159,6 +159,9 @@ export function checkAchievements(silent) {
   if (round >= 4) unlock('round_series_c');
   if (round >= 6) unlock('round_public');
   if ((state.lab?.done || []).length >= 10) unlock('lab_10');
+  const mandateLevels = Object.values(state.mandates?.levels || {});
+  if (mandateLevels.some(l => l >= 1)) unlock('mandate_first');
+  if (mandateLevels.filter(l => l >= 1).length >= 3) unlock('mandate_all');
   if (state.stats.lifetime >= 86400) unlock('playtime_1d');
   if (state.stats.lifetime >= 604800) unlock('playtime_7d');
   if (state.stats.lifetime >= 2592000) unlock('playtime_30d');

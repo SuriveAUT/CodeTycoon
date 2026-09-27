@@ -32,6 +32,6 @@ export const CHAPTERS = [
     goals: [{ type: 'release', id: 'ipo' }],
     reward: { allMult: 3 }, rewardLabel: 'Gesamt ×3' },
   { id: 'public', name: 'Börsennotiert', desc: 'Du hast es geschafft. Ab jetzt zählt nur noch das Vermächtnis.',
-    unlocks: ['Endlos-Projekte im Labor'],
+    unlocks: ['Vorstandsmandate im Roadmap-Tab'],
     goals: [] }
 ];

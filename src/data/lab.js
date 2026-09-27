@@ -62,12 +62,31 @@ export const LAB_PROJECTS = [
   { id: 'patent_pool', name: 'Patent-Pool', chapter: 2, repeatable: true, hours: 6, hoursPerLevel: 2, maxHours: 24,
     cost: { influence: 15, relics: 10 }, costGrowth: 1.25, perLevel: { prestigeGainMult: 0.05 }, label: 'XP-Gewinn +5% je Stufe',
     desc: 'Jede Idee wird angemeldet. Refactors zahlen sich mehr aus, wenn man sein Wissen schützt.' },
-  { id: 'legacy_foundation', name: 'Legacy-Stiftung', chapter: 6, repeatable: true, hours: 4, hoursPerLevel: 2, maxHours: 24,
-    cost: { influence: 20, relics: 20 }, costGrowth: 3, perLevel: { allMult: 0.1 }, label: 'Gesamt +10% je Stufe',
-    desc: 'Nach dem Börsengang: Stipendien, Open-Source-Förderung, ein Museum für alten Code.' },
-  { id: 'moonshot', name: 'Moonshot', chapter: 6, repeatable: true, hours: 4, hoursPerLevel: 2, maxHours: 24,
-    cost: { influence: 20, relics: 20 }, costGrowth: 3, perLevel: { prestigeGainMult: 0.05 }, label: 'XP-Gewinn +5% je Stufe',
-    desc: 'Die verrückten Ideen, die sich nur eine börsennotierte Firma leisten kann.' }
+
+  // ── Vorstandsmandate (data/mandates.js): nur während des Mandats startbar, zählen je Durchgang neu ──
+  { id: 'mandate_datacenter', name: 'Rechenzentrum planen', mandate: 'sovereign_cloud', chapter: 6, hours: 36,
+    cost: { influence: 30, relics: 30 }, label: 'Mandat: Souveräne Cloud',
+    desc: 'Standort, Strom, Kühlung, Glasfaser: Das eigene Rechenzentrum braucht einen belastbaren Plan.' },
+  { id: 'mandate_foundation', name: 'Open-Source-Stiftung gründen', mandate: 'open_infrastructure', chapter: 6, hours: 36,
+    cost: { influence: 30, relics: 30 }, label: 'Mandat: Öffentliche Infrastruktur',
+    desc: 'Satzung, Beirat, erste Förderprojekte. Die Stiftung gehört bald allen, nicht nur dir.' },
+  { id: 'mandate_agi_research', name: 'AGI-Forschung', mandate: 'moonshot', chapter: 6, hours: 36,
+    cost: { influence: 30, relics: 30 }, label: 'Mandat: Moonshot',
+    desc: 'Die besten Köpfe, die größten Cluster, eine einzige Frage: Kann die Maschine selbst denken?' },
+
+  // ── Endlos-Projekte der Mandate: nach dem ersten Abschluss des Mandats (unlockMandate) ──
+  { id: 'datacenter_expansion', name: 'RZ-Ausbau', unlockMandate: 'sovereign_cloud', chapter: 6, repeatable: true,
+    hours: 6, hoursPerLevel: 2, maxHours: 24, cost: { influence: 20, relics: 20 }, costGrowth: 2,
+    perLevel: { offlineCapHours: 1, offlineEfficiency: 0.01 }, label: 'Offline-Limit +1 h und Effizienz +1% je Stufe',
+    desc: 'Noch ein Serverraum, noch eine Notstromanlage. Die Firma läuft immer länger ohne dich.' },
+  { id: 'community_program', name: 'Community-Programm', unlockMandate: 'open_infrastructure', chapter: 6, repeatable: true,
+    hours: 6, hoursPerLevel: 2, maxHours: 24, cost: { influence: 20, relics: 20 }, costGrowth: 2,
+    perLevel: { ticketRewardMult: 0.1, standupRewardMult: 0.1 }, label: 'Tickets und Standup +10% je Stufe',
+    desc: 'Meetups, Mentoring, Bug-Bounties. Die Community erledigt die Tagesarbeit gleich mit.' },
+  { id: 'acquisition_team', name: 'Übernahme-Team', unlockMandate: 'moonshot', chapter: 6, repeatable: true, maxLevel: 10,
+    hours: 6, hoursPerLevel: 2, maxHours: 24, cost: { influence: 20, relics: 20 }, costGrowth: 2,
+    perLevel: { buildingCarryover: 0.02 }, label: 'Behält 2% der Mitarbeiter je Stufe über den Refactor (max. 20%)',
+    desc: 'Nach jedem Refactor wechselt ein eingespieltes Kernteam direkt in die neue Firma.' }
 ];
 
 export const LAB_MIN_COST = 100;
