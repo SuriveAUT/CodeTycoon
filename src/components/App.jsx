@@ -26,6 +26,7 @@ import { getChallenge, CHALLENGES } from '../data/challenges.js';
 import { startLab, claimLab } from '../engine/lab.js';
 import { getLabProject } from '../data/lab.js';
 import { CHAPTERS } from '../data/chapters.js';
+import { armDesktopNotify, disarmDesktopNotify, toggleDesktopNotify } from '../lib/desktopNotify.js';
 
 const FRESH_FLAG = 'codetycoon-fresh-start';
 
@@ -325,6 +326,9 @@ export default function App() {
       case 'cyber-event-click': clickCyberEvent(); renderAll(); return;
       case 'decide': resolveDecision(Number(btn.dataset.index || 0)); done(); return;
       case 'toggle-setting': toggleSetting(id); renderAll(true); return;
+      case 'toggle-desktop-notify':
+        toggleDesktopNotify().then(r => { if (r.text) showToast(r.text, r.on ? 'good' : 'warn', true); renderAll(true); });
+        return;
       case 'manual-click': runManualClick(btn); return;
       case 'tab': selectTab(btn.dataset.tab); return;
       case 'set-buy-amount': {
@@ -401,7 +405,7 @@ export default function App() {
       // ── Tages-Loop ──
       case 'daily-claim': {
         const info = claimStandup();
-        if (info) showToast(`Daily Standup, Tag ${info.streak}:${rewardText(info.reward)}${info.week ? ' + Retro-Bonus ×2' : ''}${info.labSped ? ` · Labor ${info.week ? '2 h' : '30 min'} schneller` : ''}`, 'good', true);
+        if (info) showToast(`Daily Standup, Tag ${info.streak}:${rewardText(info.reward)}${info.week ? ` + Retro-Bonus ×2${info.boostQueued ? ' (nach dem laufenden Boost)' : ''}` : ''}${info.labSped ? ` · Labor ${info.week ? '2 h' : '30 min'} schneller` : ''}`, 'good', true);
         done(); return;
       }
       // ── Labor ──
@@ -876,8 +880,10 @@ export default function App() {
           if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
           saveState();
           if (AstraforgeAPI.isLoggedIn()) forceCloudSync().catch(() => {});
+          armDesktopNotify();
           return;
         }
+        disarmDesktopNotify();
         const resume = () => {
           if (document.hidden) return;
           catchUpGap();

@@ -63,6 +63,13 @@ export function processTick(dt, opts = {}) {
     if (!silent) log(`Boost vorbei: ${state.boost.name}.`);
     setState('boost', null);
   }
+  // Wartende Boosts (engine/daily.js → setBoost) starten, sobald keiner mehr läuft
+  if (!state.boost && state.boostQueue?.length) {
+    const [next, ...rest] = state.boostQueue;
+    setState('boost', { name: next.name, effects: { ...next.effects }, endsAt: now + next.duration });
+    setState('boostQueue', rest);
+    if (!silent) log(`Boost startet: ${next.name}.`);
+  }
 
   const b = computeBonuses();
   setState('cache', 'bonuses', b);

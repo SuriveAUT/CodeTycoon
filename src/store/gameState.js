@@ -105,6 +105,8 @@ export function defaultState() {
     daily: { lastClaimDay: -1, streak: 0, bestStreak: 0, claimsTotal: 0, ticketsDay: -1, tickets: [], rerolls: 0, allDoneDay: -1, ticketsDone: 0 },
     coffee: { beans: 1, nextBeanAt: Date.now() + COFFEE_INTERVAL_MS, used: 0 },
     boost: null,
+    // Wartende Boosts {name, effects, duration}: starten nacheinander, sobald keiner mehr läuft (engine/tick.js)
+    boostQueue: [],
     // Sprints (engine/challenges.js)
     challenge: null,
     challengesDone: [],
@@ -316,6 +318,14 @@ export function normalizeState(candidate) {
   merged.coffee.nextBeanAt = asFiniteNumber(merged.coffee.nextBeanAt, 0);
   merged.coffee.used = Math.max(0, Math.floor(asFiniteNumber(merged.coffee.used, 0)));
   if (!merged.boost || typeof merged.boost !== 'object' || Number(merged.boost.endsAt || 0) <= Date.now()) merged.boost = null;
+  merged.boostQueue = (Array.isArray(merged.boostQueue) ? merged.boostQueue : [])
+    .filter(q => q && typeof q.name === 'string' && q.effects && typeof q.effects === 'object' && asFiniteNumber(q.duration, 0) > 0)
+    .slice(0, 10)
+    .map(q => ({
+      name: q.name,
+      effects: Object.fromEntries(Object.entries(q.effects).filter(([, v]) => Number.isFinite(v))),
+      duration: Math.min(24 * 3600e3, asFiniteNumber(q.duration, 0))
+    }));
   const knownChallenge = new Set(CHALLENGES.map(c => c.id));
   merged.challenge = knownChallenge.has(merged.challenge) ? merged.challenge : null;
   merged.challengesDone = Array.isArray(merged.challengesDone) ? merged.challengesDone.filter(id => knownChallenge.has(id)) : [];

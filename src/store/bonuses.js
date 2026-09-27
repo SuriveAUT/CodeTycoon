@@ -73,7 +73,7 @@ export function computeBonuses(s = state) {
     relicChance: 0.03,
     expeditionPower: 2, expeditionSlots: 2, colonyCap: 0,
     buildingCostMult: 1, researchCostMult: 1, projectCostMult: 1,
-    offlineCapHours: 8, offlineEfficiency: 0.5,
+    offlineCapHours: 12, offlineEfficiency: 0.5,
     prestigeGainMult: 1, eventResist: 0,
     colonyOutputMult: 1, expeditionRewardMult: 0, autoBuildBoost: 1,
     autoResearch: false, autoExpeditions: false, autoBuild: false, autoProjects: false,
