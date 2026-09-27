@@ -1,6 +1,6 @@
 // settings.js – Geräte-Einstellungen (nicht Teil des Spielstands).
 const KEY = 'codetycoon-settings';
-const DEFAULTS = { particles: true, toasts: true, sciNotation: false };
+const DEFAULTS = { particles: true, toasts: true, sciNotation: false, desktopNotify: false };
 let cache = null;
 
 function load() {

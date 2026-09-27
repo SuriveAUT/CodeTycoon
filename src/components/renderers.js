@@ -23,6 +23,7 @@ import { activeChallenge, challengeStatus, challengeProgress, challengeTimeLeft,
 import { COFFEE_USES, COFFEE_MAX, STREAK_CYCLE, STANDUP_MINUTES } from '../data/daily.js';
 import { CHALLENGES } from '../data/challenges.js';
 import { getSetting } from '../lib/settings.js';
+import { desktopNotifyOn } from '../lib/desktopNotify.js';
 import { BUILDINGS, CATEGORIES, milestoneMult, nextMilestone } from '../data/buildings.js';
 import { TECHS, TECH_TIERS } from '../data/techs.js';
 import { PROJECTS } from '../data/projects.js';
@@ -250,6 +251,9 @@ function renderActiveEffects() {
   if (state.boost && state.boost.endsAt > now) {
     fx.push(`<span class="fx good" ${tt(state.boost.name, 'Temporärer Boost aus dem Tages-Loop (Tickets, Kaffee, Standup).', { meta: 'Boost' })}>${getIcon('zap')} ${escapeHtml(state.boost.name)} <span class="fx-t">${fmtSec((state.boost.endsAt - now) / 1000)}</span></span>`);
   }
+  (state.boostQueue || []).forEach((q, i) => {
+    fx.push(`<span class="fx" ${tt(q.name, 'Wartet und startet, sobald der Boost davor endet. Boosts laufen nacheinander, keiner geht verloren.', { meta: `Boost, Platz ${i + 1} in der Warteschlange` })}>${getIcon('time')} ${escapeHtml(q.name)} <span class="fx-t">danach ${fmtSec(q.duration / 1000)}</span></span>`);
+  });
   const sprint = activeChallenge();
   if (sprint) {
     const [cur, target] = challengeProgress(sprint);
@@ -1070,7 +1074,7 @@ function renderCodex() {
     ['Bugs & Module', 'QA Tester verwandeln Code in Bugs, NPM Install Bugs in Module. Beides braucht man für Releases, Growth Hacker und Standorte.'],
     ['Hype & Legacy', 'Tech Blogger machen aus Ideas Hype (für Standorte, große Releases). Code-Archäologen und Aufträge liefern Legacy Code.'],
     ['Prestige', `Ein Hard Refactor gibt XP = ${PRESTIGE_XP_BASE}·∛(Run-Code/10 Mio.). XP kauft permanente Chronicle-Upgrades. Ab ~10 XP lohnt es sich.`],
-    ['Offline', 'Bis zum Offline-Limit (Standard 8h) wird mit 50% Effizienz weitergerechnet. Chronicle-Upgrades erhöhen beides.'],
+    ['Offline', 'Bis zum Offline-Limit (Standard 12h) wird mit 50% Effizienz weitergerechnet. Chronicle-Upgrades erhöhen beides.'],
     ['Daily Standup', 'Einmal pro Tag im Büro abholen: Minuten deiner Produktion geschenkt, steigend mit der Streak. Tag 7 gibt Legacy Code und einen ×2-Boost. Ein verpasster Tag setzt die Streak zurück.'],
     ['Tickets & Kaffee', 'Drei Tages-Tickets mit Belohnung; alle drei → 30 min ×1,5. Kaffee reift alle 6h in Echtzeit (max. 3): Espresso (×2 für 20 min), Crunch (Aufträge sofort fertig) oder neue Tickets.'],
     ['Sprints', 'Ab dem ersten Refactor: Runs mit Handicap (Tab Prestige). Wer das Ziel erreicht, bekommt einen permanenten Bonus – Klick ×2, günstigere Mitarbeiter, mehr Synergie, mehr XP.']
@@ -1176,6 +1180,7 @@ function renderAccount() {
           <button class="btn sm ${getSetting('particles') ? 'good' : ''}" data-action="toggle-setting" data-id="particles">${getSetting('particles') ? getIcon('check') : ''} Klick-Partikel</button>
           <button class="btn sm ${getSetting('toasts') ? 'good' : ''}" data-action="toggle-setting" data-id="toasts">${getSetting('toasts') ? getIcon('check') : ''} Benachrichtigungen</button>
           <button class="btn sm ${getSetting('sciNotation') ? 'good' : ''}" data-action="toggle-setting" data-id="sciNotation" ${tt('Zahlenformat', 'Wissenschaftliche Schreibweise (1.5e9) statt Kürzel (1.50 B).')}>${getSetting('sciNotation') ? getIcon('check') : ''} 1e9-Notation</button>
+          <button class="btn sm ${desktopNotifyOn() ? 'good' : ''}" data-action="toggle-desktop-notify" ${tt('Desktop-Hinweise', 'Meldet sich, wenn ein Laborprojekt oder Auftrag fertig ist, Kaffee reif ist oder ein neuer Tag beginnt (ab 8 Uhr). Nur solange der Tab im Hintergrund offen ist; der Browser fragt beim Einschalten nach der Erlaubnis.')}>${desktopNotifyOn() ? getIcon('check') : ''} Desktop-Hinweise</button>
         </div>
         <div class="toggle-row" style="margin-top:10px">
           <button class="btn sm" data-action="export-save" ${tt('Export', 'Kopiert den Spielstand als Text in die Zwischenablage.')}>Export</button>

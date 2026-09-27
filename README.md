@@ -37,7 +37,7 @@ Ein browserbasiertes Idle-/Incremental-Game mit Startup-Thematik, Cloud-Save, gl
 
 ### Kernloop
 - Code schreiben (Klick / Leertaste) → Praktikanten einstellen → Google Ads für Revenue → SEO-Experten für Ideas → Technologien lernen → bessere Mitarbeiter.
-- **Idle**: Produktion läuft weiter, Offline-Fortschritt bis zum Offline-Limit (Standard 8 h, 50 % Effizienz – beides per Chronicle ausbaubar).
+- **Idle**: Produktion läuft weiter, Offline-Fortschritt bis zum Offline-Limit (Standard 12 h, 50 % Effizienz – beides per Chronicle ausbaubar).
 - **Autosave** lokal, optional Cloud-Sync.
 
 ### Ressourcen (8)
@@ -74,7 +74,9 @@ Klick-Button, aktuelle Aufgabe, KPIs, Tages-Loop (Daily Standup, Tickets, Kaffee
 ### Tages-Loop & Sprints
 - **Daily Standup**: einmal pro Tag im Büro abholen – Minuten deiner aktuellen Produktion, steigend mit der Streak (5 → 30 min). Tag 7 gibt Legacy Code und einen ×2-Boost; ein verpasster Tag setzt die Streak zurück.
 - **Tages-Tickets**: drei Aufgaben pro Tag aus einem Pool von zehn (Klicks, Einstellungen, Aufträge, Techs, Börse, Bugs …), Belohnung skaliert mit der Produktion. Alle drei → 30 min ×1,5.
-- **Kaffee**: reift alle 6 h in Echtzeit (auch offline, max. 3). Espresso (×2 für 20 min), Crunch (laufende Aufträge sofort fertig) oder neue Tickets würfeln.
+- **Kaffee**: reift alle 6 h in Echtzeit (auch offline, max. 3). Espresso (×2 für 20 min), Crunch (laufende Aufträge sofort fertig), Überstunden (Labor −3 h) oder neue Tickets würfeln.
+- **Boosts** (Tages-Bonus, Retro-Bonus, Espresso) laufen nacheinander: Kommt einer dazu, während ein anderer läuft, wartet er und startet danach – nach einer Abwesenheit erst beim Zurückkommen.
+- **Desktop-Hinweise** (Account-Tab, optional): Labor fertig, Kaffee reif, neuer Tag (ab 8 Uhr) und Aufträge fertig, solange der Tab im Hintergrund offen ist.
 - **Sprints** (Prestige-Tab, ab dem ersten Refactor): Runs mit Handicap und Ziel. Belohnungen sind permanent: Klick ×2, Konverter −10 % Input, Mitarbeiter −5 %, Team-Synergie +25 %, Forschung −10 %, XP +15 %.
 
 ### Prestige (Hard Refactor)

@@ -40,10 +40,19 @@ export function rewardText(reward) {
   return parts.length ? ' ' + parts.join(', ') : '';
 }
 
-// Temporärer Boost (Tages-Bonus, Espresso, Retro-Bonus); nur einer gleichzeitig, ersetzt den laufenden.
+// Temporärer Boost (Tages-Bonus, Espresso, Retro-Bonus). Es läuft immer nur einer; läuft schon einer, wartet der
+// neue in state.boostQueue und startet danach (engine/tick.js). Gibt true zurück, wenn er sofort läuft.
 export function setBoost(boost, now = Date.now()) {
+  if (state.boost && state.boost.endsAt > now) {
+    setState('boostQueue', [...(state.boostQueue || []), { name: boost.name, effects: { ...boost.effects }, duration: boost.duration }]);
+    return false;
+  }
   setState('boost', { name: boost.name, effects: { ...boost.effects }, endsAt: now + boost.duration });
+  return true;
 }
+
+// Zusatz für Meldungen, wenn ein Boost warten muss
+function queuedNote(started) { return started ? '' : ' Startet, sobald der laufende Boost endet.'; }
 
 function counterValue(key, s = state) { return TICKET_COUNTERS[key] ? TICKET_COUNTERS[key](s) : 0; }
 
@@ -127,9 +136,9 @@ export function tickDaily(now, silent) {
   const tickets = state.daily.tickets;
   if (anyDone && tickets.length >= TICKETS_PER_DAY && tickets.every(t => t.done) && state.daily.allDoneDay !== today) {
     setState('daily', 'allDoneDay', today);
-    setBoost(TICKETS_ALL_DONE_BOOST, now);
-    log(`🏁 Alle Tickets erledigt: ${TICKETS_ALL_DONE_BOOST.name} ×1,5 für 30 min.`);
-    if (!silent) emitToast('Alle Tickets erledigt: Tages-Bonus ×1,5 für 30 min', 'good');
+    const note = queuedNote(setBoost(TICKETS_ALL_DONE_BOOST, now));
+    log(`🏁 Alle Tickets erledigt: ${TICKETS_ALL_DONE_BOOST.name} ×1,5 für 30 min.${note}`);
+    if (!silent) emitToast(`Alle Tickets erledigt: Tages-Bonus ×1,5 für 30 min.${note}`, 'good');
   }
 }
 
@@ -161,7 +170,7 @@ export function claimStandup(now = Date.now()) {
   if (!canClaimStandup(state, now)) return null;
   const info = standupReward(state, now);
   Object.entries(info.reward).forEach(([res, amt]) => { if (amt > 0) add(res, amt); });
-  if (info.week) setBoost(STANDUP_WEEK_BOOST, now);
+  if (info.week) info.boostQueued = !setBoost(STANDUP_WEEK_BOOST, now);
   // Der Standup bringt auch das Labor voran
   info.labSped = speedUpLab(info.week ? STANDUP_WEEK_LAB_SPEEDUP_MS : STANDUP_LAB_SPEEDUP_MS);
   setState('daily', 'lastClaimDay', dayKey(now));
@@ -187,8 +196,7 @@ export function useCoffee(id, now = Date.now()) {
   if ((state.coffee.beans || 0) <= 0) return { ok: false, text: 'Kein Kaffee da – die nächste Bohne braucht Zeit.' };
   let text;
   if (id === 'espresso') {
-    setBoost(use.boost, now);
-    text = 'Espresso: ×2 Produktion für 20 Minuten.';
+    text = `Espresso: ×2 Produktion für 20 Minuten.${queuedNote(setBoost(use.boost, now))}`;
   } else if (id === 'crunch') {
     const running = state.expeditions.length;
     if (!running) return { ok: false, text: 'Gerade läuft kein Auftrag.' };
