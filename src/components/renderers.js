@@ -16,6 +16,8 @@ import { CHAPTERS } from '../data/chapters.js';
 import { labUnlocked, labSlots, labFreeSlots, labRunning, labReady, labLevel, labDurationMs, labCost, labStatus, canStartLab, labQueue, labQueued, labQueueFree, labQueueCost, canQueueLab } from '../engine/lab.js';
 import { LAB_PROJECTS, getLabProject } from '../data/lab.js';
 import { MANDATES, MANDATE_STEPS, MANDATE_STEP_LABELS } from '../data/mandates.js';
+import { MAILS, MAIL_SENDERS, getMail } from '../data/mails.js';
+import { mailInbox, mailUnread, mailOpenDecisions, mailEffectLabel } from '../engine/mail.js';
 import {
   mandatesUnlocked, mandateLevel, mandatesCompleted, mandateAvailable, mandateUnlocked, mandateStepDone, mandateSprintGoal, activeMandate,
   mandateBudgetTarget, mandateBudget, mandateDepositPreview, canDepositMandate
@@ -54,6 +56,7 @@ export const TABS = [
   { id: 'market', label: 'Börse', icon: 'market', key: 'M', blurb: 'Aktien handeln.' },
   { id: 'prestige', label: 'Prestige', icon: 'prestige', key: 'S', blurb: 'Hard Refactor, XP, Chips.' },
   { id: 'roadmap', label: 'Roadmap', icon: 'flag', key: 'F', blurb: 'Finanzierungsrunden und Labor.' },
+  { id: 'mail', label: 'Postfach', icon: 'mail', key: 'N', blurb: 'Nachrichten vom Team.' },
   { id: 'codex', label: 'Codex', icon: 'codex', key: 'C', blurb: 'Errungenschaften und Hilfe.' },
   { id: 'account', label: 'Account', icon: 'account', key: 'A', blurb: 'Cloud-Save, Leaderboard.' }
 ];
@@ -179,6 +182,10 @@ export function navBadges() {
   const ready = labReady().length;
   if (ready) badges.roadmap = ready;
   else if (labUnlocked() && labFreeSlots() > 0 && LAB_PROJECTS.some(def => canStartLab(def.id))) badges.roadmap = 'dot';
+  // Postfach: ungelesene Mails, sonst Hinweis auf offene Entscheidungen
+  const unread = mailUnread();
+  if (unread) badges.mail = unread;
+  else if (mailOpenDecisions()) badges.mail = 'dot';
   return badges;
 }
 
@@ -652,6 +659,38 @@ function renderLab() {
     <div class="panel-head"><div><div class="eyebrow">R&amp;D-Labor</div><h3>${getIcon('research')} Projekte</h3><div class="sub">Projekte laufen in Echtzeit weiter, auch offline. Starte sie, bevor du gehst, und hol sie beim nächsten Besuch ab. Sind alle Slots belegt, plane je Slot ein Folgeprojekt ein – es startet automatisch, sobald eins fertig ist. Daily Standup und Kaffee „Überstunden“ machen sie schneller. Kosten: Minuten deiner Produktion, höchstens die Hälfte des Vorrats.</div></div><span class="meta">${(state.lab?.running || []).length}/${labSlots()} Slots belegt${labQueue().length ? ` · ${labQueue().length} geplant` : ""}</span></div>
     <div class="grid-auto-sm">${visible.map(labCard).join('')}</div>
     ${done.length ? `<div class="eyebrow" style="margin-top:14px">Abgeschlossen</div><div class="tag-list">${done.map(def => `<span class="chip done" ${tt(def.name, def.label || def.desc)}>${getIcon('check')} ${escapeHtml(def.name)}</span>`).join('')}</div>` : ''}
+  </section>`;
+}
+
+// ═══════════════════════════ POSTFACH (engine/mail.js) ═══════════════════════════
+function mailCard(item) {
+  const def = getMail(item.id);
+  if (!def) return '';
+  const who = MAIL_SENDERS[def.from] || { name: def.from, role: '', avatar: '✉️' };
+  const when = new Date(item.at).toLocaleString('de-AT', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+  let answer = '';
+  if (def.choices?.length && item.choice === null) {
+    answer = `<div class="toggle-row" style="margin-top:8px">${def.choices.map((c, i) => `<button class="btn sm ${i === 0 ? 'primary' : ''}" data-action="mail-answer" data-id="${def.id}" data-index="${i}" ${tt(c.label, mailEffectLabel(c))}>${escapeHtml(c.label)}</button>`).join('')}</div>`;
+  } else if (def.choices?.length) {
+    const c = def.choices[item.choice];
+    answer = `<p class="muted small" style="margin-top:8px">${getIcon('check')} ${escapeHtml(c.label)}${c.reply ? ` – ${escapeHtml(c.reply)}` : ''}</p>`;
+  }
+  return `<article class="item ${item.read ? '' : 'affordable'}">
+    <div class="item-head"><strong>${who.avatar} ${escapeHtml(def.subject)}</strong><span class="badge">${escapeHtml(who.name)}${who.role ? ` · ${escapeHtml(who.role)}` : ''}</span></div>
+    <p class="muted small">${escapeHtml(when)}</p>
+    <p>${escapeHtml(def.body)}</p>
+    ${answer}
+  </article>`;
+}
+
+function renderMail() {
+  // Neueste zuerst; gleiche Zeit (still archivierte Mails eines alten Spielstands) → spätere Geschichte zuerst
+  const order = id => MAILS.findIndex(m => m.id === id);
+  const inbox = [...mailInbox()].sort((a, z) => (z.at - a.at) || (order(z.id) - order(a.id)));
+  const open = mailOpenDecisions();
+  return `<section class="panel">
+    <div class="panel-head"><div><div class="eyebrow">Postfach</div><h3>${getIcon('mail')} Nachrichten</h3><div class="sub">Das Team, dein Business Angel und später der Aufsichtsrat melden sich bei wichtigen Momenten. Manche Mails wollen eine Entscheidung – sie warten, bis du antwortest.</div></div><span class="meta">${inbox.length} Mails${open ? ` · ${open} offen` : ''}</span></div>
+    ${inbox.length ? `<div class="stack">${inbox.map(mailCard).join('')}</div>` : emptyState('mail', 'Noch keine Post', 'Die erste Mail kommt gleich – Lena tippt schon.')}
   </section>`;
 }
 
@@ -1403,6 +1442,7 @@ export function renderTabContent() {
     case 'market': return renderMarket();
     case 'prestige': return renderPrestige();
     case 'roadmap': return renderRoadmap();
+    case 'mail': return renderMail();
     case 'codex': return renderCodex();
     case 'account': return renderAccount();
     case 'admin': return renderAdmin();

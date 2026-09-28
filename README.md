@@ -97,11 +97,14 @@ Zufallsereignisse, interaktive Cyber-Events (Ransomware, DDoS, Investor Call …
 ### Börse
 Serverbasierter Aktienmarkt (alle Spieler sehen dieselben Kurse, sie schwanken täglich um den Basispreis). Jede Aktie erhöht die Produktion ihrer Ressource um 0,01 % (max. +50 % je Ressource). Die Kurse skalieren mit der höchsten Tech-Stufe des Runs; das Depot gilt bis zum nächsten Refactor.
 
+### Postfach (Tab N)
+Rund 30 kurze Mails von festen Figuren – Lena (CTO), Marco (Business Angel, später Aufsichtsrat), Kim (Head of People) und dem Aufsichtsrat – zu wichtigen Momenten: erste Tech, Refactor, jede Finanzierungsrunde, Labor, Sprints, Streaks, Börsengang, Vorstandsmandate, Rückkehr nach längerer Pause. Etwa jede vierte Mail will eine Entscheidung mit kleiner Wirkung (Ressourcen-Minuten, Boost, Labor schneller, Kaffee); sie wartet, bis du antwortest. Bei alten Spielständen landet schon Erreichtes still im Archiv.
+
 ### Cloud & Community
 JWT-Login, Cloud-Save mit Konfliktauflösung, Leaderboard, Profile, globaler Chat mit Befehlen.
 
 ### Tastatur
-`Leertaste` Code schreiben · `O B R P E M S C A` Tabs · `1 2 3 4` Kaufmenge · `Esc` Modal schließen
+`Leertaste` Code schreiben · `O B R P E M S F N C A` Tabs · `1 2 3 4` Kaufmenge · `Esc` Modal schließen
 
 ---
 

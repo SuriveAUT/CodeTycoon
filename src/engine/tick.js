@@ -11,6 +11,7 @@ import { tickTheme } from './themeEngine.js';
 import { tickDaily } from './daily.js';
 import { checkChallenge } from './challenges.js';
 import { processLabQueue } from './lab.js';
+import { checkMail } from './mail.js';
 import { checkRoadmap } from './roadmap.js';
 
 let lastChecksAt = 0;
@@ -36,6 +37,7 @@ export function runProgressChecks(silent) {
   checkQuests(silent);
   checkRoadmap(silent);
   processLabQueue(Date.now(), silent);  // nicht in den Offline-Schritten: abgeholte Projekte wirken erst ab jetzt
+  checkMail(silent);
 }
 
 /**
