@@ -8,7 +8,8 @@ import { ARTIFACTS } from '../data/artifacts.js';
 import { zeroResources, chronicleCostFor } from '../data/misc.js';
 import { QUESTS } from '../data/quests.js';
 import { COFFEE_INTERVAL_MS } from '../data/daily.js';
-import { CHALLENGES } from '../data/challenges.js';
+import { CHALLENGES, getChallenge } from '../data/challenges.js';
+import { PACKAGE_TYPES, COMMUNITY_MAX_PENDING, COMMUNITY_MAX_CLAIMED } from '../data/community.js';
 import { CHAPTERS } from '../data/chapters.js';
 import { MAX_DIVIDEND_BONUS, DIVIDEND_PER_SHARE } from '../data/stocks.js';
 import { LAB_PROJECTS } from '../data/lab.js';
@@ -18,7 +19,7 @@ import { emitToast } from '../lib/toast.js';
 
 export const SAVE_KEY = 'dev-tycoon-save-v1';
 export const BUY_AMOUNTS = [1, 10, 100, 'max'];
-const VERSION = 9;
+const VERSION = 10;
 
 // Sehr alte Saves (Astraforge-Weltraum-Thema) auf die aktuellen IDs mappen.
 const ID_MAP = {
@@ -103,6 +104,11 @@ export function defaultState() {
       bestRunScrap: 0,
       // Rückkehr nach mehr als 24 h Pause (App.jsx, Offline-Nachholen) – für die „Willkommen zurück“-Mail
       longAbsences: 0,
+      // Wochenwertung (engine/weekly.js): Nennstunden abgeholter Laborprojekte (Lebenszeit), Code bei Minute 30
+      // der letzten normalen Runs (Normalwert des Wochen-Sprints), Messung im laufenden Run
+      labHours: 0,
+      parMarks: [],
+      run30: { run: 0, at: 0, scrap: 0, done: false },
       runStartedAt: Date.now(),
       lastSave: Date.now(),
       firstSeen: Date.now()
@@ -125,6 +131,11 @@ export function defaultState() {
     mandates: { active: null, levels: {}, progress: {}, sprintGoals: {}, budget: {}, seen: 0, last: null },
     // Story-Postfach (engine/mail.js): zugestellte Mails { id, at, read, choice }
     mail: { inbox: [], initialized: false },
+    // Community (engine/community.js): Stand vom Server (Mitwirkende*r, fertige Projekte, eigene Pakete,
+    // Wochen-Abzeichen), abgeholte Meilenstein-Belohnungen und noch nicht bestätigte Pakete (bezahlt, Buchung offen)
+    community: { contributor: false, projectsDone: 0, packagesTotal: 0, badges: 0, claimed: [], pending: [] },
+    // Wochenwertung (engine/weekly.js): bester Wochen-Sprint der Woche `week`, Versuche, aktuelle Labor-Slots
+    weekly: { week: '', sprintBest: 0, attempts: 0, labSlots: 1 },
     // R&D-Labor (engine/lab.js): laufende Projekte mit Endzeit, abgeholte Projekte, Stufen endloser Projekte,
     // eingeplante (vorab bezahlte) Folgeprojekte
     lab: { running: [], done: [], levels: {}, queued: [] },
@@ -336,10 +347,48 @@ export function normalizeState(candidate) {
         return { id: m.id, at: asFiniteNumber(m.at, 0), read: m.read === true, choice };
       })
   };
+  // Community: Serverstand als Zahlen, gemerkte Belohnungen (Strings), unbestätigte Pakete nur vollständig
+  const knownPackages = new Set(PACKAGE_TYPES.map(p => p.id));
+  const cm = merged.community && typeof merged.community === 'object' ? merged.community : {};
+  merged.community = {
+    contributor: cm.contributor === true,
+    projectsDone: Math.max(0, Math.floor(asFiniteNumber(cm.projectsDone, 0))),
+    packagesTotal: Math.max(0, Math.floor(asFiniteNumber(cm.packagesTotal, 0))),
+    badges: Math.max(0, Math.floor(asFiniteNumber(cm.badges, 0))),
+    claimed: [...new Set((Array.isArray(cm.claimed) ? cm.claimed : []).filter(id => typeof id === 'string' && id.length <= 24))].slice(-COMMUNITY_MAX_CLAIMED),
+    pending: (Array.isArray(cm.pending) ? cm.pending : [])
+      .filter(p => p && typeof p.requestId === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(p.requestId)
+        && Number.isInteger(p.projectId) && p.projectId > 0 && knownPackages.has(p.type))
+      .slice(0, COMMUNITY_MAX_PENDING)
+      .map(p => ({
+        requestId: p.requestId,
+        projectId: p.projectId,
+        type: p.type,
+        at: asFiniteNumber(p.at, 0),
+        cost: Object.fromEntries(Object.entries(p.cost && typeof p.cost === 'object' ? p.cost : {})
+          .filter(([res, v]) => res in base.resources && Number.isFinite(v) && v >= 0))
+      }))
+  };
+  // Wochenwertung und ihre Messungen (engine/weekly.js)
+  const wk = merged.weekly && typeof merged.weekly === 'object' ? merged.weekly : {};
+  merged.weekly = {
+    week: typeof wk.week === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(wk.week) ? wk.week : '',
+    sprintBest: Math.min(100, Math.max(0, asFiniteNumber(wk.sprintBest, 0))),
+    attempts: Math.max(0, Math.floor(asFiniteNumber(wk.attempts, 0))),
+    labSlots: Math.min(4, Math.max(1, Math.floor(asFiniteNumber(wk.labSlots, 1))))
+  };
+  merged.stats.labHours = Math.max(0, asFiniteNumber(merged.stats.labHours, 0));
+  merged.stats.parMarks = (Array.isArray(merged.stats.parMarks) ? merged.stats.parMarks : []).filter(v => Number.isFinite(v) && v > 0).slice(-5);
+  const r30 = merged.stats.run30 && typeof merged.stats.run30 === 'object' ? merged.stats.run30 : {};
+  merged.stats.run30 = { run: asFiniteNumber(r30.run, 0), at: asFiniteNumber(r30.at, 0), scrap: Math.max(0, asFiniteNumber(r30.scrap, 0)), done: r30.done === true };
   merged.stats.releasedEver = Array.isArray(merged.stats.releasedEver) ? merged.stats.releasedEver.filter(id => knownProj.has(id)) : [];
   const knownLab = new Set(LAB_PROJECTS.map(p => p.id));
   merged.lab.running = Array.isArray(merged.lab.running)
-    ? merged.lab.running.filter(r => r && knownLab.has(r.id) && Number.isFinite(r.endsAt)).map(r => ({ id: r.id, startedAt: asFiniteNumber(r.startedAt, 0), endsAt: r.endsAt }))
+    ? merged.lab.running.filter(r => r && knownLab.has(r.id) && Number.isFinite(r.endsAt)).map(r => ({
+      id: r.id, startedAt: asFiniteNumber(r.startedAt, 0), endsAt: r.endsAt,
+      // Nennstunden beim Start (Wochenwertung „Forschung“); fehlen bei Projekten aus älteren Versionen
+      ...(Number.isFinite(r.hours) && r.hours > 0 ? { hours: r.hours } : {})
+    }))
     : [];
   merged.lab.done = Array.isArray(merged.lab.done) ? [...new Set(merged.lab.done.filter(id => knownLab.has(id)))] : [];
   const repeatable = new Set(LAB_PROJECTS.filter(p => p.repeatable).map(p => p.id));
@@ -380,7 +429,8 @@ export function normalizeState(candidate) {
       duration: Math.min(24 * 3600e3, asFiniteNumber(q.duration, 0))
     }));
   const knownChallenge = new Set(CHALLENGES.map(c => c.id));
-  merged.challenge = knownChallenge.has(merged.challenge) ? merged.challenge : null;
+  // Laufender Sprint: regulär, Vorstands- oder Wochen-Sprint (getChallenge kennt alle drei)
+  merged.challenge = typeof merged.challenge === 'string' && getChallenge(merged.challenge) ? merged.challenge : null;
   merged.challengesDone = Array.isArray(merged.challengesDone) ? merged.challengesDone.filter(id => knownChallenge.has(id)) : [];
 
   if (merged.stats.prestigeCount > 0 && !candidate.stats?.totalAtLastPrestige) {

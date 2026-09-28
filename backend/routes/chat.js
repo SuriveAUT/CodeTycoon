@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const db = require('../db');
 const { censorProfanity, censorChatRows } = require('../lib/profanityFilter');
 const { isAdminUser } = require('../lib/admin');
+const { postSystem: postSystemMessage } = require('../lib/chatSystem');
 
 const MSG_COOLDOWN_MS = 5000;
 const MAX_MSG_LENGTH = 200;
@@ -101,9 +102,7 @@ router.get('/messages', limitChatRead, (req, res) => {
 });
 
 function postSystem(msg, cb) {
-  db.run('INSERT INTO chat_messages (username, message) VALUES (?, ?)', ['System', msg], function(err) {
-    cb(err, this?.lastID);
-  });
+  postSystemMessage(msg).then(id => cb(null, id), err => cb(err));
 }
 
 function handleChatCommand(cmd, args, username, isAdmin, isMod, res) {

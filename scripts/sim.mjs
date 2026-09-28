@@ -64,7 +64,7 @@ async function runPool(items, limit, fn) {
 }
 
 function runChild(job, opts) {
-  const pass = ['hours', 'days', 'session', 'save', 'min-gain', 'grow', 'goals', 'hold', 'postgame', 'budget'].flatMap(k => (opts[k] !== undefined ? [`--${k}`, String(opts[k])] : [])).concat(opts.noqueue ? ['--noqueue'] : []);
+  const pass = ['hours', 'days', 'session', 'save', 'min-gain', 'grow', 'goals', 'hold', 'postgame', 'budget'].flatMap(k => (opts[k] !== undefined ? [`--${k}`, String(opts[k])] : [])).concat(opts.noqueue ? ['--noqueue'] : []).concat(opts.nocommunity ? ['--nocommunity'] : []);
   const childArgs = [fileURLToPath(import.meta.url), '--worker', '--model', job.model, '--seed', String(job.seed), ...pass];
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, childArgs, { env: { ...process.env, TZ: 'UTC' } });
@@ -143,6 +143,8 @@ async function runWorker(opts) {
   const roadmap = await load('../src/engine/roadmap.js');
   const mandates = await load('../src/engine/mandates.js');
   const { MANDATES, MANDATE_BUDGET } = await load('../src/data/mandates.js');
+  const community = await load('../src/engine/community.js');
+  const { PACKAGE_TYPES } = await load('../src/data/community.js');
   //   --budget h,l       Release-Budget der Mandate (Hype, Legacy) für die Kalibrierung
   if (opts.budget) { const [inf, rel] = String(opts.budget).split(',').map(Number); MANDATE_BUDGET.influence = inf; MANDATE_BUDGET.relics = rel; }
 
@@ -412,6 +414,29 @@ async function runWorker(opts) {
     spendXp();
   }
 
+  // Community (Open-Source-Projekt): pro Sim-Tag in der ersten Session bis zu 3 Pakete, jeweils die Art mit dem
+  // kleinsten Anteil am Vorrat; ab dem ersten Paket Mitwirkende*r. Alle 7 Tage wird ein Projekt fertig (+3 % je
+  // Projekt) – so schnell, wie drei aktive Spieler es schaffen. --nocommunity: ohne.
+  let communityFirstDay = null;
+  let communityDayIdx = -1;
+  let communityToday = 0;
+  let communityPackages = 0;
+  function communityDay() {
+    if (opts.nocommunity) return;
+    const day = Math.floor((clock - start) / 86400e3);
+    if (day !== communityDayIdx) { communityDayIdx = day; communityToday = 0; }
+    const shareOf = (cost) => { const [res, amt] = Object.entries(cost)[0]; return amt / Math.max(1, state.resources[res] || 0); };
+    while (communityToday < 3) {
+      const options = PACKAGE_TYPES.map(t => community.packageCost(t.id)).filter(cost => cost && gs.canAfford(cost)).sort((a, b) => shareOf(a) - shareOf(b));
+      if (!options.length) break;
+      gs.spend(options[0]);
+      communityToday++;
+      communityPackages++;
+      if (communityFirstDay === null) { communityFirstDay = day; setState('community', 'contributor', true); }
+    }
+    if (communityFirstDay !== null) setState('community', 'projectsDone', Math.floor((day - communityFirstDay) / 7));
+  }
+
   // Aufsichtsrat: das erste verfügbare Mandat übernehmen (Reihenfolge wie in data/mandates.js)
   function manageMandates() {
     if (!mandates.mandatesUnlocked() || mandates.activeMandate()) return;
@@ -496,6 +521,7 @@ async function runWorker(opts) {
       first = false;
       setState('cache', 'rates', bonusesMod.estimateRatesSnapshot());
       checkMarks();
+      communityDay();
       for (let s = 0; s < sessionSec && !finaleReached(); s++) activeSecond();
       botAct();
       if (!opts.noqueue) manageLab(true);  // --noqueue: Vergleich ohne Labor-Warteschlange
@@ -546,6 +572,7 @@ async function runWorker(opts) {
       challenge: state.challenge || null,
       prestigeCount: state.stats.prestigeCount || 0,
       xpEarned: chronicleTotal(),
+      community: { packages: communityPackages, projectsDone: state.community?.projectsDone || 0 },
       techs: state.techs.length,
       projects: state.projects.length,
       questIndex: state.questIndex,
@@ -632,6 +659,8 @@ function report(model, runs) {
     const perDay = runs.flatMap(r => (r.perDay || []).filter(Boolean).slice(0, 14).map(d => d.refactors));
     if (perDay.length) console.log(`Refactors pro Tag (Tag 1–14): Median ${median(perDay)}, max ${Math.max(...perDay)}`);
   }
+  const cp = runs.map(r => r.final?.community).filter(c => c && c.packages > 0);
+  if (cp.length) console.log(`Community: ${median(cp.map(c => c.packages))} Pakete, ${median(cp.map(c => c.projectsDone))} fertige Projekte → Bonus +${median(cp.map(c => c.projectsDone)) * 3} % (Median)`);
   const idle = runs.map(r => r.lab?.idleShare).filter(v => v !== null && v !== undefined);
   if (idle.length) console.log(`Labor: ${median(runs.map(r => r.lab.started))} Projekte gestartet, ${median(runs.map(r => r.lab.queued || 0))} eingeplant, Slots ${(median(idle) * 100).toFixed(1)} % ungenutzt (Median)`);
   const rounds = [...new Set(runs.flatMap(r => Object.keys(r.probes?.roundRates || {})))].sort();

@@ -6,6 +6,7 @@
 // goal:   { type: 'scrap' | 'techs', value }  – Run-Code bzw. gelernte Techs im Run
 // reward: permanenter Bonus nach Abschluss (Multiplikatoren, synergyMult = Team-Synergie-Faktor)
 // requires: so viele Sprints müssen vorher abgeschlossen sein
+import { weekIndex } from '../lib/week.js';
 
 export const CHALLENGES = [
   { id: 'sp_manual', name: 'Handbetrieb', icon: 'keyboard', requires: 0,
@@ -52,6 +53,47 @@ export const MANDATE_SPRINTS = [
     goal: { type: 'scrap', mandate: true }, rewardLabel: 'Schritt des Mandats „Moonshot“' }
 ];
 
+// Wochen-Sprint (engine/weekly.js): jede Woche ein Handicap-Paar aus den vorhandenen Regeln, 30 Minuten Zeit.
+// Gewertet wird der Run-Code bei Minute 30 gegen den eigenen Normalwert (Wochenwertung, nur Abzeichen).
+// Die Reihenfolge ist Teil der Wochenwertung: Das Backend meldet den Index (backend/lib/community.js, SPRINT_POOL_SIZE).
+export const WEEKLY_SPRINT_MINUTES = 30;
+export const WEEKLY_SPRINT_POOL = [
+  { name: 'Legacy-Freitag', icon: 'keyboard', mods: { noAuto: true, buildingCostMult: 2 }, modLabel: 'Keine Automatisierung · Mitarbeiter ×2 teurer',
+    desc: 'Das Build-System ist kaputt, alles läuft von Hand – und Personal ist knapp.' },
+  { name: 'Kreativpause', icon: 'tech', mods: { researchMult: 0.25, noSynergy: true }, modLabel: 'Ideas ×0,25 · Team-Synergie aus',
+    desc: 'Das Brainstorming fällt aus, und jeder arbeitet für sich.' },
+  { name: 'Budgetkürzung', icon: 'briefcase', mods: { buildingCostMult: 2, converterInputMult: 2 }, modLabel: 'Mitarbeiter ×2 teurer · Konverter-Input ×2',
+    desc: 'Der CFO spart: teure Leute, durstige Konverter.' },
+  { name: 'Homeoffice-Chaos', icon: 'team', mods: { noSynergy: true, noAuto: true }, modLabel: 'Team-Synergie aus · Keine Automatisierung',
+    desc: 'Keiner erreicht keinen, und die Automatisierung hängt im VPN fest.' },
+  { name: 'Serverbrand', icon: 'warning', mods: { converterInputMult: 2, researchMult: 0.25 }, modLabel: 'Konverter-Input ×2 · Ideas ×0,25',
+    desc: 'Das Rechenzentrum raucht: Konverter brauchen doppelt so viel, Ideen bleiben aus.' },
+  { name: 'Hiring Freeze', icon: 'lock', mods: { buildingCostMult: 2, noSynergy: true }, modLabel: 'Mitarbeiter ×2 teurer · Team-Synergie aus',
+    desc: 'Neue Leute kosten das Doppelte, und das Team ist in Silos zerfallen.' }
+];
+
+const WEEK_ID = /^\d{4}-\d{2}-\d{2}$/;
+const weeklyDefs = new Map();
+
+// Definition des Wochen-Sprints der Woche `weekId` (ID `wk:<weekId>`), null bei ungültiger ID
+export function weeklySprintDef(weekId) {
+  if (typeof weekId !== 'string' || !WEEK_ID.test(weekId)) return null;
+  if (!weeklyDefs.has(weekId)) {
+    const n = WEEKLY_SPRINT_POOL.length;
+    const pool = WEEKLY_SPRINT_POOL[((weekIndex(weekId) % n) + n) % n];
+    weeklyDefs.set(weekId, {
+      id: `wk:${weekId}`, weekly: true, week: weekId, requires: 0,
+      name: `Wochen-Sprint: ${pool.name}`, icon: pool.icon, desc: pool.desc,
+      mods: pool.mods, modLabel: pool.modLabel,
+      timeLimit: WEEKLY_SPRINT_MINUTES * 60e3,
+      goal: { type: 'weekly' },
+      rewardLabel: 'Wochenwertung (Abzeichen)'
+    });
+  }
+  return weeklyDefs.get(weekId);
+}
+
 export function getChallenge(id) {
+  if (typeof id === 'string' && id.startsWith('wk:')) return weeklySprintDef(id.slice(3));
   return CHALLENGES.find(c => c.id === id) || MANDATE_SPRINTS.find(c => c.id === id) || null;
 }

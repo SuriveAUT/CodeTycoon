@@ -78,6 +78,7 @@ Klick-Button, aktuelle Aufgabe, KPIs, Tages-Loop (Daily Standup, Tickets, Kaffee
 - **Boosts** (Tages-Bonus, Retro-Bonus, Espresso) laufen nacheinander: Kommt einer dazu, während ein anderer läuft, wartet er und startet danach – nach einer Abwesenheit erst beim Zurückkommen.
 - **Desktop-Hinweise** (Account-Tab, optional): Labor fertig, Kaffee reif, neuer Tag (ab 8 Uhr) und Aufträge fertig, solange der Tab im Hintergrund offen ist.
 - **Sprints** (Prestige-Tab, ab dem ersten Refactor): Runs mit Handicap und Ziel. Belohnungen sind permanent: Klick ×2, Konverter −10 % Input, Mitarbeiter −5 %, Team-Synergie +25 %, Forschung −10 %, XP +15 %.
+- **Wochen-Sprint**: jede Woche ein neues Handicap-Paar, 30 Minuten; gewertet wird der Code bei Minute 30 gegen den eigenen Normalwert (bester Stand bei Minute 30 der letzten fünf normalen Runs). Beliebig oft, der beste Versuch zählt für die Wochenwertung.
 
 ### Prestige (Hard Refactor)
 XP = 6 · ∛(Code im Run / 10 Mio.) · Struktur-Bonus. Ein Refactor braucht mindestens 10 XP bzw. 2 % der bisher verdienten XP. Erhalten bleiben Funde, Chips, Errungenschaften, Chronicle-Upgrades (11), Meilensteine (14), Finanzierungsrunde, Aufgaben-Fortschritt, Daily-Streak, Kaffee und Sprint-Belohnungen. Mainframe-Chips (10) mit Tradeoffs.
@@ -98,13 +99,18 @@ Zufallsereignisse, interaktive Cyber-Events (Ransomware, DDoS, Investor Call …
 Serverbasierter Aktienmarkt (alle Spieler sehen dieselben Kurse, sie schwanken täglich um den Basispreis). Jede Aktie erhöht die Produktion ihrer Ressource um 0,01 % (max. +50 % je Ressource). Die Kurse skalieren mit der höchsten Tech-Stufe des Runs; das Depot gilt bis zum nächsten Refactor.
 
 ### Postfach (Tab N)
-Rund 30 kurze Mails von festen Figuren – Lena (CTO), Marco (Business Angel, später Aufsichtsrat), Kim (Head of People) und dem Aufsichtsrat – zu wichtigen Momenten: erste Tech, Refactor, jede Finanzierungsrunde, Labor, Sprints, Streaks, Börsengang, Vorstandsmandate, Rückkehr nach längerer Pause. Etwa jede vierte Mail will eine Entscheidung mit kleiner Wirkung (Ressourcen-Minuten, Boost, Labor schneller, Kaffee); sie wartet, bis du antwortest. Bei alten Spielständen landet schon Erreichtes still im Archiv.
+Rund 34 kurze Mails von festen Figuren – Lena (CTO), Marco (Business Angel, später Aufsichtsrat), Kim (Head of People) und dem Aufsichtsrat – zu wichtigen Momenten: erste Tech, Refactor, jede Finanzierungsrunde, Labor, Sprints, Streaks, Börsengang, Vorstandsmandate, Community, Rückkehr nach längerer Pause. Etwa jede vierte Mail will eine Entscheidung mit kleiner Wirkung (Ressourcen-Minuten, Boost, Labor schneller, Kaffee); sie wartet, bis du antwortest. Bei alten Spielständen landet schon Erreichtes still im Archiv.
 
-### Cloud & Community
-JWT-Login, Cloud-Save mit Konfliktauflösung, Leaderboard, Profile, globaler Chat mit Befehlen.
+### Community (Tab G)
+- **Wochenwertung** (Montag 00:00 bis Sonntag 24:00, Wiener Zeit), jede Kategorie relativ zum eigenen Stand: **Wachstum** (verdiente XP der Woche geteilt durch den Stand am Montag, mindestens 1.000 XP als Basis), **Wochen-Sprint** (bester Versuch) und **Forschung** (Nennstunden abgeschlossener Laborprojekte je Slot-Tag). Wer eine Kategorie gewinnt, bekommt ein Abzeichen (Gleichstand teilt, nur mit Fortschritt); der Chat verkündet die Sieger, die Rangliste zeigt die Abzeichen. Keine Machtbelohnung.
+- **Open-Source-Projekt**: eine Kette gemeinsamer Projekte ohne Frist (OpenNimbus, Llamarama, TycoonOS …). Jedes braucht 20 Pakete pro aktivem Account; Code-, QA- und Doku-Pakete kosten 15 Minuten der eigenen Code-, Bug- bzw. Ideas-Produktion (höchstens die Hälfte des Vorrats). Kontingent 3 Pakete pro Tag, ansparbar bis 9. Bei 25/50/75 % bekommen alle Beteiligten einen Community-Schub (Gesamt ×2 für 20 min), jedes fertige Projekt gibt +3 % Gesamtproduktion für alle, die irgendwann mindestens ein Paket beigetragen haben – verpasste Projekte zählen mit.
+- Kontingent, Fortschritt und Abzeichen führt der Server; bezahlte Pakete werden bei Verbindungsproblemen später mit derselben Anfrage-ID gebucht oder erstattet.
+
+### Cloud & Chat
+JWT-Login, Cloud-Save mit Konfliktauflösung, Leaderboard (mit Wochen-Abzeichen), Profile, globaler Chat mit Befehlen.
 
 ### Tastatur
-`Leertaste` Code schreiben · `O B R P E M S F N C A` Tabs · `1 2 3 4` Kaufmenge · `Esc` Modal schließen
+`Leertaste` Code schreiben · `O B R P E M S F N G C A` Tabs · `1 2 3 4` Kaufmenge · `Esc` Modal schließen
 
 ---
 

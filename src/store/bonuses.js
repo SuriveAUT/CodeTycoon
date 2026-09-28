@@ -14,6 +14,7 @@ import { getChallenge } from '../data/challenges.js';
 import { CHAPTERS } from '../data/chapters.js';
 import { getLabProject } from '../data/lab.js';
 import { MANDATE_REPEAT_BONUS } from '../data/mandates.js';
+import { COMMUNITY_BONUS_PER_PROJECT } from '../data/community.js';
 import { clamp } from '../lib/format.js';
 
 export const MAX_COLONIES = 8;
@@ -194,6 +195,11 @@ export function computeBonuses(s = state) {
   // Doktrinen, Chips, Labor-Slots und Endlos-Projekte)
   const mandateRepeats = Object.values(s.mandates?.levels || {}).reduce((sum, lvl) => sum + Math.max(0, lvl - 1), 0);
   if (mandateRepeats > 0) b.allMult *= Math.pow(MANDATE_REPEAT_BONUS, mandateRepeats);
+
+  // Community: +3 % je fertigem Open-Source-Projekt für alle, die irgendwann ein Paket beigetragen haben
+  // (auch für verpasste Projekte – der Bonus soll niemanden unter Druck setzen)
+  const projectsDone = s.community?.contributor ? (s.community.projectsDone || 0) : 0;
+  if (projectsDone > 0) b.allMult *= 1 + COMMUNITY_BONUS_PER_PROJECT * projectsDone;
 
   // Sprints: Belohnungen abgeschlossener Sprints (permanent), Handicap des laufenden
   doneChallenges.forEach(c => applyEffects(b, c.reward));

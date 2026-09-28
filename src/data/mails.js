@@ -144,7 +144,17 @@ export const MAILS = [
     body: 'Wir expandieren! Neues Büro, neue Stadt, neue Kaffeemaschine. Ich habe mir schon einen Schreibtisch mit Aussicht reserviert. Ich komme natürlich nie hin, aber es geht ums Prinzip.' },
   { id: 'first_trade', from: 'marco', subject: 'Börsen-Tipps',
     trigger: (s) => (s.stats?.stockTrades || 0) >= 1,
-    body: 'Ich sehe, du handelst an der Börse. Ich darf dir keine Anlageberatung geben. Ich sag’s mal so: Ich habe alles in unsere eigene Aktie gesteckt. 📈 (Das ist keine Anlageberatung.)' }
+    body: 'Ich sehe, du handelst an der Börse. Ich darf dir keine Anlageberatung geben. Ich sag’s mal so: Ich habe alles in unsere eigene Aktie gesteckt. 📈 (Das ist keine Anlageberatung.)' },
+  // Community (engine/community.js, Stand vom Server)
+  { id: 'community_first', from: 'lena', subject: 'Du verschenkst Code',
+    trigger: (s) => (s.community?.packagesTotal || 0) >= 1,
+    body: 'Du hast gerade Arbeit verschenkt. Freiwillig. An Leute im Internet. Ich war noch nie so stolz auf dich. Wenn das Projekt fertig ist, läuft es bei allen Mitwirkenden ein bisschen besser – bei uns auch.' },
+  { id: 'community_project', from: 'marco', subject: 'Wir stehen in den Credits!!!',
+    trigger: (s) => s.community?.contributor === true && (s.community?.projectsDone || 0) >= 1,
+    body: 'Das Open-Source-Projekt ist fertig und unser Name steht in den Credits!!! Open Source ist das neue Blockchain, glaub mir. Und das Beste: +3 % Produktion für jedes fertige Projekt, für immer. Ich hab’s ja immer gesagt.' },
+  { id: 'weekly_badge', from: 'kim', subject: 'Ein Abzeichen!',
+    trigger: (s) => (s.community?.badges || 0) >= 1,
+    body: 'Du hast eine Wochenwertung gewonnen – herzlichen Glückwunsch! Nur zur Sicherheit: Abzeichen sind zum Freuen da, nicht zum Stressen. Nächsten Montag geht alles von vorn los.' }
 ];
 
 export function getMail(id) {
