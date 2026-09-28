@@ -287,6 +287,13 @@ input, select { font-family: inherit; }
 .seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px; gap: 2px; }
 .seg .btn { border: none; border-radius: 999px; background: transparent; min-height: 28px; padding: 3px 12px; font-size: 0.76rem; }
 .seg .btn.active { background: var(--accent); color: var(--accent-ink); }
+.seg.seg-wrap { flex-wrap: wrap; border-radius: var(--radius-sm); }
+/* DevOps-Karte (Büro-Tab) */
+.devops-block { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+.reserve-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 6px 14px; }
+.reserve-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.8rem; }
+.reserve-row .seg .btn { padding: 2px 9px; min-height: 24px; }
+.btn-pair { display: inline-flex; align-items: center; gap: 6px; }
 
 /* ─────────────── Badges / Tags ─────────────── */
 .badge {

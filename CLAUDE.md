@@ -36,12 +36,13 @@ No test or lint scripts are configured. The engine runs headless in Node; `npm r
 - `src/index.jsx` — mounts the app
 - `src/components/App.jsx` — app shell (sidebar/bottom-nav, resource topbar), game loop timer, autosave, offline catch-up (on load, and for gaps > 10 s from a hidden tab or standby; nothing ticks or saves while the tab is hidden), modal/toast/tooltip system, chat widget, and the central `data-action` click dispatcher
 - `src/components/renderers.js` — HTML string renderers for navigation, topbar and every tab (`renderTabContent()`); tabs are: `overview` (Büro), `buildings` (Team), `research` (Tech), `projects` (Releases), `expansion` (Freelance-Aufträge + Standorte + Doktrin), `market` (Börse), `prestige`, `codex`, `account`, `admin`
-- `src/store/gameState.js` — single Solid.js `createStore` with all game state, save/load/normalize/migration (`VERSION` 10), cost helpers (`calcBuildingCost`, `maxAffordable`), unlock checks (`isTechUnlocked` also checks the tech's funding round via `techChapter`)
+- `src/store/gameState.js` — single Solid.js `createStore` with all game state, save/load/normalize/migration (`VERSION` 11), cost helpers (`calcBuildingCost`, `maxAffordable`), unlock checks (`isTechUnlocked` also checks the tech's funding round via `techChapter`)
 - `src/store/bonuses.js` — `computeBonuses(s)` and the production model `simulateProduction(dt, s, b)`; both take an optional state object so they run headless
 - `src/engine/` — pure game logic:
   - `tick.js` — one simulation step (`processTick`): effects expiry → production → missions → events → automation → achievements/milestones/quests
   - `actions.js` — all player-triggered mutations (buy, research, prestige, colonies, missions, protocols, click)
-  - `automation.js` — auto-hire / auto-learn / auto-freelance / auto-deploy
+  - `automation.js` — auto-hire / auto-learn / auto-freelance / auto-deploy; purchases go through `canAffordAuto(cost, holds)` and auto-freelance picks via `pickMission` (devops.js)
+  - `devops.js` — automation rules, each unlocked by a one-time lab project (`data/devops.js` `DEVOPS_RULES`, lab field `devops`): savings target (release or tech, never `manual`; `targetState` = locked/growing/saving/ready, holds its cost only once reachable within `SAVE_HORIZON_MIN` at current net production, `pursueTarget` buys it first thing in every automation pass regardless of toggles, not under `challengeNoAuto`), reserves (minutes of gross production per resource, `autoHolds` = reserve + target hold), mission focus, two profiles (live settings = active profile, `profiles[i]` stores the inactive one; with the profile rule ops mode and converter throttle survive `doPrestigeReset`). Manual purchases ignore all of it. The sim bot skips devops lab projects unless `--devops`
   - `offline.js` — `simulateOffline(elapsedSec)`: offline catch-up (cap, efficiency, 120 s steps with automation); used by App.jsx and the sim
   - `advisor.js` — `bestInvestmentId(b)`: the "best investment" hint in the Team tab; the sim bot buys with it
   - `quests.js` — sequential quest system (`currentQuest`, `questProgress`, `checkQuests`)

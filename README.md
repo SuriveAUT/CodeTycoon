@@ -80,6 +80,13 @@ Klick-Button, aktuelle Aufgabe, KPIs, Tages-Loop (Daily Standup, Tickets, Kaffee
 - **Sprints** (Prestige-Tab, ab dem ersten Refactor): Runs mit Handicap und Ziel. Belohnungen sind permanent: Klick ×2, Konverter −10 % Input, Mitarbeiter −5 %, Team-Synergie +25 %, Forschung −10 %, XP +15 %.
 - **Wochen-Sprint**: jede Woche ein neues Handicap-Paar, 30 Minuten; gewertet wird der Code bei Minute 30 gegen den eigenen Normalwert (bester Stand bei Minute 30 der letzten fünf normalen Runs). Beliebig oft, der beste Versuch zählt für die Wochenwertung.
 
+### DevOps (Büro-Tab)
+Die Automatisierung (Auto-Hire, Auto-Learn, Auto-Freelance, Auto-Deploy) bekommt Regeln, die je ein einmaliges Laborprojekt freischaltet:
+- **Sparziel** (Release-Planung): 🎯 an einem Release oder einer Tech. Solange das Ziel weit weg ist, wächst die Firma normal weiter; ist es in 30 Minuten erreichbar, lassen automatische Käufe die Kosten liegen, und das Ziel wird gekauft, sobald es bezahlbar ist – auch offline und bei ausgeschalteten Schaltern (nicht in Sprints ohne Automatisierung, nie der Börsengang).
+- **Reserven** (Budget-Policy): je Ressource 15 min, 1 h oder 4 h Produktion, die automatische Käufe immer liegen lassen. Manuelle Käufe sind frei.
+- **Auftrags-Fokus** (Freelance-Matching, ab Seed): Auto-Freelance wählt den stärksten, kürzesten oder längsten Auftrag oder den mit dem meisten Legacy, Hype, Ideas bzw. Users pro Stunde.
+- **Profile** (Config as Code, ab Seed): „Aufbau“ und „Sparen“ speichern Schalter, Reserven, Fokus, Arbeitsmodus und Drossel; ein Klick wechselt. Arbeitsmodus und Drossel überstehen dann auch den Refactor.
+
 ### Prestige (Hard Refactor)
 XP = 6 · ∛(Code im Run / 10 Mio.) · Struktur-Bonus. Ein Refactor braucht mindestens 10 XP bzw. 2 % der bisher verdienten XP. Erhalten bleiben Funde, Chips, Errungenschaften, Chronicle-Upgrades (11), Meilensteine (14), Finanzierungsrunde, Aufgaben-Fortschritt, Daily-Streak, Kaffee und Sprint-Belohnungen. Mainframe-Chips (10) mit Tradeoffs.
 
@@ -90,7 +97,7 @@ Garage → Seed → Series A → Series B → Series C → IPO → Börsennotier
 Der Aufsichtsrat bietet drei Mandate an – Souveräne Cloud, Öffentliche Infrastruktur, Moonshot –, immer eins aktiv, die Reihenfolge wählt der Spieler (Wechsel behält den Fortschritt). Jedes Mandat hat drei Schritte: ein Labor-Projekt (36 h), einen Vorstands-Sprint mit zwei Handicaps (Ziel: ein Viertel des Rekord-Runs) und ein Release, finanziert über ein Budget, das Refactors überlebt (beim Refactor fließt der übrige Hype/Legacy automatisch ein, „Einzahlen“ nimmt höchstens die Hälfte des Vorrats). Rund eine Woche je Mandat. Der erste Abschluss schaltet frei: 4. Labor-Slot, je einen neuen Core Value, einen Chip und ein Endlos-Projekt mit eigener Wirkung (RZ-Ausbau: Offline; Community-Programm: Tickets und Standup; Übernahme-Team: bis zu 20 % der Mitarbeiter über den Refactor). Danach kommen die Mandate als nächste Stufe wieder (Gesamt ×1,15 je Abschluss).
 
 ### R&D-Labor
-Ab dem ersten Refactor. Projekte laufen in Echtzeit (3–24 h), auch offline: vor dem Gehen starten, beim nächsten Besuch abholen. Kosten Hype und Legacy Code (Minuten Produktion, höchstens die Hälfte des Vorrats). Schlüsselprojekte je Runde, einmalige Upgrades (Offline-Limit, Auto-Start nach Refactor, Produktion, XP) und endlos wiederholbare Projekte. Sind alle Slots belegt, lässt sich je Slot ein Folgeprojekt vorab bezahlt einplanen: Es startet automatisch zum Ende des laufenden (auch offline, das fertige wird dabei abgeholt); wiederholbare Projekte gehen auch „danach nochmal“. Abbrechen erstattet die Kosten. Daily Standup (−30 min, Tag 7: −2 h) und Kaffee „Überstunden“ (−3 h) beschleunigen.
+Ab dem ersten Refactor. Projekte laufen in Echtzeit (3–24 h), auch offline: vor dem Gehen starten, beim nächsten Besuch abholen. Kosten Hype und Legacy Code (Minuten Produktion, höchstens die Hälfte des Vorrats). Schlüsselprojekte je Runde, einmalige Upgrades (Offline-Limit, Auto-Start nach Refactor, Produktion, XP), DevOps-Projekte (Regeln der Automatisierung) und endlos wiederholbare Projekte. Sind alle Slots belegt, lässt sich je Slot ein Folgeprojekt vorab bezahlt einplanen: Es startet automatisch zum Ende des laufenden (auch offline, das fertige wird dabei abgeholt); wiederholbare Projekte gehen auch „danach nochmal“. Abbrechen erstattet die Kosten. Daily Standup (−30 min, Tag 7: −2 h) und Kaffee „Überstunden“ (−3 h) beschleunigen.
 
 ### Ereignisse
 Zufallsereignisse, interaktive Cyber-Events (Ransomware, DDoS, Investor Call …) und der herumfliegende Bug 🐛 mit Sofort-Bonus.

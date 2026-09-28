@@ -12,6 +12,7 @@ import { milestoneMult } from '../data/buildings.js';
 import { emitToast } from '../lib/toast.js';
 import { roundRewardSum } from './roadmap.js';
 import { mandateUnlocked, depositOnRefactor } from './mandates.js';
+import { DEVOPS_RULES } from '../data/devops.js';
 
 export { COLONY_MAX_LEVEL };
 
@@ -150,8 +151,12 @@ export function doPrestigeReset({ allowZero = false } = {}) {
   const carry = Math.min(MAX_BUILDING_CARRYOVER, currentBonuses().buildingCarryover || 0);
   const kept = carry > 0 ? Object.entries(state.buildings).map(([id, n]) => [id, Math.floor((n || 0) * carry)]).filter(([, n]) => n > 0) : [];
 
+  // DevOps-Profile (Config as Code): Arbeitsmodus und Drossel überstehen den Refactor
+  const keepSettings = (state.lab?.done || []).includes(DEVOPS_RULES.profiles)
+    ? { operationsMode: state.operationsMode, converterThrottle: state.converterThrottle } : null;
   const fresh = defaultState();
   for (const key of RUN_KEYS) setState(key, fresh[key]);
+  if (keepSettings) { setState('operationsMode', keepSettings.operationsMode); setState('converterThrottle', keepSettings.converterThrottle); }
   setState('chronicle', state.chronicle + gain);
   setState('stats', 'xpEarned', (state.stats.xpEarned || 0) + gain);
   setState('stats', 'prestigeCount', prestigeCount);

@@ -33,6 +33,8 @@ import { armDesktopNotify, disarmDesktopNotify, toggleDesktopNotify } from '../l
 import { beginContribution, settleContribution, applyCommunityState, contributionBlock, pendingContributions, newRequestId } from '../engine/community.js';
 import { getPackageType } from '../data/community.js';
 import { normalPar } from '../engine/weekly.js';
+import { setTarget, clearTarget, isTarget, targetInfo, setReserve, setMissionFocus, switchProfile } from '../engine/devops.js';
+import { PROFILE_NAMES } from '../data/devops.js';
 
 const FRESH_FLAG = 'codetycoon-fresh-start';
 
@@ -382,6 +384,22 @@ export default function App() {
       case 'buy-chronicle': buyChronicle(id); done(); return;
       case 'toggle': setState('auto', id, !state.auto[id]); done(); return;
       case 'set-converter-throttle': setState('converterThrottle', Math.min(1, Math.max(0.25, Number(btn.dataset.value || 1)))); done(); return;
+      // ── DevOps (engine/devops.js) ──
+      case 'devops-target': {
+        const kind = btn.dataset.kind;
+        const wasTarget = isTarget(kind, id);
+        if (setTarget(kind, id)) showToast(wasTarget ? 'Sparziel entfernt.' : `Sparziel: ${targetInfo()?.name || id}`, wasTarget ? 'info' : 'good');
+        else showToast('Das geht nicht als Sparziel.', 'warn');
+        done(); return;
+      }
+      case 'devops-clear-target': if (clearTarget()) showToast('Sparziel entfernt.', 'info'); done(); return;
+      case 'devops-reserve': setReserve(id, Number(btn.dataset.value)); done(); return;
+      case 'devops-focus': setMissionFocus(id); done(); return;
+      case 'devops-profile': {
+        const index = Number(id);
+        if (switchProfile(index)) showToast(`DevOps-Profil „${PROFILE_NAMES[index]}“ aktiv`, 'good');
+        done(); return;
+      }
       case 'set-operations-mode': setOperationsMode(id); done(); return;
       case 'activate-protocol': {
         const result = activateProtocol(id);

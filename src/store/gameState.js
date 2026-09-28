@@ -5,7 +5,8 @@ import { BUILDINGS } from '../data/buildings.js';
 import { TECHS, TECH_TIERS } from '../data/techs.js';
 import { PROJECTS } from '../data/projects.js';
 import { ARTIFACTS } from '../data/artifacts.js';
-import { zeroResources, chronicleCostFor } from '../data/misc.js';
+import { zeroResources, chronicleCostFor, RESOURCES, OPERATIONS_MODES } from '../data/misc.js';
+import { RESERVE_MINUTES, MISSION_FOCI } from '../data/devops.js';
 import { QUESTS } from '../data/quests.js';
 import { COFFEE_INTERVAL_MS } from '../data/daily.js';
 import { CHALLENGES, getChallenge } from '../data/challenges.js';
@@ -19,7 +20,7 @@ import { emitToast } from '../lib/toast.js';
 
 export const SAVE_KEY = 'dev-tycoon-save-v1';
 export const BUY_AMOUNTS = [1, 10, 100, 'max'];
-const VERSION = 10;
+const VERSION = 11;
 
 // Sehr alte Saves (Astraforge-Weltraum-Thema) auf die aktuellen IDs mappen.
 const ID_MAP = {
@@ -53,6 +54,9 @@ const ID_MAP = {
   void_prism: 'premium_laptop', archive_bone: 'vim_config', prism_vault: 'framework_cache',
   starglass_map: 'git_cheat_sheet', memory_engine: 'ssd_upgrade', crown_of_dust: 'seniority_badge'
 };
+
+// DevOps-Reserven: 0 Minuten Produktion je Ressource
+function zeroReserves() { return Object.fromEntries(RESOURCES.map(res => [res, 0])); }
 
 export function defaultState() {
   const buildings = {};
@@ -136,6 +140,9 @@ export function defaultState() {
     community: { contributor: false, projectsDone: 0, packagesTotal: 0, badges: 0, claimed: [], pending: [] },
     // Wochenwertung (engine/weekly.js): bester Wochen-Sprint der Woche `week`, Versuche, aktuelle Labor-Slots
     weekly: { week: '', sprintBest: 0, attempts: 0, labSlots: 1 },
+    // DevOps-Regeln der Automatisierung (engine/devops.js): Sparziel, Reserven (Minuten Produktion je Ressource),
+    // Auftrags-Fokus, aktives Profil; profiles[i] hält den Stand des gerade inaktiven Profils
+    devops: { target: null, reserves: zeroReserves(), missionFocus: 'power', profile: 0, profiles: [null, null] },
     // R&D-Labor (engine/lab.js): laufende Projekte mit Endzeit, abgeholte Projekte, Stufen endloser Projekte,
     // eingeplante (vorab bezahlte) Folgeprojekte
     lab: { running: [], done: [], levels: {}, queued: [] },
@@ -381,6 +388,27 @@ export function normalizeState(candidate) {
   merged.stats.parMarks = (Array.isArray(merged.stats.parMarks) ? merged.stats.parMarks : []).filter(v => Number.isFinite(v) && v > 0).slice(-5);
   const r30 = merged.stats.run30 && typeof merged.stats.run30 === 'object' ? merged.stats.run30 : {};
   merged.stats.run30 = { run: asFiniteNumber(r30.run, 0), at: asFiniteNumber(r30.at, 0), scrap: Math.max(0, asFiniteNumber(r30.scrap, 0)), done: r30.done === true };
+  // DevOps: Ziel nur mit bekannter ID, Reserven nur mit erlaubten Werten, Profile vollständig oder null
+  const dv = merged.devops && typeof merged.devops === 'object' ? merged.devops : {};
+  const reservesOf = (r) => Object.fromEntries(RESOURCES.map(res => [res, RESERVE_MINUTES.includes(Number(r?.[res])) ? Number(r[res]) : 0]));
+  const focusOf = (f) => (MISSION_FOCI.some(m => m.id === f) ? f : 'power');
+  const throttleOf = (t) => Math.min(1, Math.max(0.25, asFiniteNumber(t, 1)));
+  const profileOf = (p) => (p && typeof p === 'object' ? {
+    auto: Object.fromEntries(['build', 'research', 'expeditions', 'projects'].map(k => [k, p.auto?.[k] !== false])),
+    reserves: reservesOf(p.reserves),
+    missionFocus: focusOf(p.missionFocus),
+    operationsMode: OPERATIONS_MODES.some(m => m.id === p.operationsMode) ? p.operationsMode : 'balanced',
+    converterThrottle: throttleOf(p.converterThrottle)
+  } : null);
+  const tg = dv.target && typeof dv.target === 'object' ? dv.target : null;
+  const validTarget = tg && ((tg.kind === 'project' && knownProj.has(tg.id)) || (tg.kind === 'tech' && knownTech.has(tg.id)));
+  merged.devops = {
+    target: validTarget ? { kind: tg.kind, id: tg.id } : null,
+    reserves: reservesOf(dv.reserves),
+    missionFocus: focusOf(dv.missionFocus),
+    profile: dv.profile === 1 ? 1 : 0,
+    profiles: [profileOf(dv.profiles?.[0]), profileOf(dv.profiles?.[1])]
+  };
   merged.stats.releasedEver = Array.isArray(merged.stats.releasedEver) ? merged.stats.releasedEver.filter(id => knownProj.has(id)) : [];
   const knownLab = new Set(LAB_PROJECTS.map(p => p.id));
   merged.lab.running = Array.isArray(merged.lab.running)

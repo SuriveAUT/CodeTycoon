@@ -64,7 +64,7 @@ async function runPool(items, limit, fn) {
 }
 
 function runChild(job, opts) {
-  const pass = ['hours', 'days', 'session', 'save', 'min-gain', 'grow', 'goals', 'hold', 'postgame', 'budget'].flatMap(k => (opts[k] !== undefined ? [`--${k}`, String(opts[k])] : [])).concat(opts.noqueue ? ['--noqueue'] : []).concat(opts.nocommunity ? ['--nocommunity'] : []);
+  const pass = ['hours', 'days', 'session', 'save', 'min-gain', 'grow', 'goals', 'hold', 'postgame', 'budget'].flatMap(k => (opts[k] !== undefined ? [`--${k}`, String(opts[k])] : [])).concat(opts.noqueue ? ['--noqueue'] : []).concat(opts.nocommunity ? ['--nocommunity'] : []).concat(opts.devops ? ['--devops'] : []);
   const childArgs = [fileURLToPath(import.meta.url), '--worker', '--model', job.model, '--seed', String(job.seed), ...pass];
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, childArgs, { env: { ...process.env, TZ: 'UTC' } });
@@ -338,8 +338,10 @@ async function runWorker(opts) {
     const current = state.roadmap?.chapter || 0;
     const isKey = (def) => Number((!!def.key && def.chapter === current) || !!def.mandate);  // Mandats-Labor wie ein Schlüsselprojekt
     const byPriority = (a, z) => isKey(z) - isKey(a) || Number(!!a.repeatable) - Number(!!z.repeatable) || a.chapter - z.chapter || a.hours - z.hours;
-    const keyPending = lab.labAvailable().find(def => isKey(def));
-    const candidates = lab.labAvailable().sort(byPriority);
+    // DevOps-Projekte schalten nur Automatisierungsregeln frei, die der Bot nicht nutzt – außer mit --devops
+    const available = () => lab.labAvailable().filter(def => opts.devops || !def.devops);
+    const keyPending = available().find(def => isKey(def));
+    const candidates = available().sort(byPriority);
     for (const def of candidates) {
       if (lab.labFreeSlots() <= 0) break;
       // Den letzten freien Slot für das Schlüsselprojekt der Runde freihalten (Rundenziel)
@@ -350,7 +352,7 @@ async function runWorker(opts) {
     // laufende wiederholbare Projekte „danach nochmal“
     if (!planAhead) return;
     const runningRepeatables = (state.lab?.running || []).map(r => LAB_PROJECTS.find(p => p.id === r.id)).filter(d => d?.repeatable);
-    for (const def of [...lab.labAvailable().sort(byPriority), ...runningRepeatables]) {
+    for (const def of [...available().sort(byPriority), ...runningRepeatables]) {
       if (lab.labFreeSlots() > 0 || lab.labQueueFree() <= 0) break;
       if (lab.queueLab(def.id)) labStats.queued++;
     }
