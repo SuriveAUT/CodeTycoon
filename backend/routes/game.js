@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { isAdminUser } = require('../lib/admin');
+const { recordWeekly } = require('../lib/community');
 
 function getJwtSecret() {
   return process.env.JWT_SECRET || 'very_secret_key_change_in_production';
@@ -271,6 +272,8 @@ router.post('/save', authenticateToken, limitSave, (req, res) => {
           message: 'Game saved successfully',
           account: { username: row.username, flagged: Boolean(newFlagged), flagReason: newReason || '', isAdmin: isAdminUser(row.username) }
         });
+        // Wochenwertung fortschreiben (lib/community.js) – nach der Antwort, ein Fehler hier kostet keinen Save
+        recordWeekly(userId, gameData, serverNow).catch(e => console.error('[Woche] recordWeekly:', e.message));
       }
     );
   });
@@ -297,7 +300,8 @@ router.get('/status', authenticateToken, (req, res) => {
 // Leaderboard — excludes flagged users
 router.get('/leaderboard', limitPublic, (req, res) => {
   db.all(
-    `SELECT username, prestige_score, total_scrap, xp_earned
+    `SELECT username, prestige_score, total_scrap, xp_earned,
+            (SELECT COUNT(*) FROM weekly_awards a WHERE a.user_id = users.id) AS badges
      FROM users WHERE flagged = 0
      ORDER BY xp_earned DESC, total_scrap DESC LIMIT 100`,
     [],

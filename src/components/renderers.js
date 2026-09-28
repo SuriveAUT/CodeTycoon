@@ -18,6 +18,9 @@ import { LAB_PROJECTS, getLabProject } from '../data/lab.js';
 import { MANDATES, MANDATE_STEPS, MANDATE_STEP_LABELS } from '../data/mandates.js';
 import { MAILS, MAIL_SENDERS, getMail } from '../data/mails.js';
 import { mailInbox, mailUnread, mailOpenDecisions, mailEffectLabel } from '../engine/mail.js';
+import { PACKAGE_TYPES, WEEKLY_CATEGORIES, COMMUNITY_BONUS_PER_PROJECT } from '../data/community.js';
+import { packageCost, contributionBlock, pendingContributions, freeQuota } from '../engine/community.js';
+import { normalPar, weeklyBest, weeklyAttempts, weeklySprintNow } from '../engine/weekly.js';
 import {
   mandatesUnlocked, mandateLevel, mandatesCompleted, mandateAvailable, mandateUnlocked, mandateStepDone, mandateSprintGoal, activeMandate,
   mandateBudgetTarget, mandateBudget, mandateDepositPreview, canDepositMandate
@@ -57,6 +60,7 @@ export const TABS = [
   { id: 'prestige', label: 'Prestige', icon: 'prestige', key: 'S', blurb: 'Hard Refactor, XP, Chips.' },
   { id: 'roadmap', label: 'Roadmap', icon: 'flag', key: 'F', blurb: 'Finanzierungsrunden und Labor.' },
   { id: 'mail', label: 'Postfach', icon: 'mail', key: 'N', blurb: 'Nachrichten vom Team.' },
+  { id: 'community', label: 'Community', icon: 'community', key: 'G', blurb: 'Wochenwertung und Open-Source-Projekt.' },
   { id: 'codex', label: 'Codex', icon: 'codex', key: 'C', blurb: 'Errungenschaften und Hilfe.' },
   { id: 'account', label: 'Account', icon: 'account', key: 'A', blurb: 'Cloud-Save, Leaderboard.' }
 ];
@@ -186,6 +190,9 @@ export function navBadges() {
   const unread = mailUnread();
   if (unread) badges.mail = unread;
   else if (mailOpenDecisions()) badges.mail = 'dot';
+  // Community: Hinweis nur, wenn das Paket-Kontingent voll ist (weitere Tagesgutschriften würden verfallen)
+  const me = state.cache?.community?.me;
+  if (me && AstraforgeAPI.isLoggedIn() && freeQuota(state.cache.community) >= me.quotaMax) badges.community = 'dot';
   return badges;
 }
 
@@ -272,7 +279,9 @@ function renderActiveEffects() {
     fx.push(`<span class="fx" ${tt(q.name, 'Wartet und startet, sobald der Boost davor endet. Boosts laufen nacheinander, keiner geht verloren.', { meta: `Boost, Platz ${i + 1} in der Warteschlange` })}>${getIcon('time')} ${escapeHtml(q.name)} <span class="fx-t">danach ${fmtSec(q.duration / 1000)}</span></span>`);
   });
   const sprint = activeChallenge();
-  if (sprint) {
+  if (sprint?.weekly) {
+    fx.push(`<span class="fx bad" ${tt(sprint.name, `${sprint.desc} Gewertet wird dein Code bei Minute 30 gegen deinen Normalwert.`, { meta: sprint.modLabel })}>${getIcon(sprint.icon)} ${escapeHtml(sprint.name)} <span class="fx-t">${fmtSec(challengeTimeLeft(sprint, state, now) / 1000)}</span></span>`);
+  } else if (sprint) {
     const [cur, target] = challengeProgress(sprint);
     fx.push(`<span class="fx bad" ${tt(`Sprint: ${sprint.name}`, sprint.desc, { meta: sprint.modLabel })}>${getIcon(sprint.icon)} Sprint: ${escapeHtml(sprint.name)} <span class="fx-t">${Math.min(100, Math.floor(cur / target * 100))}%</span></span>`);
   }
@@ -694,6 +703,138 @@ function renderMail() {
   </section>`;
 }
 
+// ═══════════════════════════ COMMUNITY (Wochenwertung + Open-Source-Projekt) ═══════════════════════════
+const pctText = (v) => `${Math.round(v * 100)} %`;
+const dayMonth = (id) => { const [, m, d] = String(id).split('-'); return `${d}.${m}.`; };
+function weeklyValueText(category, value) {
+  if (category === 'growth') return `+${pctText(value)}`;
+  if (category === 'sprint') return pctText(value);
+  return `${value.toFixed(1)} h/Slot-Tag`;
+}
+function fmtUntil(ms) {
+  const s = Math.max(0, ms / 1000);
+  const days = Math.floor(s / 86400);
+  return days >= 1 ? `${days} T ${Math.floor((s % 86400) / 3600)} h` : fmtSec(s);
+}
+
+function rankingRows(category, rows) {
+  if (!rows?.length) return '<p class="muted small">Noch keine Werte in dieser Woche.</p>';
+  const me = AstraforgeAPI.username;
+  return `<div class="stack" style="gap:4px">${rows.slice(0, 8).map((r, i) => `<div class="lb-row${r.username === me ? ' lb-me' : ''}"><span class="rank">#${i + 1}</span><strong class="truncate">${escapeHtml(r.username)}</strong><span class="mono small">${weeklyValueText(category, r.value)}</span></div>`).join('')}</div>`;
+}
+
+// Wochen-Sprint der laufenden Woche: Handicap, Normalwert, eigener Bestwert, Start – im Community-Tab und oben im
+// Sprints-Panel (compact)
+function weeklySprintCard(compact = false) {
+  const def = weeklySprintNow();
+  if (!def) return '';
+  const status = challengeStatus(def);
+  const par = normalPar();
+  const best = weeklyBest();
+  const attempts = weeklyAttempts();
+  let foot;
+  if (status === 'active') {
+    foot = `<span class="muted small mono">läuft · noch ${fmtSec(challengeTimeLeft(def) / 1000)} · ${fmt(runScrap())} Code</span><button class="btn xs danger" data-action="sprint-abort">Abbrechen</button>`;
+  } else if (status === 'locked') {
+    foot = `<span class="badge">${getIcon('lock')} ${(state.stats.prestigeCount || 0) < 1 ? 'Ab dem ersten Hard Refactor' : 'Erst einen normalen Run 30 Minuten aktiv spielen'}</span>`;
+  } else if (!AstraforgeAPI.isLoggedIn()) {
+    foot = '<span class="muted small">Zählt für die Wochenwertung – dafür einloggen.</span>';
+  } else {
+    foot = `<span class="muted small">${status === 'busy' ? 'Ein anderer Sprint läuft.' : 'Startet einen neuen Run.'}</span><button class="btn sm ${status === 'ready' ? 'primary' : ''}" data-action="sprint-start" data-id="${def.id}" ${status === 'ready' ? '' : 'disabled'}>Wochen-Sprint starten</button>`;
+  }
+  return `<article class="item sprint ${status === 'active' ? 'active' : ''}">
+    <div class="item-head"><strong>${getIcon(def.icon)} ${escapeHtml(def.name)}</strong>${status === 'active' ? '<span class="badge accent">Läuft</span>' : `<span class="badge">${attempts} Versuch${attempts === 1 ? '' : 'e'}</span>`}</div>
+    <p>${escapeHtml(compact ? 'Jede Woche ein neues Handicap, 30 Minuten. Gewertet: dein Code bei Minute 30 gegen deinen Normalwert.' : `${def.desc} 30 Minuten Zeit; gewertet wird dein Code bei Minute 30 gegen deinen Normalwert. Beliebig oft – der beste Versuch der Woche zählt.`)}</p>
+    <div class="tag-list"><span class="badge warn" ${tt('Handicap dieser Woche', def.desc)}>${getIcon('warning')} ${escapeHtml(def.modLabel)}</span><span class="badge" ${tt('Normalwert', 'Dein bester Code bei Minute 30 aus den letzten 5 normalen Runs. Gemessen wird nur, wenn du bei Minute 30 online warst.')}>${getIcon('flag')} Normal: ${par > 0 ? fmt(par) : '–'}</span><span class="badge good">${getIcon('star')} Bestwert: ${best > 0 ? pctText(best) : '–'}</span></div>
+    <div class="item-foot">${foot}</div>
+  </article>`;
+}
+
+function communityProjectPanel(data) {
+  const p = data.project;
+  const loggedIn = !!data.me && AstraforgeAPI.isLoggedIn();
+  const done = p.goal > 0 ? (p.progress / p.goal) * 100 : 0;
+  const milestones = [25, 50, 75, 100].map(m => `<span class="badge ${done >= m ? 'good' : ''}">${done >= m ? getIcon('check') : ''} ${m} % · ${m < 100 ? 'Schub' : '+3 %'}</span>`).join('');
+  const me = AstraforgeAPI.username;
+  const contributors = p.contributors.length
+    ? p.contributors.map(c => `<span class="badge${c.username === me ? ' accent' : ''}">${escapeHtml(c.username)} · ${fmt(c.packages)}</span>`).join('')
+    : '<span class="muted small">Noch niemand – mach den Anfang!</span>';
+  const pending = pendingContributions().length;
+  const buttons = PACKAGE_TYPES.map(t => {
+    const cost = packageCost(t.id);
+    const block = loggedIn ? contributionBlock(t.id, data) : 'Nur mit Account.';
+    const costText = cost ? Object.entries(cost).map(([res, amt]) => `${resIcon(res)} ${fmt(amt)}`).join(' ') : '–';
+    return `<button class="btn sm ${block ? '' : 'primary'}" data-action="community-contribute" data-id="${t.id}" ${block ? 'disabled' : ''} ${tt(t.name, `${t.desc} Kostet 15 Minuten deiner ${RESOURCE_LABELS[t.res]}-Produktion (höchstens die Hälfte des Vorrats).`, { meta: block || 'Zählt als 1 Paket' })}>${escapeHtml(t.name)} · ${costText}</button>`;
+  }).join('');
+  const quotaLine = loggedIn
+    ? `${fmt(freeQuota(data))} von ${fmt(data.me.quotaMax)} Paketen frei${data.me.nextQuotaAt ? ` · +3 in ${fmtUntil(data.me.nextQuotaAt - Date.now())}` : ' · Kontingent voll'}${pending ? ` · ${pending} wird gebucht …` : ''}`
+    : 'Zum Mitmachen einloggen (Tab Account).';
+  const doneCount = data.projectsDone || 0;
+  const bonusLine = state.community?.contributor
+    ? `Dein Community-Bonus: +${Math.round(doneCount * COMMUNITY_BONUS_PER_PROJECT * 100)} % Gesamtproduktion (${doneCount} fertige${doneCount === 1 ? 's' : ''} Projekt${doneCount === 1 ? '' : 'e'}).`
+    : `Mit deinem ersten Paket gilt der Bonus aller fertigen Projekte: +3 % je Projekt${doneCount ? `, aktuell +${doneCount * 3} %` : ''}.`;
+  return `<section class="panel">
+    <div class="panel-head"><div><div class="eyebrow">Open-Source-Projekt</div><h3>${getIcon('community')} ${escapeHtml(p.name)}</h3><div class="sub">${escapeHtml(p.desc)}</div></div><span class="meta">${fmt(p.progress)} / ${fmt(p.goal)} Pakete</span></div>
+    ${progress(p.progress, p.goal, 'good')}
+    <div class="tag-list" style="margin-top:8px">${milestones}</div>
+    <div class="eyebrow" style="margin-top:12px">Mitwirkende</div>
+    <div class="tag-list">${contributors}</div>
+    <div class="eyebrow" style="margin-top:12px">Paket beitragen</div>
+    <div class="toggle-row">${buttons}</div>
+    <p class="muted small" style="margin-top:6px">${quotaLine}</p>
+    <div class="notice" style="margin-top:10px">${getIcon('star')}<div>${bonusLine} Bei 25, 50 und 75 % bekommen alle Beteiligten einen Community-Schub (Gesamt ×2 für 20 min). Keine Frist – das Projekt wartet auf euch.</div></div>
+  </section>`;
+}
+
+function honorBoard(awards) {
+  if (!awards?.length) return emptyState('trophy', 'Noch keine Abzeichen', 'Die erste Wertung endet am Sonntag um Mitternacht.');
+  const weeks = [...new Set(awards.map(a => a.week))];
+  return `<div class="stack" style="gap:4px">${weeks.map(w => {
+    const rows = awards.filter(a => a.week === w);
+    const parts = WEEKLY_CATEGORIES.map(c => {
+      const winners = rows.filter(a => a.category === c.id);
+      return winners.length ? `${getIcon(c.icon)} ${winners.map(a => escapeHtml(a.username)).join(', ')} <span class="muted mono small">${weeklyValueText(c.id, winners[0].value)}</span>` : '';
+    }).filter(Boolean);
+    return `<div class="honor-row"><span class="mono muted small">ab ${dayMonth(w)}</span><span>${parts.join(' · ')}</span></div>`;
+  }).join('')}</div>`;
+}
+
+function renderCommunity() {
+  const data = state.cache?.community;
+  if (!data?.project) {
+    return `<section class="panel">${state.cache?.communityError
+      ? emptyState('community', 'Community gerade nicht erreichbar', 'Der Server antwortet nicht – gleich nochmal versuchen.')
+      : emptyState('community', 'Lade Community …', 'Einen Moment.')}</section>`;
+  }
+  const loggedIn = !!data.me && AstraforgeAPI.isLoggedIn();
+  const guest = loggedIn ? '' : `<div class="notice" style="margin-bottom:12px">${getIcon('account')}<div><strong>Mitmachen mit Account.</strong> Wochenwertung und Open-Source-Projekt zählen nur eingeloggt.</div><button class="btn sm" data-action="tab" data-tab="account">Zum Account</button></div>`;
+  const cards = WEEKLY_CATEGORIES.map(c => `<article class="item">
+      <div class="item-head"><strong>${getIcon(c.icon)} ${escapeHtml(c.name)}</strong></div>
+      <p class="muted small">${escapeHtml(c.desc)}</p>
+      ${rankingRows(c.id, data.ranking?.[c.id])}
+    </article>`).join('');
+  const completed = data.completed?.length
+    ? `<div class="stack" style="gap:4px">${data.completed.map(p => `<div class="lb-row"><span class="rank">${getIcon('check')}</span><strong class="truncate">${escapeHtml(p.name)}</strong><span class="muted small">${fmt(p.contributors)} Mitwirkende · ${new Date(p.completedAt).toLocaleDateString('de-DE')}</span></div>`).join('')}</div>`
+    : '<p class="muted small">Noch kein Projekt fertig – das erste ist in Arbeit.</p>';
+  return `${guest}
+    <section class="panel">
+      <div class="panel-head"><div><div class="eyebrow">Wochenwertung · Woche ab ${dayMonth(data.week.id)}</div><h3>${getIcon('trophy')} Wer legt diese Woche am meisten zu?</h3><div class="sub">Drei Wertungen, jede relativ zum eigenen Stand – es zählt dein Fortschritt, nicht dein Vorsprung. Wer eine Kategorie gewinnt, bekommt ein Abzeichen. Neue Runde jeden Montag um 00:00.</div></div><span class="meta">noch ${fmtUntil(data.week.end - Date.now())}${loggedIn ? ` · ${fmt(data.me.badges)} Abzeichen` : ''}</span></div>
+      <div class="grid-3">${cards}</div>
+      <div style="margin-top:12px">${weeklySprintCard()}</div>
+    </section>
+    ${communityProjectPanel(data)}
+    <div class="grid-2">
+      <section class="panel">
+        <div class="panel-head"><div><div class="eyebrow">Ehrentafel</div><h3>${getIcon('trophy')} Abzeichen der letzten Wochen</h3></div></div>
+        ${honorBoard(data.awards)}
+      </section>
+      <section class="panel">
+        <div class="panel-head"><div><div class="eyebrow">Open Source</div><h3>${getIcon('check')} Fertige Projekte</h3></div><span class="meta">${fmt(data.projectsDone || 0)}</span></div>
+        ${completed}
+      </section>
+    </div>`;
+}
+
 // ═══════════════════════════ AUFSICHTSRAT (Vorstandsmandate) ═══════════════════════════
 function mandateStepRow(def, step) {
   const done = mandateStepDone(def.id, step);
@@ -1109,6 +1250,7 @@ function renderMainframe() {
 }
 
 export function challengeGoalText(def) {
+  if (def.goal.type === 'weekly') return 'Code bei Minute 30 gegen deinen Normalwert';
   if (def.goal.mandate) return `${fmt(mandateSprintGoal(def.mandate))} Code im Run`;
   return def.goal.type === 'techs' ? `${def.goal.value} Techs im Run` : `${fmt(def.goal.value)} Code im Run`;
 }
@@ -1134,8 +1276,8 @@ function renderSprints() {
     </article>`;
   }).join('');
   return `<section class="panel">
-    <div class="panel-head"><div><div class="eyebrow">Sprints</div><h3>${getIcon('zap')} Runs mit Handicap</h3><div class="sub">Ein Sprint startet wie ein Hard Refactor (XP gibt es trotzdem). Ziel erreicht → permanente Belohnung. Beenden jederzeit möglich, dann ohne Belohnung.</div></div><span class="meta">${challengesDone().length}/${CHALLENGES.length}</span></div>
-    <div class="grid-auto-sm">${cards}</div>
+    <div class="panel-head"><div><div class="eyebrow">Sprints</div><h3>${getIcon('zap')} Runs mit Handicap</h3><div class="sub">Ein Sprint startet wie ein Hard Refactor (XP gibt es trotzdem). Ziel erreicht → permanente Belohnung. Beenden jederzeit möglich, dann ohne Belohnung. Der Wochen-Sprint zählt für die Wochenwertung (Tab Community).</div></div><span class="meta">${challengesDone().length}/${CHALLENGES.length}</span></div>
+    <div class="grid-auto-sm">${weeklySprintCard(true)}${cards}</div>
   </section>`;
 }
 
@@ -1278,7 +1420,7 @@ function renderLeaderboard() {
   const lb = state.cache.leaderboard;
   if (!Array.isArray(lb)) return '<p class="muted small">Lade Rangliste…</p>';
   if (!lb.length) return '<p class="muted small">Noch keine Einträge.</p>';
-  return `<div class="stack" style="gap:4px">${lb.slice(0, 50).map((e, i) => `<div class="lb-row"><span class="rank">#${i + 1}</span><strong class="truncate">${escapeHtml(e.username || '?')}</strong><span class="muted mono small">${fmt(e.xp_earned ?? 0)} XP · ${fmt(e.prestige ?? e.prestige_score ?? 0)} Refactors</span><button class="btn xs" data-action="view-profile" data-id="${escapeHtml(e.username || '')}">Profil</button></div>`).join('')}</div>`;
+  return `<div class="stack" style="gap:4px">${lb.slice(0, 50).map((e, i) => `<div class="lb-row"><span class="rank">#${i + 1}</span><strong class="truncate">${escapeHtml(e.username || '?')}${e.badges > 0 ? ` <span class="badge good" ${tt('Wochen-Abzeichen', 'Gewonnene Kategorien der Wochenwertung (Tab Community).')}>🏅 ${fmt(e.badges)}</span>` : ''}</strong><span class="muted mono small">${fmt(e.xp_earned ?? 0)} XP · ${fmt(e.prestige ?? e.prestige_score ?? 0)} Refactors</span><button class="btn xs" data-action="view-profile" data-id="${escapeHtml(e.username || '')}">Profil</button></div>`).join('')}</div>`;
 }
 
 function renderAccount() {
@@ -1443,6 +1585,7 @@ export function renderTabContent() {
     case 'prestige': return renderPrestige();
     case 'roadmap': return renderRoadmap();
     case 'mail': return renderMail();
+    case 'community': return renderCommunity();
     case 'codex': return renderCodex();
     case 'account': return renderAccount();
     case 'admin': return renderAdmin();

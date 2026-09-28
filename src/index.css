@@ -530,6 +530,8 @@ label.lbl { display: grid; gap: 4px; font-size: 0.76rem; color: var(--muted); }
 /* Leaderboard */
 .lb-row { display: grid; grid-template-columns: 36px 1fr auto auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 6px; background: var(--bg-2); font-size: 0.82rem; }
 .lb-row .rank { font-family: var(--mono); font-weight: 800; color: var(--muted); }
+.lb-row.lb-me { background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.honor-row { display: grid; grid-template-columns: 64px 1fr; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 6px; background: var(--bg-2); font-size: 0.82rem; }
 .lb-row:nth-child(1) .rank { color: #fbbf24; }
 .lb-row:nth-child(2) .rank { color: #cbd5e1; }
 .lb-row:nth-child(3) .rank { color: #d97706; }

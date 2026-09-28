@@ -149,6 +149,30 @@ export const AstraforgeAPI = {
         return this._request('/game/leaderboard', 'GET');
     },
 
+    // Community: Wochenwertung und Open-Source-Projekt (mit Token zusätzlich der eigene Stand unter `me`)
+    async getCommunity() {
+        return this._request('/community/state', 'GET');
+    },
+
+    // Paket buchen. Wirft nie: { status, data } – 200 gebucht, 4xx mit data.refund abgelehnt (Kosten erstatten),
+    // 0/5xx/429 ohne refund → später mit derselben requestId erneut. Eigener Aufruf, weil _request bei 403
+    // ausloggt, geflaggte Accounts hier aber 403 bekommen.
+    async contribute(body) {
+        const headers = { 'Content-Type': 'application/json' };
+        if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+        try {
+            const response = await this._fetchWithTimeout(`${API_BASE_URL}/community/contribute`, {
+                method: 'POST', headers, body: JSON.stringify(body)
+            }, REQUEST_TIMEOUT_MS);
+            let data = null;
+            try { data = await response.json(); } catch (_) { data = null; }
+            if (response.status === 401) this.logout();
+            return { status: response.status, data };
+        } catch (_) {
+            return { status: 0, data: null };
+        }
+    },
+
     // Get user profile
     async getProfile(username) {
         return this._request(`/game/profile/${encodeURIComponent(username)}`, 'GET');

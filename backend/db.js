@@ -3,12 +3,21 @@ const path = require('path');
 
 const dbPath = path.resolve(__dirname, 'database.sqlite');
 
+// db.ready erfüllt sich, sobald alle Tabellen und Spalten angelegt sind. Die Statements laufen serialisiert,
+// damit ALTER TABLE nie vor CREATE TABLE ausgeführt wird (früher der Startup-Race bei einer neuen DB).
+let resolveReady;
+let rejectReady;
+const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+
 const db = new sqlite3.Database(dbPath, (err) => {
     if (err) {
         console.error('Error opening database', err.message);
-    } else {
-        console.log('Connected to the SQLite database.');
-        
+        rejectReady(err);
+        return;
+    }
+    console.log('Connected to the SQLite database.');
+
+    db.serialize(() => {
         // Create users table if it doesn't exist
         db.run(`CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,7 +64,59 @@ const db = new sqlite3.Database(dbPath, (err) => {
             if (err) console.error('Error creating stock_market table', err.message);
             else console.log('Stock market table ready.');
         });
-    }
+
+        // Wochenwertung (lib/community.js): Werte je Woche und Spieler, vergebene Abzeichen, abgeschlossene Wochen
+        db.run(`CREATE TABLE IF NOT EXISTS weekly_stats (
+            week_id TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            xp_start REAL NOT NULL,
+            xp_now REAL NOT NULL,
+            lab_start REAL NOT NULL,
+            lab_now REAL NOT NULL,
+            slot_ms REAL NOT NULL DEFAULT 0,
+            slots INTEGER NOT NULL DEFAULT 1,
+            last_at INTEGER NOT NULL,
+            sprint_best REAL NOT NULL DEFAULT 0,
+            PRIMARY KEY (week_id, user_id)
+        )`);
+        db.run(`CREATE TABLE IF NOT EXISTS weekly_awards (
+            week_id TEXT NOT NULL,
+            category TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            value REAL NOT NULL,
+            PRIMARY KEY (week_id, category, user_id)
+        )`);
+        db.run('CREATE TABLE IF NOT EXISTS weeks_closed (week_id TEXT PRIMARY KEY, closed_at INTEGER NOT NULL)');
+
+        // Open-Source-Projekt: Projektkette, gebuchte Pakete (request_id macht Wiederholungen idempotent), Kontingent
+        db.run(`CREATE TABLE IF NOT EXISTS community_projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            def_index INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL,
+            goal INTEGER NOT NULL,
+            milestones_announced INTEGER NOT NULL DEFAULT 0,
+            started_at INTEGER NOT NULL,
+            completed_at INTEGER
+        )`);
+        db.run(`CREATE TABLE IF NOT EXISTS community_contributions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            request_id TEXT NOT NULL UNIQUE,
+            created_at INTEGER NOT NULL
+        )`);
+        db.run('CREATE INDEX IF NOT EXISTS idx_contrib_project ON community_contributions(project_id, user_id)');
+        db.run('CREATE TABLE IF NOT EXISTS community_quota (user_id INTEGER PRIMARY KEY, balance INTEGER NOT NULL, day TEXT NOT NULL)');
+
+        db.get('SELECT 1', (readyErr) => {
+            if (readyErr) rejectReady(readyErr);
+            else resolveReady();
+        });
+    });
 });
+
+db.ready = ready;
 
 module.exports = db;

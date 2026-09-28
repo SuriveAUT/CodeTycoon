@@ -9,7 +9,10 @@ const authRoutes = require('./routes/auth');
 const gameRoutes = require('./routes/game');
 const chatRoutes = require('./routes/chat');
 const stockRoutes = require('./routes/stocks');
+const communityRoutes = require('./routes/community');
 const { initMarket } = require('./lib/stockMarket');
+const { initCommunity } = require('./lib/community');
+const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3005;
@@ -32,9 +35,13 @@ app.use('/api/auth', authRoutes);
 app.use('/api/game', gameRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/stocks', stockRoutes);
+app.use('/api/community', communityRoutes);
 
-// Start shared stock market (initializes from DB, schedules price ticks)
-initMarket();
+// Erst wenn alle Tabellen stehen (db.ready): gemeinsame Börse (Kurse aus der DB, Kurs-Ticks) und Community
+// (erstes Open-Source-Projekt, fällige Wochen abschließen, Minuten-Timer)
+db.ready
+  .then(() => { initMarket(); return initCommunity(); })
+  .catch(err => console.error('[Start] Initialisierung fehlgeschlagen:', err));
 
 // Health Check Endpoint
 app.get('/health', (req, res) => {

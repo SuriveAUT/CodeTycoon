@@ -74,16 +74,19 @@ export function startLab(id, now = Date.now()) {
   const def = getLabProject(id);
   const duration = labDurationMs(def);
   spend(labCost(def));
-  setState('lab', 'running', [...state.lab.running, { id, startedAt: now, endsAt: now + duration }]);
+  setState('lab', 'running', [...state.lab.running, { id, startedAt: now, endsAt: now + duration, hours: duration / HOUR_MS }]);
   log(`🧪 Labor: ${def.name} gestartet (${Math.round(duration / HOUR_MS * 10) / 10} h).`);
   return true;
 }
 
-// Mandats-Projekte landen nicht in lab.done: Sie zählen als Schritt ihres Mandats und kommen in der nächsten Stufe wieder
+// Mandats-Projekte landen nicht in lab.done: Sie zählen als Schritt ihres Mandats und kommen in der nächsten Stufe wieder.
+// Jedes abgeholte Projekt zählt mit seinen Nennstunden (vom Start, ohne Beschleuniger) für die Wochenwertung.
 export function claimLab(id, now = Date.now(), silent = false) {
   const run = labRunning(id);
   if (!run || run.endsAt > now) return false;
   const def = getLabProject(id);
+  const hours = run.hours > 0 ? run.hours : (def ? labDurationMs(def) / HOUR_MS : 0);
+  setState('stats', 'labHours', (state.stats.labHours || 0) + hours);
   setState('lab', 'running', state.lab.running.filter(r => r.id !== id));
   if (def?.mandate) completeMandateStep(def.mandate, 'lab', silent);
   else if (def?.repeatable) setState('lab', 'levels', id, labLevel(id) + 1);
@@ -156,7 +159,8 @@ export function processLabQueue(now = Date.now(), silent = false) {
     setState('lab', 'queued', labQueue().filter(q => q.id !== next.id));
     const def = getLabProject(next.id);
     if (!def || (!def.repeatable && state.lab.done.includes(def.id))) { refundCost(next.cost); continue; }
-    setState('lab', 'running', [...state.lab.running, { id: def.id, startedAt: startAt, endsAt: startAt + labDurationMs(def) }]);
+    const duration = labDurationMs(def);
+    setState('lab', 'running', [...state.lab.running, { id: def.id, startedAt: startAt, endsAt: startAt + duration, hours: duration / HOUR_MS }]);
     log(`🧪 Labor: ${def.name} gestartet (eingeplant).`);
     if (!silent) emitToast(finishedName ? `Labor: ${finishedName} fertig, ${def.name} gestartet` : `Labor: ${def.name} gestartet`, 'good');
   }

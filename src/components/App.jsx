@@ -30,6 +30,9 @@ import { MANDATES, getMandate } from '../data/mandates.js';
 import { selectMandate, depositMandate, mandatesCompleted, mandateLevel, mandateRound } from '../engine/mandates.js';
 import { answerMail, markMailsRead } from '../engine/mail.js';
 import { armDesktopNotify, disarmDesktopNotify, toggleDesktopNotify } from '../lib/desktopNotify.js';
+import { beginContribution, settleContribution, applyCommunityState, contributionBlock, pendingContributions, newRequestId } from '../engine/community.js';
+import { getPackageType } from '../data/community.js';
+import { normalPar } from '../engine/weekly.js';
 
 const FRESH_FLAG = 'codetycoon-fresh-start';
 
@@ -52,6 +55,8 @@ export default function App() {
   let cloudPollIntervalId = null;
   let accountStatusIntervalId = null;
   let stockPriceIntervalId = null;
+  let communityIntervalId = null;
+  let communitySyncing = false;
   let lastScrolledTab = null;
 
   const [modalVisible, setModalVisible] = createSignal(false);
@@ -334,6 +339,7 @@ export default function App() {
     saveState();
     if (tab === 'account') refreshLeaderboard();
     if (tab === 'admin') refreshAdminData();
+    if (tab === 'community') syncCommunity();
   }
 
   // ── Aktionen ──
@@ -460,6 +466,25 @@ export default function App() {
         else showToast('Das Mandat kann gerade nicht übernommen werden.', 'warn');
         done(); return;
       }
+      // ── Community ──
+      case 'community-contribute': {
+        const server = state.cache.community;
+        if (!AstraforgeAPI.isLoggedIn()) { showToast('Zum Mitmachen einloggen.', 'warn'); return; }
+        if (AstraforgeAPI.flagged) { showToast('Dein Account ist geflaggt – Beiträge sind gesperrt.', 'bad'); return; }
+        const block = contributionBlock(id, server);
+        if (block) { showToast(block, 'warn'); return; }
+        const entry = beginContribution(id, server.project.id, newRequestId());
+        if (!entry) { showToast('Nicht genug Vorrat.', 'warn'); return; }
+        done();
+        AstraforgeAPI.contribute({ projectId: entry.projectId, type: entry.type, requestId: entry.requestId }).then(res => {
+          const outcome = handleContributionResult(entry, res);
+          if (outcome === 'booked') showToast(`${getPackageType(entry.type)?.name || 'Paket'} beigetragen – danke!`, 'good');
+          else if (outcome === 'retry') showToast('Paket bezahlt – gebucht wird, sobald der Server erreichbar ist.', 'warn');
+          saveState();
+          renderAll(true);
+        });
+        return;
+      }
       // ── Postfach ──
       case 'mail-answer': {
         const parts = answerMail(id, Number(btn.dataset.index || 0));
@@ -481,10 +506,14 @@ export default function App() {
       case 'sprint-start': {
         const def = getChallenge(id);
         if (!def) return;
+        if (def.weekly && !AstraforgeAPI.isLoggedIn()) { showToast('Der Wochen-Sprint zählt für die Wochenwertung – dafür einloggen.', 'warn'); return; }
         const gain = prestigeGain();
-        confirmModal(`Sprint: ${escapeHtml(def.name)}`,
+        const goalLine = def.weekly
+          ? `<li>Wertung: dein Code bei Minute 30 gegen deinen Normalwert (${fmt(normalPar())} Code). Beliebig oft – der beste Versuch der Woche zählt. Offline-Zeit zählt nicht.</li>`
+          : `<li>Ziel: ${escapeHtml(challengeGoalText(def))}${def.timeLimit ? ` in ${fmtSec(def.timeLimit / 1000)}` : ''}</li>`;
+        confirmModal(escapeHtml(def.weekly ? def.name : `Sprint: ${def.name}`),
           `<p>Startet einen neuen Run wie ein Hard Refactor${gain > 0 ? ` (<strong class="good">+${fmt(gain)} XP</strong>)` : ' (aktuell 0 XP)'}.</p>
-           <ul class="muted small" style="margin:8px 0 0 18px"><li>Handicap: ${escapeHtml(def.modLabel)}</li><li>Ziel: ${escapeHtml(challengeGoalText(def))}${def.timeLimit ? ` in ${fmtSec(def.timeLimit / 1000)}` : ''}</li><li>Belohnung: ${escapeHtml(def.rewardLabel)}${def.mandate ? '' : ' (permanent)'}</li></ul>
+           <ul class="muted small" style="margin:8px 0 0 18px"><li>Handicap: ${escapeHtml(def.modLabel)}</li>${goalLine}<li>Belohnung: ${escapeHtml(def.rewardLabel)}${def.mandate || def.weekly ? '' : ' (permanent)'}</li></ul>
            <div style="margin-top:12px">${renderKeepReset()}</div>`,
           'Sprint starten'
         ).then(ok => {
@@ -566,7 +595,7 @@ export default function App() {
           gameLog('Eingeloggt.');
           return AstraforgeAPI.loadGame().then(res => {
             if (res?.gameData && applyRemoteSave(res.gameData, { force: true })) { gameLog('Cloud-Save geladen.'); saveState(); }
-          }).catch(err => console.warn('Cloud-Save nach Login nicht geladen', err)).finally(() => { renderAll(true); refreshLeaderboard(); showToast(`Willkommen, ${u}!`, 'good'); });
+          }).catch(err => console.warn('Cloud-Save nach Login nicht geladen', err)).finally(() => { renderAll(true); refreshLeaderboard(); syncCommunity(); showToast(`Willkommen, ${u}!`, 'good'); });
         }).catch(err => showError('Login fehlgeschlagen', err));
         return;
       }
@@ -677,6 +706,50 @@ export default function App() {
   function refreshAdminData() {
     if (state.selectedTab !== 'admin') return;
     AstraforgeAPI.getFlaggedUsers().then(data => { setAdminUsers(Array.isArray(data) ? data : []); renderAll(true); }).catch(err => console.error('Admin fetch error:', err));
+  }
+
+  // ── Community (engine/community.js, Server /api/community) ──
+  // Antwort auf eine Buchung: gebucht → zählt; abgelehnt mit refund → Kosten zurück; sonst (Netz, Server,
+  // Rate-Limit) bleibt das Paket offen und wird mit derselben requestId erneut gesendet
+  function handleContributionResult(entry, res) {
+    if (res.status === 200) {
+      settleContribution(entry.requestId, 'booked');
+      if (res.data?.state) { setState('cache', { community: res.data.state }); announceCommunityRewards(applyCommunityState(res.data.state)); }
+      return 'booked';
+    }
+    if (res.status >= 400 && res.status < 500 && res.data?.refund) {
+      settleContribution(entry.requestId, 'refund');
+      showToast(`${res.data.error || 'Paket nicht gebucht.'} Kosten erstattet.`, 'warn');
+      return 'refund';
+    }
+    return 'retry';
+  }
+
+  function announceCommunityRewards(fresh) {
+    if (fresh.length) showToast(`Open-Source-Meilenstein erreicht: Community-Schub, Gesamt ×2 für 20 min${fresh.length > 1 ? ` (${fresh.length}×, nacheinander)` : ''}.`, 'good', true);
+  }
+
+  // Offene Pakete erneut senden, dann den Stand holen: Rangliste, Projekt, eigenes Kontingent und Belohnungen
+  async function syncCommunity() {
+    if (communitySyncing) return;
+    communitySyncing = true;
+    try {
+      if (AstraforgeAPI.isLoggedIn()) {
+        for (const entry of [...pendingContributions()]) {
+          const res = await AstraforgeAPI.contribute({ projectId: entry.projectId, type: entry.type, requestId: entry.requestId });
+          if (handleContributionResult(entry, res) === 'retry') break;   // Server nicht erreichbar: Rest beim nächsten Mal
+        }
+      }
+      const data = await AstraforgeAPI.getCommunity();
+      setState('cache', { community: data, communityError: false });
+      announceCommunityRewards(applyCommunityState(data));
+      saveState();
+    } catch (_) {
+      setState('cache', 'communityError', true);
+    } finally {
+      communitySyncing = false;
+      renderAll(true);
+    }
   }
 
   function refreshLeaderboard() {
@@ -908,6 +981,11 @@ export default function App() {
       chatIntervalId = setInterval(fetchChat, 5000);
       refreshAccountStatus();
       accountStatusIntervalId = setInterval(refreshAccountStatus, 30000);
+      // Community: eingeloggt minütlich (Kontingent, Meilenstein-Belohnungen, offene Pakete), als Gast nur im Tab
+      if (AstraforgeAPI.isLoggedIn() || state.selectedTab === 'community') syncCommunity();
+      communityIntervalId = setInterval(() => {
+        if (!document.hidden && (AstraforgeAPI.isLoggedIn() || state.selectedTab === 'community')) syncCommunity();
+      }, 60000);
       // Im versteckten Tab ruht das Spiel: nicht speichern, sonst rückt lastSave ohne Fortschritt vor
       autosaveIntervalId = setInterval(() => { if (!document.hidden && Date.now() - state.stats.lastSave > 10000) saveState(); }, 5000);
       cloudPollIntervalId = setInterval(() => {
@@ -956,7 +1034,7 @@ export default function App() {
   });
 
   onCleanup(() => {
-    [autosaveIntervalId, cloudPollIntervalId, accountStatusIntervalId, stockPriceIntervalId, chatIntervalId].forEach(id => { if (id) clearInterval(id); });
+    [autosaveIntervalId, cloudPollIntervalId, accountStatusIntervalId, stockPriceIntervalId, chatIntervalId, communityIntervalId].forEach(id => { if (id) clearInterval(id); });
     if (currentBugTimeout) clearTimeout(currentBugTimeout);
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     if (appClickHandler) document.removeEventListener('click', appClickHandler);

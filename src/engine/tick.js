@@ -13,6 +13,7 @@ import { checkChallenge } from './challenges.js';
 import { processLabQueue } from './lab.js';
 import { checkMail } from './mail.js';
 import { checkRoadmap } from './roadmap.js';
+import { trackWeekly } from './weekly.js';
 
 let lastChecksAt = 0;
 
@@ -31,6 +32,7 @@ function runAutomation(b) {
 
 // Errungenschaften, Meilensteine und Aufgaben prüfen (monotone Schwellen – reicht 1×/s bzw. einmal nach Offline-Catchup).
 export function runProgressChecks(silent) {
+  trackWeekly(silent);             // vor checkChallenge: wertet den Wochen-Sprint bei Minute 30
   checkChallenge(silent);          // zuerst, damit Sprint-Abschlüsse sofort in Errungenschaften/Aufgaben zählen
   checkAchievements(silent);
   checkPrestigeMilestones(silent);
