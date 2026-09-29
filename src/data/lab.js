@@ -7,6 +7,7 @@
 //           Bezahlt wird mit Hype und Legacy Code – Ideas bleiben dem Tech-Baum vorbehalten.
 // effects:  permanente Bonus-Effekte nach dem Abholen (store/bonuses.js → applyEffects)
 // flag:     Sonderwirkung (autoStart = Auto-Hire und Auto-Learn ab Run-Beginn)
+// devops:   schaltet eine Regel der Automatisierung frei (data/devops.js, engine/devops.js)
 // repeatable: endlos wiederholbar; perLevel = Bonus je Stufe (Faktor 1 + Wert · Stufe),
 //             Dauer hours + hoursPerLevel · Stufe (max. maxHours), Kosten × costGrowth je Stufe
 
@@ -54,6 +55,20 @@ export const LAB_PROJECTS = [
   { id: 'data_moat', name: 'Daten-Burggraben', chapter: 4, hours: 20,
     cost: { influence: 25, relics: 25 }, effects: { allMult: 1.5 }, label: 'Gesamt ×1,5',
     desc: 'Niemand hat so viele Nutzerdaten wie du. Die Konkurrenz holt nicht mehr auf.' },
+
+  // ── DevOps (data/devops.js): schalten Regeln der Automatisierung frei, keine Produktionswirkung ──
+  { id: 'release_planning', name: 'Release-Planung', chapter: 0, hours: 4, devops: 'target',
+    cost: { influence: 10 }, label: 'Schaltet das Sparziel frei',
+    desc: 'Ein Kalender mit Meilensteinen. Die Automatisierung spart gezielt auf ein Release oder eine Tech.' },
+  { id: 'budget_policy', name: 'Budget-Policy', chapter: 0, hours: 4, devops: 'reserves',
+    cost: { influence: 10 }, label: 'Schaltet Reserven frei',
+    desc: 'Der CFO legt Rücklagen fest. Die Automatisierung lässt einen Mindestvorrat liegen.' },
+  { id: 'freelance_matching', name: 'Freelance-Matching', chapter: 1, hours: 4, devops: 'missionFocus',
+    cost: { influence: 10, relics: 5 }, label: 'Schaltet den Auftrags-Fokus frei',
+    desc: 'Ein Matching-Algorithmus sucht Aufträge nach dem, was die Firma gerade braucht.' },
+  { id: 'config_as_code', name: 'Config as Code', chapter: 1, hours: 6, devops: 'profiles',
+    cost: { influence: 15, relics: 10 }, label: 'Schaltet zwei Profile frei',
+    desc: 'Alle Einstellungen im Repo. Zwei Profile per Klick, Arbeitsmodus und Drossel überstehen den Refactor.' },
 
   // ── Wiederholbar ──
   { id: 'hackathon', name: 'Hackathon', chapter: 0, repeatable: true, hours: 6, hoursPerLevel: 1.5, maxHours: 24,

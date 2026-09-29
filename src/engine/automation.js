@@ -1,4 +1,4 @@
-import { state, canAfford, hasTech, hasProject, log, isBuildingUnlocked, isTechUnlocked, isProjectUnlocked, calcNextBuildingCost, buildingCount } from '../store/gameState.js';
+import { state, hasTech, hasProject, log, isBuildingUnlocked, isTechUnlocked, isProjectUnlocked, calcNextBuildingCost, buildingCount } from '../store/gameState.js';
 import { resourceMult, converterInputScale, currentRates, MODIFIER_CAP } from '../store/bonuses.js';
 import { BUILDINGS, milestoneMult } from '../data/buildings.js';
 import { TECHS } from '../data/techs.js';
@@ -6,9 +6,11 @@ import { PROJECTS } from '../data/projects.js';
 import { MISSIONS } from '../data/misc.js';
 import { clamp } from '../lib/format.js';
 import { nextResearchCost, nextProjectCost, launchMission, missionPowerReq, purchaseBuilding, purchaseTech, purchaseProject } from './actions.js';
+import { canAffordAuto, pickMission, currentMissionFocus } from './devops.js';
 
 // Auto-Hire: kauft in Build-Reihenfolge, Konverter nur wenn ihre Inputs danach noch im Plus bleiben.
-export function autoBuild(b) {
+// holds: Haltebeträge der DevOps-Regeln (Reserven, Sparziel) – automatische Käufe lassen sie liegen.
+export function autoBuild(b, holds = null) {
   const boost = b.autoBuildBoost || 1;
   const net = { ...currentRates() };
   delete net.__produced; delete net.__consumed; delete net.__utilization; delete net.__starved;
@@ -34,7 +36,7 @@ export function autoBuild(b) {
       if (!safe) continue;
     }
 
-    if (!canAfford(calcNextBuildingCost(def))) continue;
+    if (!canAffordAuto(calcNextBuildingCost(def), holds)) continue;
     if (Math.random() >= clamp(0.7 * boost, 0.3, 0.95)) continue;
     if (!purchaseBuilding(id, 1, { quiet: true })) continue;
 
@@ -48,28 +50,31 @@ export function autoBuild(b) {
 }
 
 // Auto-Learn: günstigste verfügbare Technologie. Entweder/Oder-Entscheidungen bleiben dem Spieler überlassen.
-export function autoResearch(b) {
+export function autoResearch(b, holds = null) {
   let next = null;
   for (const t of TECHS) {
     if (hasTech(t.id) || t.excludes || !isTechUnlocked(t)) continue;
     if (!next || t.cost < next.cost) next = t;
   }
-  if (!next || state.resources.research < nextResearchCost(next, b)) return;
+  if (!next || !canAffordAuto({ research: nextResearchCost(next, b) }, holds)) return;
   if (purchaseTech(next.id, { quiet: true })) log(`Auto-Learn: ${next.name}.`);
 }
 
 // Releases mit `manual` (Börsengang) bleiben ein bewusster Klick
-export function autoProjects(b) {
+export function autoProjects(b, holds = null) {
   const next = PROJECTS.find(p => !p.manual && !hasProject(p.id) && isProjectUnlocked(p));
-  if (!next || !canAfford(nextProjectCost(next, b))) return;
+  if (!next || !canAffordAuto(nextProjectCost(next, b), holds)) return;
   if (purchaseProject(next.id, { quiet: true })) log(`Auto-Deploy: ${next.name}.`);
 }
 
+// Auftragswahl nach dem DevOps-Fokus (ohne Regel: der stärkste startbare Auftrag, wie bisher)
 export function autoExpeditions(b) {
+  const focus = currentMissionFocus();
+  const rates = focus === 'power' ? null : currentRates();
   let attempts = 0;
   while (state.expeditions.length < b.expeditionSlots && attempts < 5) {
     const available = b.expeditionPower - state.expeditions.reduce((acc, m) => acc + (m.powerUsed || 0), 0);
-    const mission = [...MISSIONS].sort((a, z) => z.power - a.power).find(m => available >= missionPowerReq(m));
+    const mission = pickMission(MISSIONS.filter(m => available >= missionPowerReq(m)), focus, b, rates);
     if (!mission) break;
     const before = state.expeditions.length;
     launchMission(mission.id);

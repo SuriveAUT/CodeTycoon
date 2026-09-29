@@ -14,6 +14,7 @@ import { processLabQueue } from './lab.js';
 import { checkMail } from './mail.js';
 import { checkRoadmap } from './roadmap.js';
 import { trackWeekly } from './weekly.js';
+import { pursueTarget, autoHolds } from './devops.js';
 
 let lastChecksAt = 0;
 
@@ -23,11 +24,15 @@ const AUTO_HZ = 4;
 const AUTO_MAX_PASSES = 4;
 let autoCredit = 0;
 
-function runAutomation(b) {
-  if (state.auto.build && b.autoBuild) autoBuild(b);
-  if (state.auto.research && b.autoResearch) autoResearch(b);
+// DevOps (engine/devops.js): zuerst das Sparziel (kauft es, sobald bezahlbar – auch bei ausgeschalteten Schaltern),
+// dann die automatischen Käufe, die Reserven und Sparziel-Kosten liegen lassen
+function runAutomation(b, silent) {
+  pursueTarget(b, silent);
+  const holds = autoHolds(state, b);
+  if (state.auto.build && b.autoBuild) autoBuild(b, holds);
+  if (state.auto.research && b.autoResearch) autoResearch(b, holds);
   if (state.auto.expeditions && b.autoExpeditions) autoExpeditions(b);
-  if (state.auto.projects && b.autoProjects) autoProjects(b);
+  if (state.auto.projects && b.autoProjects) autoProjects(b, holds);
 }
 
 // Errungenschaften, Meilensteine und Aufgaben prüfen (monotone Schwellen – reicht 1×/s bzw. einmal nach Offline-Catchup).
@@ -124,7 +129,7 @@ export function processTick(dt, opts = {}) {
       autoCredit -= 1;
       // Ab dem zweiten Durchgang Raten neu schätzen, damit Auto-Hire keine Konverter auf veralteten Raten kauft
       if (pass > 0) setState('cache', 'rates', estimateRatesSnapshot(state, b));
-      runAutomation(b);
+      runAutomation(b, silent);
     }
   }
 

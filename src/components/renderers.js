@@ -21,6 +21,8 @@ import { mailInbox, mailUnread, mailOpenDecisions, mailEffectLabel } from '../en
 import { PACKAGE_TYPES, WEEKLY_CATEGORIES, COMMUNITY_BONUS_PER_PROJECT } from '../data/community.js';
 import { packageCost, contributionBlock, pendingContributions, freeQuota } from '../engine/community.js';
 import { normalPar, weeklyBest, weeklyAttempts, weeklySprintNow } from '../engine/weekly.js';
+import { devopsUnlocked, targetState, canTarget, isTarget, reserveAmount, currentMissionFocus } from '../engine/devops.js';
+import { DEVOPS_RULES, RULE_LABELS, RESERVE_MINUTES, MISSION_FOCI, PROFILE_NAMES, SAVE_HORIZON_MIN } from '../data/devops.js';
 import {
   mandatesUnlocked, mandateLevel, mandatesCompleted, mandateAvailable, mandateUnlocked, mandateStepDone, mandateSprintGoal, activeMandate,
   mandateBudgetTarget, mandateBudget, mandateDepositPreview, canDepositMandate
@@ -285,6 +287,11 @@ function renderActiveEffects() {
     const [cur, target] = challengeProgress(sprint);
     fx.push(`<span class="fx bad" ${tt(`Sprint: ${sprint.name}`, sprint.desc, { meta: sprint.modLabel })}>${getIcon(sprint.icon)} Sprint: ${escapeHtml(sprint.name)} <span class="fx-t">${Math.min(100, Math.floor(cur / target * 100))}%</span></span>`);
   }
+  const ts = devopsUnlocked('target') ? targetState(state, b) : null;
+  if (ts && ts.status !== 'none' && ts.status !== 'done') {
+    const label = { locked: 'gesperrt', growing: 'wächst', saving: fmtSec(ts.eta), ready: 'bereit' }[ts.status];
+    fx.push(`<span class="fx ${ts.status === 'saving' || ts.status === 'ready' ? 'good' : ''}" ${tt(`Sparziel: ${ts.info.name}`, targetStatusText(ts), { meta: 'DevOps' })}>🎯 ${escapeHtml(ts.info.name)} <span class="fx-t">${label}</span></span>`);
+  }
   const proto = PROTOCOLS.find(p => p.id === state.activeProtocol && state.activeProtocolEndsAt > now);
   if (proto) fx.push(`<span class="fx good">${getIcon('star')} ${escapeHtml(proto.name)} <span class="fx-t">${fmtSec((state.activeProtocolEndsAt - now) / 1000)}</span></span>`);
   const mode = OPERATIONS_MODES.find(m => m.id === state.operationsMode);
@@ -383,6 +390,105 @@ function renderFlowTable() {
   return `<div class="flow"><div class="flow-row head"><div>Ressource</div><strong>Produktion</strong><strong>Verbrauch</strong><strong>Netto /s</strong></div>${rows}</div>${starvedNote}`;
 }
 
+// ═══════════════════════════ DEVOPS (Automatisierung + Regeln, engine/devops.js) ═══════════════════════════
+const RESERVE_LABELS = { 0: 'aus', 15: '15 min', 60: '1 h', 240: '4 h' };
+
+// Karte zeigen, sobald eine Regel frei ist oder eines ihrer Laborprojekte in Reichweite
+function devopsVisible() {
+  return Object.keys(DEVOPS_RULES).some(rule => devopsUnlocked(rule))
+    || (labUnlocked() && LAB_PROJECTS.some(p => p.devops && labStatus(p) !== 'locked'));
+}
+
+// 🎯 an Release- und Tech-Karten
+function targetButton(kind, id) {
+  if (!canTarget(kind, id)) return '';
+  const active = isTarget(kind, id);
+  const choice = kind === 'tech' && getTech(id)?.excludes?.length ? ' Das Ziel legt die Entweder-oder-Wahl fest.' : '';
+  const body = active ? 'Nochmal klicken löscht das Ziel.' : `Die Automatisierung spart darauf, sobald es in ${SAVE_HORIZON_MIN} Minuten erreichbar ist, und kauft es dann – auch offline.`;
+  return `<button class="btn xs ${active ? 'primary' : ''}" data-action="devops-target" data-kind="${kind}" data-id="${escapeHtml(id)}" ${tt(active ? 'Sparziel (aktiv)' : 'Als Sparziel setzen', body + choice)}>🎯</button>`;
+}
+
+function targetStatusText(ts) {
+  const unproduced = (ts.rows || []).filter(r => r.missing > 0 && !(r.net > 0)).map(r => RESOURCE_LABELS[r.res] || r.res);
+  switch (ts.status) {
+    case 'locked': return 'Noch gesperrt – pausiert und hält nichts zurück.';
+    case 'growing': return unproduced.length
+      ? `${unproduced.join(', ')} wird gerade nicht produziert – die Firma wächst normal weiter.`
+      : `Noch etwa ${fmtSec(ts.eta)} entfernt – die Firma wächst weiter, gespart wird ab ${SAVE_HORIZON_MIN} min.`;
+    case 'saving': return `Spart – automatische Käufe lassen die Kosten liegen, noch etwa ${fmtSec(ts.eta)}.`;
+    case 'ready': return 'Bezahlbar – wird gleich automatisch gekauft.';
+    default: return '';
+  }
+}
+
+// Gesperrte Regel: Hinweis auf ihr Laborprojekt (nur wenn das Labor offen ist)
+function lockedRule(rule) {
+  const def = getLabProject(DEVOPS_RULES[rule]);
+  if (!def || !labUnlocked()) return '';
+  const st = labStatus(def);
+  const where = st === 'running' ? 'läuft im Labor' : st === 'ready' ? 'fertig – im Labor abholen' : st === 'queued' ? 'im Labor eingeplant'
+    : st === 'locked' ? `im Labor ab Runde ${CHAPTERS[def.chapter]?.name || '?'}` : 'im Labor freischalten';
+  return `<div class="muted small">${getIcon('lock')} ${escapeHtml(RULE_LABELS[rule])}: „${escapeHtml(def.name)}“ ${where}</div>`;
+}
+
+function devopsTargetBlock(b) {
+  if (!devopsUnlocked('target')) return lockedRule('target');
+  const ts = targetState(state, b);
+  if (ts.status === 'none' || ts.status === 'done') {
+    return `<div class="devops-block"><div class="eyebrow">🎯 Sparziel</div><p class="muted small">Kein Ziel. Setze eins mit 🎯 an einem Release (Tab Releases) oder einer Tech (Tab Tech).</p></div>`;
+  }
+  const badge = { locked: '<span class="badge">gesperrt</span>', growing: '<span class="badge">wächst</span>', saving: '<span class="badge warn">spart</span>', ready: '<span class="badge good">bereit</span>' }[ts.status] || '';
+  const chips = (ts.rows || []).map(r => {
+    const need = r.cost + r.reserve;
+    return `<span class="badge ${r.missing <= 0 ? 'good' : ''}" ${tt(RESOURCE_LABELS[r.res] || r.res, `Vorrat ${fmt(r.have)} · Kosten ${fmt(r.cost)}${r.reserve ? ` · plus Reserve ${fmt(r.reserve)}` : ''} · netto ${fmtRate(r.net)}`)}>${resIcon(r.res)} ${fmt(Math.min(r.have, need))} / ${fmt(need)}</span>`;
+  }).join('');
+  return `<div class="devops-block">
+    <div class="row-between"><div class="eyebrow">🎯 Sparziel</div><button class="btn xs" data-action="devops-clear-target">Ziel löschen</button></div>
+    <div class="row-between"><strong>${getIcon(ts.info.kind === 'tech' ? 'tech' : 'rocket')} ${escapeHtml(ts.info.name)}</strong>${badge}</div>
+    ${chips ? `<div class="tag-list">${chips}</div>` : ''}
+    <p class="muted small">${escapeHtml(targetStatusText(ts))}</p>
+  </div>`;
+}
+
+function devopsReserveBlock() {
+  if (!devopsUnlocked('reserves')) return lockedRule('reserves');
+  const rows = RESOURCES.map(res => {
+    const cur = state.devops?.reserves?.[res] || 0;
+    const tip = cur ? `Automatische Käufe lassen gerade ${fmt(reserveAmount(res))} liegen (${RESERVE_LABELS[cur]} Produktion).` : 'Keine Reserve.';
+    return `<div class="reserve-row"><span class="truncate" ${tt(RESOURCE_LABELS[res], tip)}>${resIcon(res)} ${escapeHtml(RESOURCE_LABELS[res])}</span><div class="seg">${RESERVE_MINUTES.map(v => `<button class="btn ${cur === v ? 'active' : ''}" data-action="devops-reserve" data-id="${res}" data-value="${v}">${RESERVE_LABELS[v]}</button>`).join('')}</div></div>`;
+  }).join('');
+  return `<div class="devops-block"><div class="eyebrow" ${tt('Reserven', 'So viel Produktion lässt die Automatisierung je Ressource immer liegen – der Mindestvorrat wächst mit der Firma. Manuelle Käufe sind frei.')}>Reserven (Minuten Produktion)</div><div class="reserve-grid">${rows}</div></div>`;
+}
+
+function devopsFocusBlock() {
+  if (!devopsUnlocked('missionFocus')) return lockedRule('missionFocus');
+  const cur = currentMissionFocus();
+  return `<div class="devops-block"><div class="eyebrow">Auftrags-Fokus (Auto-Freelance)</div><div class="seg seg-wrap">${MISSION_FOCI.map(f => `<button class="btn ${cur === f.id ? 'active' : ''}" data-action="devops-focus" data-id="${f.id}" ${tt(f.name, f.desc)}>${escapeHtml(f.name)}</button>`).join('')}</div></div>`;
+}
+
+function renderDevops(b) {
+  const profiles = devopsUnlocked('profiles')
+    ? `<div class="seg">${PROFILE_NAMES.map((name, i) => `<button class="btn ${state.devops.profile === i ? 'active' : ''}" data-action="devops-profile" data-id="${i}" ${tt(`Profil „${name}“`, 'Speichert Schalter, Reserven, Auftrags-Fokus, Arbeitsmodus und Drossel. Das Sparziel gilt für beide Profile.')}>${escapeHtml(name)}</button>`).join('')}</div>`
+    : '';
+  return `<section class="panel">
+    <div class="panel-head"><div><div class="eyebrow">DevOps</div><h3>${getIcon('settings')} Automatisierung</h3></div>${profiles}</div>
+    <div class="stack">
+      <div class="toggle-row">
+        ${[['build', 'Auto-Hire', b.autoBuild, 'Kauft Mitarbeiter automatisch (Tech: Auto-Hire Skript).'], ['research', 'Auto-Learn', b.autoResearch, 'Lernt die günstigste Tech automatisch (Tech: Auto-Tutorials).'], ['expeditions', 'Auto-Freelance', b.autoExpeditions, 'Startet Aufträge automatisch (Tech: Auto-Freelance).'], ['projects', 'Auto-Deploy', b.autoProjects, 'Kauft Releases automatisch (Tech: Auto-Deploy).']].map(([key, label, unlocked, desc]) =>
+          `<button class="btn sm ${state.auto[key] && unlocked ? 'good' : ''}" data-action="toggle" data-id="${key}" ${unlocked ? '' : 'disabled'} ${tt(label, desc, { requirement: unlocked ? '' : 'Noch nicht freigeschaltet.' })}>${unlocked ? (state.auto[key] ? getIcon('check') : '') : getIcon('lock')} ${label}</button>`).join('')}
+      </div>
+      ${devopsTargetBlock(b)}
+      ${devopsReserveBlock()}
+      ${devopsFocusBlock()}
+      ${devopsUnlocked('profiles') ? '' : lockedRule('profiles')}
+      <div class="row-between">
+        <span class="muted small" ${tt('Konverter-Drossel', 'Begrenzt alle Konverter auf einen Anteil ihrer Kapazität – hilfreich, wenn sie zu viel Basisressourcen fressen.')}>Konverter-Drossel</span>
+        <div class="seg">${[0.25, 0.5, 0.75, 1].map(v => `<button class="btn ${state.converterThrottle === v ? 'active' : ''}" data-action="set-converter-throttle" data-value="${v}">${Math.round(v * 100)}%</button>`).join('')}</div>
+      </div>
+    </div>
+  </section>`;
+}
+
 function renderOverview() {
   const b = bonuses();
   const r = rates();
@@ -431,20 +537,7 @@ function renderOverview() {
             <p class="muted small" style="margin-top:6px">${escapeHtml(OPERATIONS_MODES.find(m => m.id === state.operationsMode)?.desc || '')}</p>
           </div>
         </section>
-        ${anyAuto || state.converterThrottle !== 1 || BUILDINGS.some(bd => bd.type === 'converter' && buildingCount(bd.id) > 0) ? `
-        <section class="panel">
-          <div class="panel-head"><div><div class="eyebrow">DevOps</div><h3>${getIcon('settings')} Automatisierung & Drossel</h3></div></div>
-          <div class="stack">
-            <div class="toggle-row">
-              ${[['build', 'Auto-Hire', b.autoBuild, 'Kauft Mitarbeiter automatisch (Tech: Auto-Hire Skript).'], ['research', 'Auto-Learn', b.autoResearch, 'Lernt die günstigste Tech automatisch (Tech: Auto-Tutorials).'], ['expeditions', 'Auto-Freelance', b.autoExpeditions, 'Startet Aufträge automatisch (Tech: Auto-Freelance).'], ['projects', 'Auto-Deploy', b.autoProjects, 'Kauft Releases automatisch (Tech: Auto-Deploy).']].map(([key, label, unlocked, desc]) =>
-                `<button class="btn sm ${state.auto[key] && unlocked ? 'good' : ''}" data-action="toggle" data-id="${key}" ${unlocked ? '' : 'disabled'} ${tt(label, desc, { requirement: unlocked ? '' : 'Noch nicht freigeschaltet.' })}>${unlocked ? (state.auto[key] ? getIcon('check') : '') : getIcon('lock')} ${label}</button>`).join('')}
-            </div>
-            <div class="row-between">
-              <span class="muted small" ${tt('Konverter-Drossel', 'Begrenzt alle Konverter auf einen Anteil ihrer Kapazität – hilfreich, wenn sie zu viel Basisressourcen fressen.')}>Konverter-Drossel</span>
-              <div class="seg">${[0.25, 0.5, 0.75, 1].map(v => `<button class="btn ${state.converterThrottle === v ? 'active' : ''}" data-action="set-converter-throttle" data-value="${v}">${Math.round(v * 100)}%</button>`).join('')}</div>
-            </div>
-          </div>
-        </section>` : ''}
+        ${anyAuto || state.converterThrottle !== 1 || BUILDINGS.some(bd => bd.type === 'converter' && buildingCount(bd.id) > 0) || devopsVisible() ? renderDevops(b) : ''}
         <section class="panel">
           <div class="panel-head"><div><div class="eyebrow">Wirtschaft</div><h3>${getIcon('market')} Ressourcenfluss</h3></div></div>
           ${renderFlowTable()}
@@ -1011,7 +1104,7 @@ function renderResearch() {
         <div class="t-actions">
           <span class="cost ${affordable ? 'ok' : 'no'}">${resIcon('research')}${fmt(cost)}</span>
           ${eta}
-          <button class="btn sm ${affordable ? 'affordable' : ''}" data-action="buy-tech" data-id="${tech.id}" ${affordable ? '' : 'disabled'}>Lernen</button>
+          ${targetButton('tech', tech.id)}<button class="btn sm ${affordable ? 'affordable' : ''}" data-action="buy-tech" data-id="${tech.id}" ${affordable ? '' : 'disabled'}>Lernen</button>
         </div>
       </div>`;
     }).join('');
@@ -1049,7 +1142,7 @@ function renderProjects() {
       <p>${escapeHtml(project.desc)}</p>
       <div class="tag-list">${(project.effects || []).map(e => `<span class="badge good">${escapeHtml(e)}</span>`).join('')}</div>
       ${costChips(cost)}
-      <div class="item-foot">${!locked && !affordable ? etaLabel(cost) : '<span></span>'}<button class="btn sm ${affordable ? 'affordable' : ''}" data-action="buy-project" data-id="${project.id}" ${affordable ? '' : 'disabled'}>Release</button></div>
+      <div class="item-foot">${!locked && !affordable ? etaLabel(cost) : '<span></span>'}<span class="btn-pair">${targetButton('project', project.id)}<button class="btn sm ${affordable ? 'affordable' : ''}" data-action="buy-project" data-id="${project.id}" ${affordable ? '' : 'disabled'}>Release</button></span></div>
     </article>`;
   };
 
