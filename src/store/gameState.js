@@ -11,7 +11,7 @@ import { QUESTS } from '../data/quests.js';
 import { COFFEE_INTERVAL_MS } from '../data/daily.js';
 import { CHALLENGES, getChallenge } from '../data/challenges.js';
 import { PACKAGE_TYPES, COMMUNITY_MAX_PENDING, COMMUNITY_MAX_CLAIMED } from '../data/community.js';
-import { CHAPTERS } from '../data/chapters.js';
+import { CHAPTERS, previewTechId, previewReached } from '../data/chapters.js';
 import { MAX_DIVIDEND_BONUS, DIVIDEND_PER_SHARE } from '../data/stocks.js';
 import { LAB_PROJECTS } from '../data/lab.js';
 import { MANDATES, MANDATE_STEPS } from '../data/mandates.js';
@@ -20,7 +20,7 @@ import { emitToast } from '../lib/toast.js';
 
 export const SAVE_KEY = 'dev-tycoon-save-v1';
 export const BUY_AMOUNTS = [1, 10, 100, 'max'];
-const VERSION = 11;
+const VERSION = 12;
 
 // Sehr alte Saves (Astraforge-Weltraum-Thema) auf die aktuellen IDs mappen.
 const ID_MAP = {
@@ -113,6 +113,8 @@ export function defaultState() {
       labHours: 0,
       parMarks: [],
       run30: { run: 0, at: 0, scrap: 0, done: false },
+      // Prognose im Roadmap-Tab (engine/roadmap.js): verdiente XP nach jedem Refactor { t, xp }
+      xpLog: [],
       runStartedAt: Date.now(),
       lastSave: Date.now(),
       firstSeen: Date.now()
@@ -129,7 +131,7 @@ export function defaultState() {
     // Finanzierungsrunden (engine/roadmap.js): aktuelle Runde, reachedAt[i] = Zeitpunkt, an dem Runde i begann,
     // seen = zuletzt gefeierte Runde (App.jsx zeigt für jede neue Runde einen Dialog),
     // startXp = verdiente XP beim Eintritt in die aktuelle Runde (Startpunkt des logarithmischen XP-Balkens)
-    roadmap: { chapter: 0, reachedAt: [], seen: 0, startXp: 0 },
+    roadmap: { chapter: 0, reachedAt: [], seen: 0, startXp: 0, previews: [] },
     // Vorstandsmandate (engine/mandates.js): aktives Mandat, erfüllte Durchgänge je Mandat, Schritte des laufenden
     // Durchgangs, Sprint-Ziel beim Übernehmen, zuletzt gefeierte Abschlüsse (App.jsx)
     mandates: { active: null, levels: {}, progress: {}, sprintGoals: {}, budget: {}, seen: 0, last: null },
@@ -322,6 +324,12 @@ export function normalizeState(candidate) {
   merged.roadmap.seen = Math.min(merged.roadmap.chapter, Math.max(0, Math.floor(asFiniteNumber(merged.roadmap.seen, merged.roadmap.chapter))));
   // Ältere Saves kennen startXp nicht: dann das XP-Ziel der Vorrunde, höchstens der aktuelle Stand
   const prevXpGoal = CHAPTERS[merged.roadmap.chapter - 1]?.goals.find(g => g.type === 'xpEarned')?.value || 0;
+  // Zwischenziele: Runden, deren Vorab-Tech schon gemeldet wurde
+  merged.roadmap.previews = [...new Set((Array.isArray(merged.roadmap.previews) ? merged.roadmap.previews : [])
+    .filter(i => Number.isInteger(i) && i >= 0 && i <= merged.roadmap.chapter))];
+  merged.stats.xpLog = (Array.isArray(merged.stats.xpLog) ? merged.stats.xpLog : [])
+    .filter(p => p && Number.isFinite(p.t) && Number.isFinite(p.xp) && p.xp >= 0)
+    .map(p => ({ t: p.t, xp: p.xp })).sort((a, z) => a.t - z.t).slice(-40);
   merged.roadmap.startXp = Math.min(merged.stats.xpEarned, Math.max(0, asFiniteNumber(candidate.roadmap?.startXp, prevXpGoal)));
   // Vorstandsmandate: nur bekannte Mandate und Schritte, Zahlen endlich
   const knownMandates = new Set(MANDATES.map(m => m.id));
@@ -669,7 +677,8 @@ export function techChapter(tech) {
 }
 
 export function isTechUnlocked(tech) {
-  if (techChapter(tech) > (state.roadmap?.chapter || 0)) return false;
+  // Spätere Runde gesperrt – außer der Vorab-Tech, sobald das Zwischenziel (halber XP-Balken) erreicht ist
+  if (techChapter(tech) > (state.roadmap?.chapter || 0) && !(tech.id === previewTechId(state) && previewReached(state))) return false;
   if (tech.excludes && tech.excludes.some(id => hasTech(id))) return false;
   return tech.prereq.every(id => hasTech(id));
 }

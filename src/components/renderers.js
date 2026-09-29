@@ -11,8 +11,8 @@ import {
   chipSlots, availableDoctrines
 } from '../engine/actions.js';
 import { currentQuest, questProgress } from '../engine/quests.js';
-import { chapterIndex, currentChapter, nextChapter, goalProgress, goalFraction, goalLabel, goalTab } from '../engine/roadmap.js';
-import { CHAPTERS } from '../data/chapters.js';
+import { chapterIndex, currentChapter, nextChapter, goalProgress, goalFraction, goalLabel, goalTab, roundPreview, xpGrowthPerDay, xpEta } from '../engine/roadmap.js';
+import { CHAPTERS, previewTechId, previewReached } from '../data/chapters.js';
 import { labUnlocked, labSlots, labFreeSlots, labRunning, labReady, labLevel, labDurationMs, labCost, labStatus, canStartLab, labQueue, labQueued, labQueueFree, labQueueCost, canQueueLab } from '../engine/lab.js';
 import { LAB_PROJECTS, getLabProject } from '../data/lab.js';
 import { MANDATES, MANDATE_STEPS, MANDATE_STEP_LABELS } from '../data/mandates.js';
@@ -682,7 +682,43 @@ function fmtFactor(f) {
 // Ziele einer Finanzierungsrunde als Fortschrittszeilen (Tech-, Prestige- und Roadmap-Tab).
 // links: offene Ziele bekommen einen Button zum Tab, in dem man sie vorantreibt.
 // XP-Ziele: Balken in Größenordnungen (goalFraction), dazu der Faktor, der noch fehlt.
+// Restzeit einer Prognose: „ca. 7 h“, „ca. 2½ Tagen (etwa Do.)“
+function fmtEta(ms, now = Date.now()) {
+  if (ms < 3600e3) return 'unter einer Stunde';
+  if (ms < 86400e3) return `ca. ${Math.round(ms / 3600e3)} h`;
+  const halfDays = Math.round(ms / 43200e3) / 2;
+  const whole = Math.floor(halfDays);
+  const label = `${whole || ''}${halfDays % 1 ? '½' : ''}`;
+  const weekday = new Date(now + ms).toLocaleDateString('de-AT', { weekday: 'short' });
+  return `ca. ${label} ${halfDays === 1 ? 'Tag' : 'Tagen'} (etwa ${weekday})`;
+}
+
+// Zusatzzeilen unter dem XP-Ziel der laufenden Runde: Zwischenziel (Vorab-Tech) und Prognose aus dem bisherigen Tempo
+function xpGoalNotes(target, done) {
+  const preview = roundPreview();
+  const notes = [];
+  if (preview?.tech) {
+    const name = escapeHtml(preview.tech.name);
+    const learned = hasTech(preview.tech.id);
+    if (preview.reached) {
+      notes.push(`${getIcon('check')} Zwischenziel erreicht: <strong>${name}</strong> ${learned ? 'gelernt' : 'vorab freigeschaltet (Tab Tech)'}`);
+    } else {
+      const eta = xpEta(preview.xp);
+      notes.push(`${getIcon('lock')} Zwischenziel bei halbem Balken (${fmt(preview.xp)} XP): <strong>${name}</strong> vorab${eta ? ` – ${fmtEta(eta)}` : ''}`);
+    }
+  }
+  if (!done) {
+    const growth = xpGrowthPerDay();
+    const eta = xpEta(target);
+    notes.push(eta
+      ? `📈 Bei deinem Tempo (×${fmtFactor(growth)} pro Tag) ist das XP-Ziel in ${fmtEta(eta)} erreicht.`
+      : '📈 Prognose folgt, sobald dein Tempo messbar ist (einige Stunden nach dem nächsten Refactor).');
+  }
+  return notes.map(n => `<div class="goal-note muted">${n}</div>`).join('');
+}
+
 function chapterGoalRows(chapter, { links = false } = {}) {
+  const isCurrent = chapter === currentChapter();
   return `<div class="stack" style="gap:8px">${chapter.goals.map(g => {
     const [cur, target] = goalProgress(g);
     const done = cur >= target;
@@ -691,7 +727,13 @@ function chapterGoalRows(chapter, { links = false } = {}) {
     const factor = g.type === 'xpEarned' && !done && cur > 0
       ? ` · <span ${tt('Noch nötig', 'XP wachsen mit jedem Refactor um ein Vielfaches. Der Balken zählt deshalb Größenordnungen ab Rundenbeginn: Jede Verdopplung füllt gleich viel.')}>noch ×${fmtFactor(target / cur)}</span>`
       : '';
-    return `<div><div class="row-between"><span>${getIcon(done ? 'check' : 'flag')} ${escapeHtml(goalLabel(g))}</span><span class="muted small mono">${fmt(Math.min(cur, target))} / ${fmt(target)}${factor}${link}</span></div>${progress(goalFraction(g), 1, done ? 'thin good' : 'thin')}</div>`;
+    const head = `<div class="row-between"><span>${getIcon(done ? 'check' : 'flag')} ${escapeHtml(goalLabel(g))}</span><span class="muted small mono">${fmt(Math.min(cur, target))} / ${fmt(target)}${factor}${link}</span></div>`;
+    if (g.type !== 'xpEarned' || !isCurrent) return `<div>${head}${progress(goalFraction(g), 1, done ? 'thin good' : 'thin')}</div>`;
+    // XP-Ziel der laufenden Runde: Balken mit Markierung fürs Zwischenziel, darunter Zwischenziel und Prognose
+    const pct = clamp(goalFraction(g) * 100, 0, 100);
+    const preview = roundPreview();
+    const tick = preview ? `<i class="mid-tick ${preview.reached ? 'done' : ''}" style="left:50%" ${tt('Zwischenziel', `Bei halbem Balken wird ${preview.tech?.name || 'eine Tech der nächsten Runde'} vorab freigeschaltet.`)}></i>` : '';
+    return `<div>${head}<div class="progress thin xp-bar ${done ? 'good' : ''}"><span style="width:${pct.toFixed(1)}%"></span>${tick}</div>${xpGoalNotes(target, done)}</div>`;
   }).join('')}</div>`;
 }
 
@@ -1085,8 +1127,11 @@ function renderResearch() {
   const visibleTierMax = Math.max(1, maxLearnedTier + 1);
 
   const tierSections = TECH_TIERS.filter(tier => tier.tier <= visibleTierMax).map(tier => {
-    if (tier.chapter > chapterIndex()) return lockedTierPanel(tier);
-    const techs = TECHS.filter(t => t.tier === tier.tier && !hasTech(t.id) && !(t.excludes || []).some(id => hasTech(id)));
+    // Stufe einer späteren Runde: gesperrt – bis auf die Vorab-Tech, sobald ihr Zwischenziel erreicht ist
+    const tierLocked = tier.chapter > chapterIndex();
+    const preview = tierLocked && previewReached(state) ? TECHS.filter(t => t.tier === tier.tier && t.id === previewTechId(state) && !hasTech(t.id)) : [];
+    if (tierLocked && !preview.length) return lockedTierPanel(tier);
+    const techs = tierLocked ? preview : TECHS.filter(t => t.tier === tier.tier && !hasTech(t.id) && !(t.excludes || []).some(id => hasTech(id)));
     if (!techs.length) return '';
     const rows = techs.sort((a, z) => (isTechUnlocked(z) ? 1 : 0) - (isTechUnlocked(a) ? 1 : 0) || a.cost - z.cost).map(tech => {
       const available = isTechUnlocked(tech);
@@ -1108,7 +1153,7 @@ function renderResearch() {
         </div>
       </div>`;
     }).join('');
-    return `<section class="panel"><div class="panel-head"><div><div class="eyebrow">Stufe ${tier.tier}</div><h3>${escapeHtml(tier.name)}</h3><div class="sub">${escapeHtml(tier.desc)}</div></div><span class="meta">${TECHS.filter(t => t.tier === tier.tier && hasTech(t.id)).length}/${TECHS.filter(t => t.tier === tier.tier).length} gelernt</span></div><div class="rows">${rows}</div></section>`;
+    return `<section class="panel"><div class="panel-head"><div><div class="eyebrow">Stufe ${tier.tier}</div><h3>${escapeHtml(tier.name)}</h3><div class="sub">${escapeHtml(tier.desc)}</div></div><span class="meta">${TECHS.filter(t => t.tier === tier.tier && hasTech(t.id)).length}/${TECHS.filter(t => t.tier === tier.tier).length} gelernt</span></div>${tierLocked ? `<p class="muted small" style="margin-bottom:10px">${getIcon('check')} Zwischenziel erreicht: vorab freigeschaltet. Der Rest der Stufe kommt mit der Runde ${escapeHtml(CHAPTERS[tier.chapter]?.name || '?')}.</p>` : ''}<div class="rows">${rows}</div></section>`;
   }).join('');
 
   return `

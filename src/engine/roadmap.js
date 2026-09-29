@@ -1,8 +1,8 @@
 // roadmap.js – Finanzierungsrunden: Fortschritt der Rundenziele und Aufstieg in die nächste Runde.
 // Inhalte, Ziele und Belohnungen stehen in data/chapters.js; die Freischalt-Sperren prüft gameState.js,
 // die Belohnungs-Effekte wendet store/bonuses.js an.
-import { state, setState, log, getProject } from '../store/gameState.js';
-import { CHAPTERS } from '../data/chapters.js';
+import { state, setState, log, getProject, getTech } from '../store/gameState.js';
+import { CHAPTERS, PREVIEW_AT, xpBarFraction, xpAtFraction, chapterXpGoal, previewReached } from '../data/chapters.js';
 import { getLabProject } from '../data/lab.js';
 import { fmt } from '../lib/format.js';
 import { emitToast } from '../lib/toast.js';
@@ -67,13 +67,13 @@ export function goalFraction(goal, s = state) {
   const [cur, target] = goalProgress(goal, s);
   if (cur >= target) return 1;
   if (goal.type !== 'xpEarned') return target > 0 ? cur / target : 0;
-  const start = Math.min(cur, s.roadmap?.startXp || 0);
-  const span = Math.log1p(target) - Math.log1p(start);
-  return span > 0 ? Math.max(0, (Math.log1p(cur) - Math.log1p(start)) / span) : 0;
+  return xpBarFraction(cur, target, s.roadmap?.startXp || 0);
 }
 
 // Läuft in runProgressChecks (1×/s): alle Ziele der aktuellen Runde erfüllt → nächste Runde.
 export function checkRoadmap(silent) {
+  recordXpPoint();
+  checkPreview(silent);
   for (let guard = 0; guard < CHAPTERS.length; guard++) {
     const idx = chapterIndex();
     const chapter = CHAPTERS[idx];
@@ -85,4 +85,55 @@ export function checkRoadmap(silent) {
     log(`🚀 Finanzierungsrunde ${next.name} erreicht${chapter.rewardLabel ? ` – ${chapter.rewardLabel}` : ''}.`);
     if (!silent) emitToast(`Finanzierungsrunde ${next.name} erreicht`, 'good');
   }
+}
+
+// ── Zwischenziel: bei halbem XP-Balken die erste Tech der nächsten Runde vorab (data/chapters.js preview) ──
+
+// Vorab-Tech der Runde, ihr XP-Stand und ob sie schon frei ist
+export function roundPreview(s = state) {
+  const chapter = currentChapter(s);
+  const goal = chapterXpGoal(chapter);
+  if (!chapter.preview || !goal) return null;
+  return { tech: getTech(chapter.preview), xp: xpAtFraction(PREVIEW_AT, goal, s.roadmap?.startXp || 0), reached: previewReached(s) };
+}
+
+// Einmal je Runde melden (roadmap.previews merkt sich die Runden); nach einem Offline-Nachholen still – die Mail
+// „Vorab-Zugang“ (data/mails.js) sagt es dann trotzdem
+export function checkPreview(silent) {
+  const idx = chapterIndex();
+  if (!previewReached(state) || (state.roadmap.previews || []).includes(idx)) return;
+  setState('roadmap', 'previews', [...(state.roadmap.previews || []), idx]);
+  const name = getTech(currentChapter().preview)?.name || currentChapter().preview;
+  log(`🔓 Zwischenziel erreicht: ${name} ist vorab freigeschaltet (Tab Tech).`);
+  if (!silent) emitToast(`Zwischenziel erreicht: ${name} vorab freigeschaltet`, 'good');
+}
+
+// ── Prognose: XP-Stand bei jedem Refactor merken (stats.xpLog), Tempo daraus schätzen ──
+const XP_LOG_MAX = 40;
+const TREND_WINDOW_MS = 72 * 3600e3;   // Tempo aus den letzten drei Tagen
+const TREND_MIN_SPAN_MS = 3 * 3600e3;  // mindestens drei Stunden Abstand, sonst schwankt es zu stark
+
+export function recordXpPoint(now = Date.now(), force = false) {
+  const logEntries = state.stats.xpLog || [];
+  const xp = state.stats.xpEarned || 0;
+  if (!force && logEntries.length) return;
+  if (logEntries.length && logEntries[logEntries.length - 1].xp === xp) return;
+  setState('stats', 'xpLog', [...logEntries, { t: now, xp }].slice(-XP_LOG_MAX));
+}
+
+// Wachstumsfaktor der verdienten XP pro Tag (z. B. 1,6) oder null, solange die Daten nicht reichen
+export function xpGrowthPerDay(s = state, now = Date.now()) {
+  const xpNow = s.stats?.xpEarned || 0;
+  const first = (s.stats?.xpLog || []).find(p => p.t >= now - TREND_WINDOW_MS && p.xp > 0);
+  if (!first || xpNow <= first.xp || now - first.t < TREND_MIN_SPAN_MS) return null;
+  return Math.exp(Math.log(xpNow / first.xp) / ((now - first.t) / 86400e3));
+}
+
+// Zeit (ms) bis zu `targetXp` beim aktuellen Tempo; 0 = erreicht, null = noch keine Prognose
+export function xpEta(targetXp, s = state, now = Date.now()) {
+  const xpNow = s.stats?.xpEarned || 0;
+  if (xpNow >= targetXp) return 0;
+  const growth = xpGrowthPerDay(s, now);
+  if (!growth || growth <= 1 || xpNow <= 0) return null;
+  return (Math.log(targetXp / xpNow) / Math.log(growth)) * 86400e3;
 }
