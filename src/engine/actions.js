@@ -10,7 +10,7 @@ import { clamp } from '../lib/format.js';
 import { checkAchievements } from './events.js';
 import { milestoneMult } from '../data/buildings.js';
 import { emitToast } from '../lib/toast.js';
-import { roundRewardSum } from './roadmap.js';
+import { roundRewardSum, recordXpPoint } from './roadmap.js';
 import { mandateUnlocked, depositOnRefactor } from './mandates.js';
 import { DEVOPS_RULES } from '../data/devops.js';
 
@@ -159,6 +159,7 @@ export function doPrestigeReset({ allowZero = false } = {}) {
   if (keepSettings) { setState('operationsMode', keepSettings.operationsMode); setState('converterThrottle', keepSettings.converterThrottle); }
   setState('chronicle', state.chronicle + gain);
   setState('stats', 'xpEarned', (state.stats.xpEarned || 0) + gain);
+  recordXpPoint(Date.now(), true);   // Prognose im Roadmap-Tab
   setState('stats', 'prestigeCount', prestigeCount);
   setState('stats', 'totalAtLastPrestige', { ...state.stats.total });
   setState('stats', 'runStartedAt', Date.now());

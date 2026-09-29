@@ -334,6 +334,11 @@ input, select { font-family: inherit; }
 .progress.good > span { background: var(--good); }
 .progress.warn > span { background: var(--warn); }
 .progress.thin { height: 4px; }
+/* XP-Balken der Runde mit Markierung fürs Zwischenziel (halber Balken) */
+.progress.xp-bar { position: relative; overflow: visible; }
+.progress.xp-bar .mid-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--warn); border-radius: 1px; }
+.progress.xp-bar .mid-tick.done { background: var(--good); }
+.goal-note { margin-top: 4px; font-size: 0.76rem; }
 .progress.lg { height: 10px; }
 
 /* ─────────────── Quest card ─────────────── */

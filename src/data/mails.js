@@ -145,6 +145,10 @@ export const MAILS = [
   { id: 'first_trade', from: 'marco', subject: 'Börsen-Tipps',
     trigger: (s) => (s.stats?.stockTrades || 0) >= 1,
     body: 'Ich sehe, du handelst an der Börse. Ich darf dir keine Anlageberatung geben. Ich sag’s mal so: Ich habe alles in unsere eigene Aktie gesteckt. 📈 (Das ist keine Anlageberatung.)' },
+  // Zwischenziel einer Runde (engine/roadmap.js checkPreview)
+  { id: 'round_preview', from: 'lena', subject: 'Vorab-Zugang',
+    trigger: (s) => (s.roadmap?.previews || []).length >= 1,
+    body: 'Kleiner Vorgeschmack: Die Investoren lassen uns schon an der nächsten Tech-Stufe arbeiten, bevor die Runde durch ist. Im Tech-Tab wartet etwas Neues – und sobald wir es können, kommen neue Leute ins Team.' },
   // Community (engine/community.js, Stand vom Server)
   { id: 'community_first', from: 'lena', subject: 'Du verschenkst Code',
     trigger: (s) => (s.community?.packagesTotal || 0) >= 1,
