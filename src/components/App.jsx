@@ -35,6 +35,12 @@ import { getPackageType } from '../data/community.js';
 import { normalPar } from '../engine/weekly.js';
 import { setTarget, clearTarget, isTarget, targetInfo, setReserve, setMissionFocus, switchProfile } from '../engine/devops.js';
 import { PROFILE_NAMES } from '../data/devops.js';
+import { ensureCodingRun, markCodingSeen, codingUnlocked, codingLevelTask, completeLevel } from '../engine/coding.js';
+import {
+  codingSelectedLevel, selectCodingLevel, codingBusy, setCodingRunning, setCodingOutput, clearCodingOutput,
+  saveDraft, clearDraft, handleEditorKeydown, pythonStatusText
+} from './codingTab.js';
+import { runPython, warmupPython, onPythonStatus } from '../lib/pyRunner.js';
 
 const FRESH_FLAG = 'codetycoon-fresh-start';
 
@@ -54,6 +60,8 @@ export default function App() {
   let appKeydownHandler = null;
   let beforeUnloadHandler = null;
   let toastUnsubscribe = null;
+  let appInputHandler = null;
+  let pythonStatusUnsubscribe = null;
   let cloudPollIntervalId = null;
   let accountStatusIntervalId = null;
   let stockPriceIntervalId = null;
@@ -202,13 +210,17 @@ export default function App() {
   function renderAll(force) {
     liveNodes = null;
     if (contentRef) {
+      // Coding-Tab zeichnet nur bei Aktionen neu (Editor und Testausgabe sollen nicht im Sekundentakt springen)
       const skipContent = (!force && state.selectedTab === 'account' && contentRef.querySelector('#auth-user') && document.activeElement && contentRef.contains(document.activeElement))
-        || (!force && state.selectedTab === 'admin' && contentRef.querySelector('#admin-flag-username'));
+        || (!force && state.selectedTab === 'admin' && contentRef.querySelector('#admin-flag-username'))
+        || (!force && state.selectedTab === 'coding');
       if (!skipContent) {
         const detailsState = new Map();
         contentRef.querySelectorAll('details[data-cat]').forEach(d => detailsState.set(d.dataset.cat, d.open));
         const scrollY = window.scrollY;
+        const editor = editorSnapshot();
         contentRef.innerHTML = renderTabContent();
+        restoreEditor(editor);
         contentRef.querySelectorAll('details[data-cat]').forEach(d => { if (detailsState.has(d.dataset.cat)) d.open = detailsState.get(d.dataset.cat); });
         if (!force) window.scrollTo(0, scrollY);
       }
@@ -219,6 +231,19 @@ export default function App() {
       cyberEventRef.classList.toggle('hidden', !state.cyberEvent && !state.decision);
     }
     refreshTooltipUnderCursor();
+  }
+
+  // Coding-Editor: beim Neuzeichnen Auswahl, Scroll und Fokus behalten (den Inhalt liefert der gespeicherte Entwurf)
+  function editorSnapshot() {
+    const ed = contentRef.querySelector('#code-editor');
+    return ed ? { task: ed.dataset.task, start: ed.selectionStart, end: ed.selectionEnd, scroll: ed.scrollTop, focus: document.activeElement === ed } : null;
+  }
+  function restoreEditor(snap) {
+    const ed = snap && contentRef.querySelector('#code-editor');
+    if (!ed || ed.dataset.task !== snap.task) return;
+    ed.scrollTop = snap.scroll;
+    ed.setSelectionRange(snap.start, snap.end);
+    if (snap.focus) ed.focus({ preventScroll: true });
   }
 
   // Nur neu setzen, wenn sich das HTML geändert hat (spart Layout und erhält Scroll-Position)
@@ -336,12 +361,66 @@ export default function App() {
     // Postfach verlassen: gelesen (beim Öffnen sieht man noch, was neu ist)
     if (state.selectedTab === 'mail' && tab !== 'mail') markMailsRead();
     setState('selectedTab', tab);
+    if (tab === 'coding') prepareCodingTab();
     renderAll(true);
     window.scrollTo({ top: 0 });
     saveState();
     if (tab === 'account') refreshLeaderboard();
     if (tab === 'admin') refreshAdminData();
     if (tab === 'community') syncCommunity();
+  }
+
+  // ── Coding (engine/coding.js, components/codingTab.js, lib/pyRunner.js) ──
+  // Tab geöffnet: Aufgaben des Runs ziehen, Nav-Punkt weg, Python schon laden
+  function prepareCodingTab() {
+    if (!codingUnlocked()) return;
+    ensureCodingRun();
+    markCodingSeen();
+    warmupPython();
+  }
+
+  function rerenderCoding() {
+    if (state.selectedTab !== 'coding') { renderChrome(); return; }
+    const y = window.scrollY;
+    renderAll(true);
+    window.scrollTo(0, y);
+  }
+
+  // Code im Worker prüfen: Beispiele oder Abgabe (Beispiele + versteckte Tests). Alles bestanden → Level gelöst.
+  async function runCoding(mode) {
+    const level = codingSelectedLevel();
+    const task = codingLevelTask(level);
+    const editor = document.getElementById('code-editor');
+    if (!codingUnlocked() || !task || !editor || codingBusy()) return;
+    saveDraft(task.id, editor.value);
+    setCodingRunning(task.id);
+    rerenderCoding();
+    const cases = mode === 'submit' ? [...task.examples, ...task.tests] : task.examples;
+    const res = await runPython({ code: editor.value, fn: task.fn, cases, approx: task.compare === 'approx' });
+    setCodingRunning(null);
+    let reward = null;
+    // Nur, wenn die Aufgabe noch zum laufenden Run gehört (kein Refactor oder Cloud-Stand dazwischen)
+    if (mode === 'submit' && res.ok && codingLevelTask(level)?.id === task.id) {
+      reward = completeLevel(level);
+      if (reward) saveState();
+    }
+    setCodingOutput(task.id, { mode, res, reward });
+    rerenderCoding();
+  }
+
+  async function resetCoding() {
+    const task = codingLevelTask(codingSelectedLevel());
+    if (!task || codingBusy()) return;
+    if (!await confirmModal('Code zurücksetzen?', '<p>Dein Code für diese Aufgabe wird durch die leere Vorlage ersetzt.</p>', 'Zurücksetzen', 'danger')) return;
+    clearDraft(task.id);
+    clearCodingOutput(task.id);
+    rerenderCoding();
+  }
+
+  // Editor-Eingaben als Entwurf je Aufgabe speichern
+  function handleInput(e) {
+    const el = e.target;
+    if (el?.id === 'code-editor' && el.dataset.task) saveDraft(el.dataset.task, el.value);
   }
 
   // ── Aktionen ──
@@ -365,6 +444,10 @@ export default function App() {
         return;
       case 'manual-click': runManualClick(btn); return;
       case 'tab': selectTab(btn.dataset.tab); return;
+      case 'coding-level': selectCodingLevel(Number(btn.dataset.level)); rerenderCoding(); return;
+      case 'coding-test': runCoding('examples'); return;
+      case 'coding-submit': runCoding('submit'); return;
+      case 'coding-reset': resetCoding(); return;
       case 'set-buy-amount': {
         const v = btn.dataset.value === 'max' ? 'max' : Number(btn.dataset.value);
         setState('buyAmount', v); done(); return;
@@ -702,6 +785,8 @@ export default function App() {
   }
 
   function handleKeydown(e) {
+    // Coding-Editor: Einrückung, Strg+Enter testet (vor dem Tipp-Filter, auch bei gehaltener Taste)
+    if (e.target?.id === 'code-editor') { if (handleEditorKeydown(e) === 'test') runCoding('examples'); return; }
     if (e.repeat || isTypingTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === 'Escape' && modalVisible()) { closeModal('cancel'); return; }
     if (modalVisible()) return; // Modal: Tastatur gehört den Modal-Buttons
@@ -982,6 +1067,7 @@ export default function App() {
       offlineCatchup();
       lastTickWall = Date.now();
       setState('cache', 'rates', estimateRatesSnapshot());
+      if (state.selectedTab === 'coding') prepareCodingTab();
       renderAll(true);
       if (state.selectedTab === 'account') refreshLeaderboard();
       if (!state.doctrine && currentBonuses().doctrineUnlock && state.stats.prestigeCount > 0) setTimeout(showDoctrineModal, 600);
@@ -1016,6 +1102,15 @@ export default function App() {
       animationFrameId = requestAnimationFrame(gameLoop);
       appClickHandler = handleAction;
       appKeydownHandler = handleKeydown;
+      appInputHandler = handleInput;
+      document.addEventListener('input', appInputHandler);
+      // Python-Status im Coding-Tab: während eines Tests die Ausgabe, sonst nur die Statuszeile aktualisieren
+      pythonStatusUnsubscribe = onPythonStatus(() => {
+        if (state.selectedTab !== 'coding') return;
+        if (codingBusy()) { rerenderCoding(); return; }
+        const el = document.getElementById('py-status');
+        if (el) el.textContent = pythonStatusText();
+      });
       // Versteckter Tab wird geschlossen: Stand vom Verstecken behalten, damit der nächste Start die Zeit nachholt
       beforeUnloadHandler = () => { if (!document.hidden) saveState(); };
       document.addEventListener('click', appClickHandler);
@@ -1057,6 +1152,8 @@ export default function App() {
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     if (appClickHandler) document.removeEventListener('click', appClickHandler);
     if (appKeydownHandler) document.removeEventListener('keydown', appKeydownHandler);
+    if (appInputHandler) document.removeEventListener('input', appInputHandler);
+    if (pythonStatusUnsubscribe) pythonStatusUnsubscribe();
     if (beforeUnloadHandler) window.removeEventListener('beforeunload', beforeUnloadHandler);
     if (toastUnsubscribe) toastUnsubscribe();
     if (tooltipHandlers) {
