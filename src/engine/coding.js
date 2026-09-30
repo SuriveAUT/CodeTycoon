@@ -98,7 +98,7 @@ export function completeLevel(level, now = Date.now()) {
   Object.entries(reward.resources).forEach(([res, amt]) => add(res, amt));
   setState('coding', 'solved', [...c.solved, level]);
   setState('coding', 'solvedEver', { ...c.solvedEver, [task.id]: now });
-  const xp = `+${Math.round(reward.xp * 1000) / 10} % XP beim nächsten Refactor`;
+  const xp = `+${String(Math.round(reward.xp * 10000) / 100).replace('.', ',')} % XP beim nächsten Refactor`;
   log(`⌨️ Coding Level ${level} gelöst (${task.title}${repeat ? ', Wiederholung' : ''}): ${codingRewardText(reward.resources)} · ${xp}.`);
   emitToast(`Level ${level} gelöst – ${xp}`, 'good');
   return reward;
