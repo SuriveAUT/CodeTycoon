@@ -107,8 +107,11 @@ Zufallsereignisse, interaktive Cyber-Events (Ransomware, DDoS, Investor Call …
 ### Börse
 Serverbasierter Aktienmarkt (alle Spieler sehen dieselben Kurse, sie schwanken täglich um den Basispreis). Jede Aktie erhöht die Produktion ihrer Ressource um 0,01 % (max. +50 % je Ressource). Die Kurse skalieren mit der höchsten Tech-Stufe des Runs; das Depot gilt bis zum nächsten Refactor.
 
+### Coding (Tab K)
+Ab dem ersten Refactor: echte Programmieraufgaben in Python, ausgeführt im Browser (Pyodide im Web Worker, nichts läuft auf dem Server). Pro Run gibt es zehn Level von leicht (Notenschlüssel, Vokale zählen) bis knifflig (Rucksack, Dijkstra, Münzwechsel) – HTL-Niveau, alle frei wählbar. Gesucht ist jeweils eine Funktion; „Beispiele testen“ zeigt die Beispiele, „Abgeben“ prüft zusätzlich versteckte Tests (Zeitlimit 5 s, Fehler mit Zeilennummer). Ein gelöstes Level n bringt n × 20 Minuten Produktion aller Ressourcen und +5 % XP beim nächsten Refactor (alle zehn: +50 %). Jedes Level zählt einmal pro Run; nach dem Refactor kommen neue Aufgaben aus einem Pool von 50, noch nie gelöste zuerst – kennst du alle eines Levels, gibt es eine Wiederholung für ein Viertel. Der Code wird je Aufgabe im Browser gespeichert (nicht im Spielstand). Der Balancing-Bot codet nicht; Coding beschleunigt aktive Spieler zusätzlich.
+
 ### Postfach (Tab N)
-Rund 35 kurze Mails von festen Figuren – Lena (CTO), Marco (Business Angel, später Aufsichtsrat), Kim (Head of People) und dem Aufsichtsrat – zu wichtigen Momenten: erste Tech, Refactor, jede Finanzierungsrunde, Labor, Sprints, Streaks, Börsengang, Vorstandsmandate, Community, Rückkehr nach längerer Pause. Etwa jede vierte Mail will eine Entscheidung mit kleiner Wirkung (Ressourcen-Minuten, Boost, Labor schneller, Kaffee); sie wartet, bis du antwortest. Bei alten Spielständen landet schon Erreichtes still im Archiv.
+Rund 38 kurze Mails von festen Figuren – Lena (CTO), Marco (Business Angel, später Aufsichtsrat), Kim (Head of People) und dem Aufsichtsrat – zu wichtigen Momenten: erste Tech, Refactor, jede Finanzierungsrunde, Labor, Sprints, Streaks, Börsengang, Vorstandsmandate, Community, Rückkehr nach längerer Pause. Etwa jede vierte Mail will eine Entscheidung mit kleiner Wirkung (Ressourcen-Minuten, Boost, Labor schneller, Kaffee); sie wartet, bis du antwortest. Bei alten Spielständen landet schon Erreichtes still im Archiv.
 
 ### Community (Tab G)
 - **Wochenwertung** (Montag 00:00 bis Sonntag 24:00, Wiener Zeit), jede Kategorie relativ zum eigenen Stand: **Wachstum** (verdiente XP der Woche geteilt durch den Stand am Montag, mindestens 1.000 XP als Basis), **Wochen-Sprint** (bester Versuch) und **Forschung** (Nennstunden abgeschlossener Laborprojekte je Slot-Tag). Wer eine Kategorie gewinnt, bekommt ein Abzeichen (Gleichstand teilt, nur mit Fortschritt); der Chat verkündet die Sieger, die Rangliste zeigt die Abzeichen. Keine Machtbelohnung.
@@ -119,7 +122,7 @@ Rund 35 kurze Mails von festen Figuren – Lena (CTO), Marco (Business Angel, sp
 JWT-Login, Cloud-Save mit Konfliktauflösung, Leaderboard (mit Wochen-Abzeichen), Profile, globaler Chat mit Befehlen.
 
 ### Tastatur
-`Leertaste` Code schreiben · `O B R P E M S F N G C A` Tabs · `1 2 3 4` Kaufmenge · `Esc` Modal schließen
+`Leertaste` Code schreiben · `O B R P E M S F K N G C A` Tabs · im Code-Editor: `Tab`/`Shift+Tab` einrücken, `Strg+Enter` Beispiele testen, `Esc` Editor verlassen · `1 2 3 4` Kaufmenge · `Esc` Modal schließen
 
 ---
 
@@ -138,7 +141,8 @@ JWT-Login, Cloud-Save mit Konfliktauflösung, Leaderboard (mit Wochen-Abzeichen)
 ├── src/
 │   ├── components/
 │   │   ├── App.jsx          # App-Shell, Game Loop, Modal/Toast/Tooltip, Action-Dispatcher
-│   │   └── renderers.js     # HTML-Renderer für Navigation, Topbar und alle Tabs
+│   │   ├── renderers.js     # HTML-Renderer für Navigation, Topbar und alle Tabs
+│   │   └── codingTab.js     # Coding-Tab: Levelliste, Aufgabe, Editor, Testausgabe
 │   ├── engine/
 │   │   ├── tick.js          # Simulationsschritt
 │   │   ├── actions.js       # Spieler-Aktionen
@@ -149,12 +153,14 @@ JWT-Login, Cloud-Save mit Konfliktauflösung, Leaderboard (mit Wochen-Abzeichen)
 │   │   ├── events.js        # Aufträge, Ereignisse, Errungenschaften, Meilensteine
 │   │   ├── cyberEvents.js   # Interaktive Events
 │   │   ├── stocks.js        # Börse (Client)
+│   │   ├── coding.js        # Coding-Tab: Aufgaben je Run, Belohnung, XP-Faktor
 │   │   └── themeEngine.js   # Akzent-Theme nach Fortschritt
 │   ├── store/
 │   │   ├── gameState.js     # Zentraler Store, Save/Load/Migration
 │   │   └── bonuses.js       # Bonus-Berechnung + Produktionsmodell
-│   ├── data/                # Statische Spielinhalte (buildings, techs, projects, quests, ...)
-│   ├── lib/                 # api-client, format, icons, sanitize, toast
+│   ├── data/                # Statische Spielinhalte (buildings, techs, projects, quests, codeTasks, ...)
+│   ├── lib/                 # api-client, format, icons, sanitize, toast, pyHarness/pyRunner (Python-Prüfung)
+│   ├── workers/             # pyWorker.js: Pyodide im Web Worker
 │   └── index.css            # Design-System
 └── backend/
     ├── server.js

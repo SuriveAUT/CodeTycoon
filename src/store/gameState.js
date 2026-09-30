@@ -16,11 +16,12 @@ import { MAX_DIVIDEND_BONUS, DIVIDEND_PER_SHARE } from '../data/stocks.js';
 import { LAB_PROJECTS } from '../data/lab.js';
 import { MANDATES, MANDATE_STEPS } from '../data/mandates.js';
 import { getMail } from '../data/mails.js';
+import { CODE_LEVELS, getCodeTask } from '../data/codeTasks.js';
 import { emitToast } from '../lib/toast.js';
 
 export const SAVE_KEY = 'dev-tycoon-save-v1';
 export const BUY_AMOUNTS = [1, 10, 100, 'max'];
-const VERSION = 12;
+const VERSION = 13;
 
 // Sehr alte Saves (Astraforge-Weltraum-Thema) auf die aktuellen IDs mappen.
 const ID_MAP = {
@@ -151,6 +152,9 @@ export function defaultState() {
     // R&D-Labor (engine/lab.js): laufende Projekte mit Endzeit, abgeholte Projekte, Stufen endloser Projekte,
     // eingeplante (vorab bezahlte) Folgeprojekte
     lab: { running: [], done: [], levels: {}, queued: [] },
+    // Coding-Tab (engine/coding.js): Run der gezogenen Aufgaben, Aufgabe je Level, Wiederholungen (¼ Belohnung),
+    // im Run gelöste Level, je Aufgabe der letzte Löse-Zeitpunkt, zuletzt im Tab angesehener Run (Nav-Punkt)
+    coding: { run: 0, tasks: {}, repeat: {}, solved: [], solvedEver: {}, seenRun: 0 },
     event: null,
     eventEnds: 0,
     nextEventAt: Date.now() + rand(4 * 60e3, 8 * 60e3),
@@ -453,6 +457,19 @@ export function normalizeState(candidate) {
       cost: Object.fromEntries(Object.entries(q.cost && typeof q.cost === 'object' ? q.cost : {}).filter(([, v]) => Number.isFinite(v) && v >= 0))
     }));
   merged.stats.runStartedAt = asFiniteNumber(merged.stats.runStartedAt, Date.now());
+  // Coding: Aufgaben nur mit bekannter ID im passenden Level, gelöste Level und Wiederholungen nur mit Aufgabe
+  const cd = merged.coding && typeof merged.coding === 'object' ? merged.coding : {};
+  const objOf = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+  const codingTasks = Object.fromEntries(Object.entries(objOf(cd.tasks))
+    .filter(([lvl, id]) => Number(lvl) >= 1 && Number(lvl) <= CODE_LEVELS && getCodeTask(id)?.level === Number(lvl)));
+  merged.coding = {
+    run: asFiniteNumber(cd.run, 0),
+    tasks: codingTasks,
+    repeat: Object.fromEntries(Object.entries(objOf(cd.repeat)).filter(([lvl, v]) => v === true && codingTasks[lvl])),
+    solved: [...new Set((Array.isArray(cd.solved) ? cd.solved : []).filter(lvl => Number.isInteger(lvl) && codingTasks[lvl]))],
+    solvedEver: Object.fromEntries(Object.entries(objOf(cd.solvedEver)).filter(([id, t]) => getCodeTask(id) && Number.isFinite(t) && t > 0)),
+    seenRun: asFiniteNumber(cd.seenRun, 0)
+  };
   // Tages-Loop / Sprints
   merged.daily.tickets = Array.isArray(merged.daily.tickets) ? merged.daily.tickets.filter(t => t && typeof t.id === 'string') : [];
   ['lastClaimDay', 'ticketsDay', 'allDoneDay'].forEach(k => { merged.daily[k] = Math.floor(asFiniteNumber(merged.daily[k], -1)); });

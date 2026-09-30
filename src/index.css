@@ -684,6 +684,46 @@ label.lbl { display: grid; gap: 4px; font-size: 0.76rem; color: var(--muted); }
 .admin-editor-checks label { display: flex; align-items: center; gap: 6px; }
 .admin-editor-section { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border); }
 
+/* ─────────────── Coding ─────────────── */
+.code-layout { display: grid; grid-template-columns: minmax(200px, 250px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.code-levels { display: grid; gap: 6px; }
+.code-level { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; text-align: left; padding: 8px 10px; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font: inherit; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.code-level:hover { border-color: var(--border-2); background: var(--surface-2); }
+.code-level.active { border-color: var(--accent); background: var(--accent-soft); }
+.code-level-num { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--surface-3); font-family: var(--mono); font-size: 0.8rem; font-weight: 700; }
+.code-level.solved .code-level-num { background: var(--good-soft); color: var(--good); }
+.code-level-num .icon { width: 14px; height: 14px; }
+.code-level-main { display: grid; gap: 2px; min-width: 0; }
+.code-task { min-width: 0; }
+.code-text { color: var(--text-2); line-height: 1.55; margin: 8px 0 12px; }
+.code-text code, .code-examples code, .code-case code { font-family: var(--mono); font-size: 0.82em; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; color: var(--text); overflow-wrap: anywhere; }
+.code-examples { display: grid; gap: 4px; margin-bottom: 12px; font-size: 0.85rem; }
+.code-editor { display: block; width: 100%; min-height: 280px; resize: vertical; font-family: var(--mono); font-size: 0.85rem; line-height: 1.5; tab-size: 4; white-space: pre; overflow: auto; background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: var(--radius-sm); padding: 10px 12px; }
+.code-editor:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.code-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
+.code-out { display: grid; gap: 6px; padding: 10px 12px; font-size: 0.85rem; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.code-out.good { border-color: var(--good); background: var(--good-soft); }
+.code-out.bad { border-color: var(--bad); background: var(--bad-soft); }
+.code-out pre, .code-stdout pre { margin: 0; font-family: var(--mono); font-size: 0.78rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.code-case { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.code-case .mark { font-weight: 700; }
+.code-case.pass .mark { color: var(--good); }
+.code-case.fail .mark { color: var(--bad); }
+.code-case pre { flex-basis: 100%; color: var(--bad); }
+.code-stdout summary { cursor: pointer; color: var(--muted); font-size: 0.8rem; }
+.code-stdout pre { margin-top: 4px; padding: 6px 8px; background: var(--bg); border-radius: var(--radius-xs); color: var(--text-2); }
+@media (max-width: 860px) {
+  .code-layout { grid-template-columns: 1fr; }
+  .code-levels { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .code-editor { min-height: 220px; font-size: 16px; }   /* unter 16px zoomt iOS beim Antippen */
+}
+@media (max-width: 560px) {
+  /* Handy: Level nur als Nummern (2 × 5), Titel und Belohnung stehen im Kopf der Aufgabe */
+  .code-levels { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .code-level { justify-content: center; padding: 8px 0; }
+  .code-level-main { display: none; }
+}
+
 /* ─────────────── Responsive ─────────────── */
 @media (max-width: 1100px) {
   .overview-top { grid-template-columns: 1fr; }

@@ -22,6 +22,8 @@ import { PACKAGE_TYPES, WEEKLY_CATEGORIES, COMMUNITY_BONUS_PER_PROJECT } from '.
 import { packageCost, contributionBlock, pendingContributions, freeQuota } from '../engine/community.js';
 import { normalPar, weeklyBest, weeklyAttempts, weeklySprintNow } from '../engine/weekly.js';
 import { devopsUnlocked, targetState, canTarget, isTarget, reserveAmount, currentMissionFocus } from '../engine/devops.js';
+import { codingUnseen, codingXpFactor } from '../engine/coding.js';
+import { renderCoding } from './codingTab.js';
 import { DEVOPS_RULES, RULE_LABELS, RESERVE_MINUTES, MISSION_FOCI, PROFILE_NAMES, SAVE_HORIZON_MIN } from '../data/devops.js';
 import {
   mandatesUnlocked, mandateLevel, mandatesCompleted, mandateAvailable, mandateUnlocked, mandateStepDone, mandateSprintGoal, activeMandate,
@@ -61,6 +63,7 @@ export const TABS = [
   { id: 'market', label: 'Börse', icon: 'market', key: 'M', blurb: 'Aktien handeln.' },
   { id: 'prestige', label: 'Prestige', icon: 'prestige', key: 'S', blurb: 'Hard Refactor, XP, Chips.' },
   { id: 'roadmap', label: 'Roadmap', icon: 'flag', key: 'F', blurb: 'Finanzierungsrunden und Labor.' },
+  { id: 'coding', label: 'Coding', icon: 'code', key: 'K', blurb: 'Python-Aufgaben lösen: Produktion und XP-Bonus.' },
   { id: 'mail', label: 'Postfach', icon: 'mail', key: 'N', blurb: 'Nachrichten vom Team.' },
   { id: 'community', label: 'Community', icon: 'community', key: 'G', blurb: 'Wochenwertung und Open-Source-Projekt.' },
   { id: 'codex', label: 'Codex', icon: 'codex', key: 'C', blurb: 'Errungenschaften und Hilfe.' },
@@ -197,6 +200,8 @@ export function navBadges() {
   // Community: Hinweis nur, wenn das Paket-Kontingent voll ist (weitere Tagesgutschriften würden verfallen)
   const me = state.cache?.community?.me;
   if (me && AstraforgeAPI.isLoggedIn() && freeQuota(state.cache.community) >= me.quotaMax) badges.community = 'dot';
+  // Coding: neue Aufgaben seit dem letzten Blick (jeder Run zieht neu)
+  if (codingUnseen() && state.selectedTab !== 'coding') badges.coding = 'dot';
   return badges;
 }
 
@@ -1458,7 +1463,7 @@ function renderPrestige() {
       <section class="panel accent">
         <div class="eyebrow">Hard Refactor</div>
         <div class="row-between" style="align-items:flex-end">
-          <div><div class="xp-big">+${fmt(gain)} <small>XP bei Refactor</small></div><div class="muted small" style="margin-top:6px">Run: ${fmt(runScrap())} Code · XP = ${PRESTIGE_XP_BASE} · ∛(Code / 10 Mio.) · Struktur-Bonus ×${fmt(prestigeStructBonus())} · ${fmt(bonuses().prestigeGainMult)}× Multiplikator</div></div>
+          <div><div class="xp-big">+${fmt(gain)} <small>XP bei Refactor</small></div><div class="muted small" style="margin-top:6px">Run: ${fmt(runScrap())} Code · XP = ${PRESTIGE_XP_BASE} · ∛(Code / 10 Mio.) · Struktur-Bonus ×${fmt(prestigeStructBonus())} · ${fmt(bonuses().prestigeGainMult)}× Multiplikator${codingXpFactor() > 1 ? ` · Coding-Bonus ×${fmt(codingXpFactor())}` : ''}</div></div>
           <div class="kpi"><div class="kpi-label">XP-Guthaben</div><div class="kpi-value">${fmt(state.chronicle)}</div><div class="kpi-sub">${state.stats.prestigeCount} Refactors · ${fmt(state.stats.xpEarned || 0)} verdient</div></div>
         </div>
         <div style="margin:12px 0 6px">${progress(frac, 1)}<div class="muted small" style="margin-top:4px">Nächster XP-Punkt in ${fmt(nextIn)} Code</div></div>
@@ -1741,6 +1746,7 @@ export function renderTabContent() {
     case 'roadmap': return renderRoadmap();
     case 'mail': return renderMail();
     case 'community': return renderCommunity();
+    case 'coding': return renderCoding();
     case 'codex': return renderCodex();
     case 'account': return renderAccount();
     case 'admin': return renderAdmin();

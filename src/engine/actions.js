@@ -13,6 +13,7 @@ import { emitToast } from '../lib/toast.js';
 import { roundRewardSum, recordXpPoint } from './roadmap.js';
 import { mandateUnlocked, depositOnRefactor } from './mandates.js';
 import { DEVOPS_RULES } from '../data/devops.js';
+import { codingXpFactor } from './coding.js';
 
 export { COLONY_MAX_LEVEL };
 
@@ -106,9 +107,10 @@ export function prestigeStructBonus(s = state) {
   return 1 + techCount(s) * 0.02 + projectCount(s) * 0.05 + colonyCount(s) * 0.03;
 }
 
+// Coding-Bonus (engine/coding.js): +5 % je im Run gelöstem Level
 export function prestigeGainRaw(s = state, b = currentBonuses(s)) {
   const base = PRESTIGE_XP_BASE * Math.cbrt(runScrap(s) / PRESTIGE_XP_SCALE);
-  return base * prestigeStructBonus(s) * (b.prestigeGainMult || 1);
+  return base * prestigeStructBonus(s) * (b.prestigeGainMult || 1) * codingXpFactor(s);
 }
 
 export function prestigeGain(s = state) {
@@ -125,7 +127,7 @@ export function canPrestige(s = state) { return prestigeGain(s) >= minPrestigeGa
 
 // Wie viel Code fehlt bis zum nächsten vollen XP-Punkt?
 export function scrapForNextXp(s = state) {
-  const mult = prestigeStructBonus(s) * (currentBonuses(s).prestigeGainMult || 1);
+  const mult = prestigeStructBonus(s) * (currentBonuses(s).prestigeGainMult || 1) * codingXpFactor(s);
   const nextXp = prestigeGain(s) + 1;
   const needed = Math.pow(nextXp / (PRESTIGE_XP_BASE * mult), 3) * PRESTIGE_XP_SCALE;
   return Math.max(0, needed - runScrap(s));
