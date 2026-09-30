@@ -5,6 +5,7 @@
 //   npm run sim -- --model daily --seeds 3      → nur ein Modell
 //   npm run sim -- --model save --save x.json   → echter Spielstand, danach wie `daily`
 //   npm run sim -- --json                       → Rohdaten statt Report
+//   npm run sim -- --model daily --coding 10    → Spieler löst je Run die Coding-Level 1–N (Obergrenze, kurz vor dem Refactor)
 //
 // Modelle:
 //   active – spielt durchgehend (--hours, Standard 12)
@@ -64,7 +65,7 @@ async function runPool(items, limit, fn) {
 }
 
 function runChild(job, opts) {
-  const pass = ['hours', 'days', 'session', 'save', 'min-gain', 'grow', 'goals', 'hold', 'postgame', 'budget'].flatMap(k => (opts[k] !== undefined ? [`--${k}`, String(opts[k])] : [])).concat(opts.noqueue ? ['--noqueue'] : []).concat(opts.nocommunity ? ['--nocommunity'] : []).concat(opts.devops ? ['--devops'] : []);
+  const pass = ['hours', 'days', 'session', 'save', 'min-gain', 'grow', 'goals', 'hold', 'postgame', 'budget', 'coding'].flatMap(k => (opts[k] !== undefined ? [`--${k}`, String(opts[k])] : [])).concat(opts.noqueue ? ['--noqueue'] : []).concat(opts.nocommunity ? ['--nocommunity'] : []).concat(opts.devops ? ['--devops'] : []);
   const childArgs = [fileURLToPath(import.meta.url), '--worker', '--model', job.model, '--seed', String(job.seed), ...pass];
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, childArgs, { env: { ...process.env, TZ: 'UTC' } });
@@ -142,6 +143,7 @@ async function runWorker(opts) {
   const { LAB_PROJECTS } = await load('../src/data/lab.js');
   const roadmap = await load('../src/engine/roadmap.js');
   const mandates = await load('../src/engine/mandates.js');
+  const coding = await load('../src/engine/coding.js');
   const { MANDATES, MANDATE_BUDGET } = await load('../src/data/mandates.js');
   const community = await load('../src/engine/community.js');
   const { PACKAGE_TYPES } = await load('../src/data/community.js');
@@ -409,11 +411,25 @@ async function runWorker(opts) {
     if (runMin < MIN_RUN_MIN || !(reachesGoal || refactorGoal || sprintGoal || mandateGoal || ratePeaked) || !actions.canPrestige()) return;
     const sprint = msprint || CHALLENGES.find(c => challenges.challengeStatus(c) === 'ready');
     const runWall = runMin * 60;
+    solveCoding();
     const ok = sprint ? challenges.startChallenge(sprint.id) : actions.doPrestigeReset();
     if (!ok) return;
     refactors.push({ wall: wall(), active: activeSec, gain, runWall, sprint: sprint?.id || null });
     peakRate = 0;
     spendXp();
+  }
+
+  // Coding-Tab (--coding N, ohne Zahl 10): der Spieler löst je Run die Level 1–N, und zwar kurz vor dem Refactor (höchste
+  // Produktion, XP-Faktor zählt). Obergrenze für aktive Spieler; ohne Flag codet der Bot nicht.
+  const codingLevels = opts.coding === undefined ? 0 : Math.min(10, Math.max(0, opts.coding === true ? 10 : Number(opts.coding) || 0));
+  const codingStats = { solved: 0, repeats: 0 };
+  function solveCoding() {
+    if (!codingLevels || !coding.codingUnlocked()) return;
+    coding.ensureCodingRun();
+    for (let level = 1; level <= codingLevels; level++) {
+      const repeat = !!state.coding.repeat[level];
+      if (coding.completeLevel(level, clock)) { codingStats.solved++; if (repeat) codingStats.repeats++; }
+    }
   }
 
   // Community (Open-Source-Projekt): pro Sim-Tag in der ersten Session bis zu 3 Pakete, jeweils die Art mit dem
@@ -575,6 +591,7 @@ async function runWorker(opts) {
       prestigeCount: state.stats.prestigeCount || 0,
       xpEarned: chronicleTotal(),
       community: { packages: communityPackages, projectsDone: state.community?.projectsDone || 0 },
+      coding: codingLevels ? { ...codingStats } : null,
       techs: state.techs.length,
       projects: state.projects.length,
       questIndex: state.questIndex,
@@ -663,6 +680,8 @@ function report(model, runs) {
   }
   const cp = runs.map(r => r.final?.community).filter(c => c && c.packages > 0);
   if (cp.length) console.log(`Community: ${median(cp.map(c => c.packages))} Pakete, ${median(cp.map(c => c.projectsDone))} fertige Projekte → Bonus +${median(cp.map(c => c.projectsDone)) * 3} % (Median)`);
+  const cd = runs.map(r => r.final?.coding).filter(Boolean);
+  if (cd.length) console.log(`Coding: ${median(cd.map(c => c.solved))} Level gelöst, davon ${median(cd.map(c => c.repeats))} Wiederholungen (Median)`);
   const idle = runs.map(r => r.lab?.idleShare).filter(v => v !== null && v !== undefined);
   if (idle.length) console.log(`Labor: ${median(runs.map(r => r.lab.started))} Projekte gestartet, ${median(runs.map(r => r.lab.queued || 0))} eingeplant, Slots ${(median(idle) * 100).toFixed(1)} % ungenutzt (Median)`);
   const rounds = [...new Set(runs.flatMap(r => Object.keys(r.probes?.roundRates || {})))].sort();
