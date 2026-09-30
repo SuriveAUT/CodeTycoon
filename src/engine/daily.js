@@ -74,6 +74,13 @@ export function ticketProgress(ticket, s = state) {
   return [Math.max(0, counterValue(def.counter, s) - (ticket.base || 0)), ticket.target || 1];
 }
 
+// Belohnung eines Tickets: Minuten der Produktion beim Erledigen – nicht der beim Auswürfeln, die nach einem Refactor
+// viel zu hoch wäre (und vor einem langen Run viel zu niedrig) –, dazu Community-Boni (ticketRewardMult)
+export function ticketPayout(ticket, s = state) {
+  const def = ticketDef(ticket.id);
+  return scaleReward(def ? def.reward(ticketHelpers(s)) : (ticket.reward || {}), currentBonuses(s).ticketRewardMult);
+}
+
 export function ticketLabel(ticket) {
   const def = ticketDef(ticket.id);
   return def ? def.label(ticket.target, fmt) : ticket.id;
@@ -92,7 +99,6 @@ function rollTickets(day, rerolls, count, exclude = []) {
   return chosen.map(def => ({
     id: def.id,
     target: Math.max(1, Math.floor(def.target(state, b, h))),
-    reward: def.reward(h),
     base: counterValue(def.counter),
     done: false
   }));
@@ -139,8 +145,7 @@ export function tickDaily(now, silent) {
     if (cur < target) return;
     setState('daily', 'tickets', i, 'done', true);
     setState('daily', 'ticketsDone', (state.daily.ticketsDone || 0) + 1);
-    // Community-Programm, Core Value „Community First“, Chip „Community-Mesh“ (ticketRewardMult)
-    const paid = scaleReward(t.reward, currentBonuses().ticketRewardMult);
+    const paid = ticketPayout(t);
     Object.entries(paid).forEach(([res, amt]) => { if (amt > 0) add(res, amt); });
     anyDone = true;
     doneCount++;

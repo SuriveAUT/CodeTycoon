@@ -145,6 +145,10 @@ export const MAILS = [
   { id: 'first_trade', from: 'marco', subject: 'Börsen-Tipps',
     trigger: (s) => (s.stats?.stockTrades || 0) >= 1,
     body: 'Ich sehe, du handelst an der Börse. Ich darf dir keine Anlageberatung geben. Ich sag’s mal so: Ich habe alles in unsere eigene Aktie gesteckt. 📈 (Das ist keine Anlageberatung.)' },
+  // Tech-Baum der Runde komplett (engine/roadmap.js checkTreeComplete)
+  { id: 'tree_done', from: 'lena', subject: 'Wir haben alles gelernt – und jetzt?',
+    trigger: (s) => (s.stats?.treeDone || 0) >= 1,
+    body: 'Der Tech-Baum dieser Runde ist durch. Neue Techs gibt es erst mit der nächsten Finanzierungsrunde, und die bekommen wir nur mit XP. XP gibt es beim Hard Refactor im Tab Prestige: je größer der Run, desto mehr. Also refactoren, XP in Upgrades stecken, wieder hochfahren – jeder Durchgang geht schneller. Wie viel noch fehlt, steht im Roadmap-Tab.' },
   // Zwischenziel einer Runde (engine/roadmap.js checkPreview)
   { id: 'round_preview', from: 'lena', subject: 'Vorab-Zugang',
     trigger: (s) => (s.roadmap?.previews || []).length >= 1,
