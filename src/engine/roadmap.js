@@ -1,7 +1,8 @@
 // roadmap.js – Finanzierungsrunden: Fortschritt der Rundenziele und Aufstieg in die nächste Runde.
 // Inhalte, Ziele und Belohnungen stehen in data/chapters.js; die Freischalt-Sperren prüft gameState.js,
 // die Belohnungs-Effekte wendet store/bonuses.js an.
-import { state, setState, log, getProject, getTech } from '../store/gameState.js';
+import { state, setState, log, getProject, getTech, isTechUnlocked } from '../store/gameState.js';
+import { TECHS } from '../data/techs.js';
 import { CHAPTERS, PREVIEW_AT, xpBarFraction, xpAtFraction, chapterXpGoal, previewReached } from '../data/chapters.js';
 import { getLabProject } from '../data/lab.js';
 import { fmt } from '../lib/format.js';
@@ -74,6 +75,7 @@ export function goalFraction(goal, s = state) {
 export function checkRoadmap(silent) {
   recordXpPoint();
   checkPreview(silent);
+  checkTreeComplete(silent);
   for (let guard = 0; guard < CHAPTERS.length; guard++) {
     const idx = chapterIndex();
     const chapter = CHAPTERS[idx];
@@ -106,6 +108,25 @@ export function checkPreview(silent) {
   const name = getTech(currentChapter().preview)?.name || currentChapter().preview;
   log(`🔓 Zwischenziel erreicht: ${name} ist vorab freigeschaltet (Tab Tech).`);
   if (!silent) emitToast(`Zwischenziel erreicht: ${name} vorab freigeschaltet`, 'good');
+}
+
+// ── Tech-Baum der Runde komplett: Wer alles Lernbare hat, wartet sonst auf Neues, das erst mit der nächsten Runde
+// kommt – und die gibt es nur über XP, also Refactors. Einmal je Run melden (stats.treeDoneRun = Run-Start);
+// stats.treeDone zählt die Meldungen (Mail „Baum komplett“ beim ersten Mal, Toast nur die ersten drei Male) ──
+const TREE_TOAST_TIMES = 3;
+
+export function treeComplete(s = state) {
+  const owned = new Set(s.techs || []);
+  const open = TECHS.filter(t => !owned.has(t.id) && !(t.excludes || []).some(id => owned.has(id)));
+  return open.length > 0 && !open.some(t => isTechUnlocked(t));
+}
+
+export function checkTreeComplete(silent) {
+  if (!treeComplete() || state.stats.treeDoneRun === state.stats.runStartedAt) return;
+  setState('stats', 'treeDoneRun', state.stats.runStartedAt);
+  setState('stats', 'treeDone', (state.stats.treeDone || 0) + 1);
+  log('🌳 Tech-Baum dieser Runde komplett. Neue Techs kommen mit der nächsten Finanzierungsrunde – dafür brauchst du XP: Hard Refactor im Tab Prestige.');
+  if (!silent && state.stats.treeDone <= TREE_TOAST_TIMES) emitToast('Tech-Baum komplett – weiter geht es mit einem Hard Refactor (XP)', 'info');
 }
 
 // ── Prognose: XP-Stand bei jedem Refactor merken (stats.xpLog), Tempo daraus schätzen ──

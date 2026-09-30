@@ -115,6 +115,9 @@ export function defaultState() {
       run30: { run: 0, at: 0, scrap: 0, done: false },
       // Prognose im Roadmap-Tab (engine/roadmap.js): verdiente XP nach jedem Refactor { t, xp }
       xpLog: [],
+      // Tech-Baum der Runde komplett (engine/roadmap.js): Anzahl Meldungen, Run der letzten Meldung
+      treeDone: 0,
+      treeDoneRun: 0,
       runStartedAt: Date.now(),
       lastSave: Date.now(),
       firstSeen: Date.now()
@@ -327,6 +330,8 @@ export function normalizeState(candidate) {
   // Zwischenziele: Runden, deren Vorab-Tech schon gemeldet wurde
   merged.roadmap.previews = [...new Set((Array.isArray(merged.roadmap.previews) ? merged.roadmap.previews : [])
     .filter(i => Number.isInteger(i) && i >= 0 && i <= merged.roadmap.chapter))];
+  merged.stats.treeDone = Math.max(0, Math.floor(asFiniteNumber(merged.stats.treeDone, 0)));
+  merged.stats.treeDoneRun = asFiniteNumber(merged.stats.treeDoneRun, 0);
   merged.stats.xpLog = (Array.isArray(merged.stats.xpLog) ? merged.stats.xpLog : [])
     .filter(p => p && Number.isFinite(p.t) && Number.isFinite(p.xp) && p.xp >= 0)
     .map(p => ({ t: p.t, xp: p.xp })).sort((a, z) => a.t - z.t).slice(-40);

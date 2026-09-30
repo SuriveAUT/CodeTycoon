@@ -11,7 +11,7 @@ import {
   chipSlots, availableDoctrines
 } from '../engine/actions.js';
 import { currentQuest, questProgress } from '../engine/quests.js';
-import { chapterIndex, currentChapter, nextChapter, goalProgress, goalFraction, goalLabel, goalTab, roundPreview, xpGrowthPerDay, xpEta } from '../engine/roadmap.js';
+import { chapterIndex, currentChapter, nextChapter, goalProgress, goalFraction, goalLabel, goalTab, goalDone, roundPreview, xpGrowthPerDay, xpEta, treeComplete } from '../engine/roadmap.js';
 import { CHAPTERS, previewTechId, previewReached } from '../data/chapters.js';
 import { labUnlocked, labSlots, labFreeSlots, labRunning, labReady, labLevel, labDurationMs, labCost, labStatus, canStartLab, labQueue, labQueued, labQueueFree, labQueueCost, canQueueLab } from '../engine/lab.js';
 import { LAB_PROJECTS, getLabProject } from '../data/lab.js';
@@ -30,7 +30,7 @@ import {
 import { bestInvestmentId } from '../engine/advisor.js';
 import { missionSuccessChance, getDynamicMissionRewards } from '../engine/events.js';
 import { currentDecisionDef } from '../engine/decisions.js';
-import { dailyUnlocked, canClaimStandup, standupReward, ticketProgress, ticketLabel, coffeeUseAvailable, ticketsDoneToday } from '../engine/daily.js';
+import { dailyUnlocked, canClaimStandup, standupReward, ticketProgress, ticketLabel, ticketPayout, coffeeUseAvailable, ticketsDoneToday } from '../engine/daily.js';
 import { activeChallenge, challengeStatus, challengeProgress, challengeTimeLeft, challengesDone } from '../engine/challenges.js';
 import { COFFEE_USES, COFFEE_MAX, STREAK_CYCLE, STANDUP_MINUTES, TICKETS_PER_DAY, TICKET_OFFERS } from '../data/daily.js';
 import { CHALLENGES, getChallenge } from '../data/challenges.js';
@@ -179,6 +179,8 @@ export function navBadges() {
   if (affordableProjects) badges.projects = affordableProjects;
   const affordableChronicle = CHRONICLE_UPGRADES.filter(u => state.chronicle >= chronicleCost(u.id) && !(u.max && (state.chronicleUpgrades[u.id] || 0) >= u.max)).length;
   if (affordableChronicle) badges.prestige = affordableChronicle;
+  // Ein Refactor würde die verdienten XP mindestens verdoppeln: Hinweis am Prestige-Tab
+  else if (canPrestige() && prestigeGain() >= Math.max(1, state.stats.xpEarned || 0)) badges.prestige = 'dot';
   const freeSlot = hasTech('freelance_platform') && b.availableExpeditionSlots > 0 && MISSIONS.some(m => b.availableExpeditionPower >= missionPowerReq(m));
   if (freeSlot || canFoundColony()) badges.expansion = 'dot';
   const fresh = newBuildings().length;
@@ -350,7 +352,7 @@ function renderDaily() {
     const [cur, target] = ticketProgress(t);
     return `<div class="ticket ${t.done ? 'done' : ''}">
       <div class="ticket-label">${getIcon(t.done ? 'check' : 'flag')} ${escapeHtml(ticketLabel(t))}</div>
-      ${rewardChips(t.reward)}
+      ${t.done ? '' : rewardChips(ticketPayout(t))}
       ${progress(Math.min(cur, target), target, t.done ? 'good thin' : 'thin')}
       <span class="num muted">${t.done ? 'erledigt' : `${fmt(Math.min(cur, target))} / ${fmt(target)}`}</span>
     </div>`;
@@ -1094,6 +1096,20 @@ function renderRoundCard() {
 }
 
 // Tech-Stufe, die erst eine spätere Finanzierungsrunde freischaltet
+// Tech-Baum der Runde komplett: sagen, wie es weitergeht – neue Techs kommen erst mit der nächsten Runde, und die
+// braucht XP aus Refactors (sonst wartet man vor einem leeren Baum)
+function treeDonePanel() {
+  const next = nextChapter();
+  const open = currentChapter().goals.filter(g => !goalDone(g)).map(g => escapeHtml(goalLabel(g)));
+  const gain = prestigeGain();
+  return `<section class="panel accent">
+    <div class="panel-head"><div><div class="eyebrow">Tech-Baum</div><h3>🌳 Alles gelernt, was diese Runde hergibt</h3>
+      <div class="sub">Neue Techs kommen mit ${next ? `der Finanzierungsrunde <strong>${escapeHtml(next.name)}</strong>` : 'der nächsten Runde'}.${open.length ? ` Dafür fehlt noch: ${open.join(' · ')}.` : ''}
+      XP gibt es nur beim Hard Refactor${gain > 0 ? ` – dein nächster bringt gerade <strong>+${fmt(gain)} XP</strong> (bisher ${fmt(state.stats.xpEarned || 0)} verdient)` : ''}. Danach XP in Upgrades stecken und wieder hochfahren – jeder Durchgang geht schneller.</div></div></div>
+    <div class="toggle-row"><button class="btn primary sm" data-action="tab" data-tab="prestige">Zum Refactor</button><button class="btn sm" data-action="tab" data-tab="roadmap">Zur Roadmap</button></div>
+  </section>`;
+}
+
 function lockedTierPanel(tier) {
   const target = CHAPTERS[tier.chapter];
   const current = currentChapter();
@@ -1165,6 +1181,7 @@ function renderResearch() {
         ${kpi('Ideas-Quellen', fmt(buildingCount('seo_expert') + buildingCount('brainstorming_lab') + buildingCount('agile_workshop')), 'SEO, Brainstorming, Workshops')}
       </div>
     </section>
+    ${treeComplete() ? treeDonePanel() : ''}
     ${tierSections || `<section class="panel">${emptyState('check', 'Alles gelernt', 'Du hast das Internet durchgespielt.')}</section>`}
     ${learned.length ? `<section class="panel"><div class="panel-head"><div><div class="eyebrow">Gelernt</div><h3>${getIcon('check')} Dein Tech-Stack</h3></div></div><div class="tag-list">${learned.map(t => `<span class="chip done" ${tt(t.name, t.desc)}>${getIcon('check')} ${escapeHtml(t.name)}</span>`).join('')}</div></section>` : ''}
   `;
