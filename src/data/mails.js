@@ -153,6 +153,13 @@ export const MAILS = [
   { id: 'round_preview', from: 'lena', subject: 'Vorab-Zugang',
     trigger: (s) => (s.roadmap?.previews || []).length >= 1,
     body: 'Kleiner Vorgeschmack: Die Investoren lassen uns schon an der nächsten Tech-Stufe arbeiten, bevor die Runde durch ist. Im Tech-Tab wartet etwas Neues – und sobald wir es können, kommen neue Leute ins Team.' },
+  // Coding-Tab (engine/coding.js): frei ab dem ersten Refactor, erstes gelöstes Level
+  { id: 'coding_unlock', from: 'lena', subject: 'Kannst du eigentlich programmieren?',
+    trigger: (s) => (s.stats?.prestigeCount || 0) >= 1,
+    body: 'Ehrliche Frage: Du leitest eine Softwarefirma – aber kannst du selbst programmieren? Im Tab Coding liegen zehn Aufgaben in Python, von leicht bis richtig knifflig. Jedes gelöste Level bringt Produktion und macht den nächsten Refactor ergiebiger. Nach jedem Refactor gibt es neue.' },
+  { id: 'coding_first', from: 'marco', subject: 'Du kannst PROGRAMMIEREN?!',
+    trigger: (s) => Object.keys(s.coding?.solvedEver || {}).length >= 1,
+    body: 'Lena hat mir gerade erzählt, dass dein Code alle Tests bestanden hat. Beim ersten Versuch! (Sag mir nicht, wenn es nicht der erste war.) Ein Gründer, der selbst codet – das erzähle ich jedem Investor. Je schwerer das Level, desto mehr bringt es übrigens.' },
   // Community (engine/community.js, Stand vom Server)
   { id: 'community_first', from: 'lena', subject: 'Du verschenkst Code',
     trigger: (s) => (s.community?.packagesTotal || 0) >= 1,
